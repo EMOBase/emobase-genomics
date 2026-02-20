@@ -34,7 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	esClient.Indices.Delete([]string{"genomiclocations"}) // clean up before running
+	// TODO: Remove data in the index before loading new data (development purpose only)
 
 	genomicLocationRepository := genomicrepo.NewElasticSearchRepository(esClient, "genomiclocations")
 

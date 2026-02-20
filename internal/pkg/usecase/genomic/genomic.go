@@ -34,7 +34,22 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 	count := 0
 	batch := make([]entity.GenomicLocation, 0, uc.config.BatchSize)
 
-	for line := range lineCh {
+	for {
+		var err error
+
+		line, ok := <-lineCh
+
+		if !ok && len(batch) > 0 {
+			err = uc.genomicLocationRepository.SaveMany(ctx, batch)
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("Inserted last batch", len(batch), "genomic locations... Total:", count)
+
+			break
+		}
+
 		count++
 
 		if gff3.IsHeaderLine(line) || gff3.IsEmptyLine(line) {
