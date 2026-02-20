@@ -1,13 +1,12 @@
 package genomic
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/file"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/gff3"
 )
 
@@ -29,7 +28,7 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	lineCh, errCh := readLines(ctx, f)
+	lineCh, errCh := file.ReadLines(ctx, f)
 
 	count := 0
 	batch := make([]entity.GenomicLocation, 0, uc.config.BatchSize)
@@ -111,40 +110,4 @@ func mapGFF3RecordToGenomicLocation(record gff3.GFF3Record) (entity.GenomicLocat
 	}
 
 	return loc, nil
-}
-
-func readLines(ctx context.Context, f io.Reader) (<-chan string, <-chan error) {
-	lineCh := make(chan string)
-	errCh := make(chan error, 1)
-
-	go func() {
-		defer close(lineCh)
-		defer close(errCh)
-
-		reader := bufio.NewReader(f)
-
-		for {
-			line, err := reader.ReadString('\n')
-
-			if err != nil {
-				if err != io.EOF {
-					errCh <- err
-				} else {
-					errCh <- nil
-				}
-				return
-			}
-
-			if len(line) > 0 {
-				select {
-				case <-ctx.Done():
-					errCh <- ctx.Err()
-					return
-				case lineCh <- strings.TrimRight(line, "\n"):
-				}
-			}
-		}
-	}()
-
-	return lineCh, errCh
 }
