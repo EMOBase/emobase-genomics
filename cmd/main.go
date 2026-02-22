@@ -63,6 +63,7 @@ func main() {
 
 	fmt.Println("Genomic data loaded successfully.")
 	fmt.Println("Elapsed time:", time.Since(startTime))
+	fmt.Println()
 
 	startTime = time.Now()
 	err = sequenceUsecase.Load(ctx, cdsFile)
@@ -72,6 +73,7 @@ func main() {
 
 	fmt.Println("CDS Sequence data loaded successfully.")
 	fmt.Println("Elapsed time:", time.Since(startTime))
+	fmt.Println()
 
 	startTime = time.Now()
 	err = sequenceUsecase.Load(ctx, proteinFile)
@@ -81,4 +83,5 @@ func main() {
 
 	fmt.Println("Protein Sequence data loaded successfully.")
 	fmt.Println("Elapsed time:", time.Since(startTime))
+	fmt.Println()
 }
