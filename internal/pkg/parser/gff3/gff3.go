@@ -1,67 +1,66 @@
 package gff3
 
 import (
-	"errors"
+	"context"
+	"io"
 	"strconv"
 	"strings"
 
+	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/text"
 	"github.com/samber/lo"
 )
 
-var (
-	ErrInvalidGFF3Line   = errors.New("invalid GFF3 line")
-	ErrSeqIDMissing      = errors.New("missing SeqID field")
-	ErrTypeMissing       = errors.New("missing Type field")
-	ErrStartMissing      = errors.New("missing Start field")
-	ErrEndMissing        = errors.New("missing End field")
-	ErrInvalidStrand     = errors.New("invalid strand symbol")
-	ErrInvalidAttributes = errors.New("invalid attributes field")
-)
+// TODO: Return errors with line number for better debugging
+func ReadGFF3Records(ctx context.Context, f io.Reader) (<-chan GFF3Record, <-chan error) {
+	lineCh := make(chan GFF3Record)
+	errCh := make(chan error, 1)
 
-type Strand int
+	go func() {
+		defer close(lineCh)
+		defer close(errCh)
 
-// TODO: use this, and ask why we need this
-const (
-	StrandForward Strand = iota
-	StrandReverse
-	StrandUnknown
-)
+		textCh, textErrCh := text.ReadLines(ctx, f)
+		for line := range textCh {
+			if isHeaderLine(line) || isEmptyLine(line) {
+				continue
+			}
 
-type GFF3Record struct {
-	SeqID      string
-	Source     string
-	Type       string
-	Start      int
-	End        int
-	Score      string
-	Strand     string
-	Phase      string
-	Attributes map[string][]string
+			gff3Record, err := parseLine(line)
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			if gff3Record.Type != "gene" {
+				continue
+			}
+
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			case lineCh <- gff3Record:
+			}
+		}
+
+		if err := <-textErrCh; err != nil {
+			errCh <- err
+			return
+		}
+	}()
+
+	return lineCh, errCh
 }
 
-const (
-	delimiter = "\t"
-
-	attributeDelimiter = ";"
-	valueDelimiter     = ","
-	keyValueSeparator  = "="
-)
-
-var symbolToStrand = map[string]Strand{
-	"+": StrandForward,
-	"-": StrandReverse,
-	"?": StrandUnknown,
-}
-
-func IsHeaderLine(line string) bool {
+func isHeaderLine(line string) bool {
 	return strings.HasPrefix(line, "#")
 }
 
-func IsEmptyLine(line string) bool {
+func isEmptyLine(line string) bool {
 	return line == ""
 }
 
-func ParseLine(line string) (GFF3Record, error) {
+func parseLine(line string) (GFF3Record, error) {
 	fields := strings.Split(line, delimiter)
 	if len(fields) != 9 {
 		return GFF3Record{}, ErrInvalidGFF3Line

@@ -1,4 +1,4 @@
-package genomic
+package sequence
 
 import (
 	"bytes"
@@ -23,15 +23,15 @@ func NewElasticSearchRepository(
 
 func (r *ElasticSearchRepository) SaveMany(
 	ctx context.Context,
-	locs []entity.GenomicLocation,
+	sequences []entity.Sequence,
 ) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 
-	for _, loc := range locs {
+	for _, sequence := range sequences {
 		meta := map[string]map[string]string{
 			"index": {
-				"_id":    loc.GetID(),
+				"_id":    sequence.GetID(),
 				"_index": r.indexName,
 			},
 		}
@@ -40,7 +40,7 @@ func (r *ElasticSearchRepository) SaveMany(
 			return err
 		}
 
-		if err := enc.Encode(loc); err != nil {
+		if err := enc.Encode(sequence); err != nil {
 			return err
 		}
 	}

@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
-	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/file"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/gff3"
 )
 
@@ -28,7 +27,7 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	lineCh, errCh := file.ReadLines(ctx, f)
+	recordCh, errCh := gff3.ReadGFF3Records(ctx, f)
 
 	count := 0
 	batch := make([]entity.GenomicLocation, 0, uc.config.BatchSize)
@@ -36,7 +35,7 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 	for {
 		var err error
 
-		line, ok := <-lineCh
+		gff3Record, ok := <-recordCh
 
 		if !ok && len(batch) > 0 {
 			err = uc.genomicLocationRepository.SaveMany(ctx, batch)
@@ -50,20 +49,6 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 		}
 
 		count++
-
-		if gff3.IsHeaderLine(line) || gff3.IsEmptyLine(line) {
-			continue
-		}
-
-		gff3Record, err := gff3.ParseLine(line)
-		if err != nil {
-			return err
-		}
-
-		// filter(gff3Record -> Objects.equals("gene", gff3Record.getType()))
-		if gff3Record.Type != "gene" {
-			continue
-		}
 
 		loc, err := mapGFF3RecordToGenomicLocation(gff3Record)
 		if err != nil {

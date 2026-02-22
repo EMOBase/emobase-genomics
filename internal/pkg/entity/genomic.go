@@ -7,3 +7,7 @@ type GenomicLocation struct {
 	End          int
 	Strand       string
 }
+
+func (g *GenomicLocation) GetID() string {
+	return g.Gene
+}
