@@ -48,6 +48,10 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 			break
 		}
 
+		if gff3Record.Type != "gene" {
+			continue
+		}
+
 		count++
 
 		loc, err := mapGFF3RecordToGenomicLocation(gff3Record)

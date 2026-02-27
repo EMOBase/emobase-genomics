@@ -31,10 +31,6 @@ func ReadGFF3Records(ctx context.Context, f io.Reader) (<-chan GFF3Record, <-cha
 				return
 			}
 
-			if gff3Record.Type != "gene" {
-				continue
-			}
-
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
