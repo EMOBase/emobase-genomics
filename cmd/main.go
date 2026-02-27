@@ -53,6 +53,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// TODO: Put this into a separate command?
+	err = esMigrate(ctx, esClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// TODO: Remove data in the index before loading new data (development purpose only)
 
 	genomicLocationRepository := genomicrepo.NewElasticSearchRepository(esClient, "genomiclocation")
