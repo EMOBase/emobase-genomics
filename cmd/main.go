@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -10,9 +11,11 @@ import (
 	genomicrepo "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	orthologyrepo "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
 	sequencerepo "github.com/EMOBase/emobase-genomics/internal/pkg/repository/sequence"
+	synonymrepo "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	genomicusecase "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
 	orthologyusecase "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/orthology"
 	sequenceusecase "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
+	synonymusecase "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym"
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
@@ -64,11 +67,13 @@ func main() {
 	genomicLocationRepository := genomicrepo.NewElasticSearchRepository(esClient, "genomiclocation")
 	sequenceRepository := sequencerepo.NewElasticSearchRepository(esClient, "sequence")
 	orthologyRepository := orthologyrepo.NewElasticSearchRepository(esClient, "orthology")
+	synonymRepository := synonymrepo.NewElasticSearchRepository(esClient, "synonym")
 
 	// Init usecases
 	genomicUsecase := genomicusecase.NewGenomicLocationUseCase(genomicLocationRepository)
 	sequenceUsecase := sequenceusecase.NewSequenceUseCase(sequenceRepository)
 	orthologyUsecase := orthologyusecase.NewOrthologyUseCase(orthologyRepository)
+	synonymUsecase := synonymusecase.NewSynonymUseCase(synonymRepository)
 
 	startTime := time.Now()
 	err = genomicUsecase.Load(ctx, genomicFile)
@@ -107,6 +112,21 @@ func main() {
 	}
 
 	fmt.Println("Orthology data loaded successfully.")
+	fmt.Println("Elapsed time:", time.Since(startTime))
+	fmt.Println()
+
+	startTime = time.Now()
+	_, err = genomicFile.Seek(0, io.SeekStart)
+	if err != nil {
+		panic(err)
+	}
+
+	err = synonymUsecase.Load(ctx, genomicFile)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Synonym data loaded successfully.")
 	fmt.Println("Elapsed time:", time.Since(startTime))
 	fmt.Println()
 }

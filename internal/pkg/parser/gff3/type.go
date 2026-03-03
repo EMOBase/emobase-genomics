@@ -20,3 +20,22 @@ type GFF3Record struct {
 	Phase      string
 	Attributes map[string][]string
 }
+
+func (r *GFF3Record) GetAttributeFirstValue(key string) (string, bool) {
+	values, ok := r.Attributes[key]
+	if !ok || len(values) == 0 {
+		return "", false
+	}
+
+	return values[0], true
+}
+
+func (r *GFF3Record) GetID() string {
+	res, _ := r.GetAttributeFirstValue("ID")
+	return res
+}
+
+func (r *GFF3Record) GetParentID() string {
+	res, _ := r.GetAttributeFirstValue("Parent")
+	return res
+}
