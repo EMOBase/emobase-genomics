@@ -47,8 +47,13 @@ func main() {
 	}
 
 	// Init repositories
+	esPort := os.Getenv("ES_PORT")
+	if esPort == "" {
+		esPort = "9200"
+	}
+
 	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{"http://localhost:9200"},
+		Addresses: []string{"http://localhost:" + esPort},
 		Username:  "elastic",
 		Password:  os.Getenv("ES_PASSWORD"),
 	})

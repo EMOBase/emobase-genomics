@@ -31,7 +31,7 @@ func (uc *SynonymUseCase) Load(ctx context.Context, f *os.File) error {
 	// TODO: Move Synonym GFF3 parser to a separate package and use it here
 	recordCh, errCh := gff3.ReadGFF3Records(ctx, f)
 	count := 0
-	batch := make([]entity.Synonym, 0, uc.config.BatchSize)
+	batch := make([]entity.Synonym, 0)
 
 	gff3Records := make([]gff3.GFF3Record, 0)
 
