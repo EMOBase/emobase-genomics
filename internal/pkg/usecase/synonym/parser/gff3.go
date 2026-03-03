@@ -108,7 +108,7 @@ func MakeSynonyms(gff3Records []gff3.GFF3Record) ([]entity.Synonym, error) {
 
 	synonyms = append(synonyms, entity.Synonym{
 		Gene:    gene,
-		Type:    entity.SYNONYM_TYPE_OLD_ID,
+		Type:    entity.SYNONYM_TYPE_CURRENT_ID,
 		Synonym: geneXrefIdGroup.Current,
 	})
 	for _, previous := range geneXrefIdGroup.Previous {

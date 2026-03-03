@@ -4,7 +4,7 @@ type Sequence struct {
 	Name     string `json:"name"`
 	Species  string `json:"species"`
 	Sequence string `json:"sequence"`
-	Type     string `json:"type"` // TODO: Revise to use enum instead
+	Type     string `json:"type"`
 }
 
 func (s *Sequence) GetID() string {

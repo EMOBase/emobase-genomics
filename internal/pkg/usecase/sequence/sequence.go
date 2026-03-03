@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -28,7 +29,7 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f *os.File) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	sequenceType := determineSequenceType(f.Name())
+	sequenceType := determineSequenceType(filepath.Base(f.Name()))
 	if sequenceType == SEQUENCE_TYPE_UNKNOWN {
 		return ErrInvalidSequenceType
 	}

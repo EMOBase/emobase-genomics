@@ -40,11 +40,19 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer proteinFile.Close()
+
+	rnaFile, err := os.Open("./cmd/data/rna.fna")
+	if err != nil {
+		panic(err)
+	}
+	defer rnaFile.Close()
 
 	orthologyFile, err := os.Open("./cmd/data/1.OrthoDB_orthology.tsv")
 	if err != nil {
 		panic(err)
 	}
+	defer orthologyFile.Close()
 
 	// Init repositories
 	esPort := os.Getenv("ES_PORT")
@@ -107,6 +115,16 @@ func main() {
 	}
 
 	fmt.Println("Protein Sequence data loaded successfully.")
+	fmt.Println("Elapsed time:", time.Since(startTime))
+	fmt.Println()
+
+	startTime = time.Now()
+	err = sequenceUsecase.Load(ctx, rnaFile)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("RNA data loaded successfully.")
 	fmt.Println("Elapsed time:", time.Since(startTime))
 	fmt.Println()
 

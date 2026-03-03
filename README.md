@@ -10,6 +10,7 @@
     - `rna.fna`
     - `cds.fna`
     - `protein.faa`
+    - `*_orthology.tsv`
 
 ## How to Run
 
@@ -24,8 +25,6 @@ The application will:
 
 - Parse the data files located in `cmd/data`.
 
-- Insert records into the following Elasticsearch indexes: `genomiclocation`, `sequence`.
+- Insert records into the following Elasticsearch indexes: `genomiclocation`, `sequence`, `orthology`, `synonym`.
 
 ## Known issues
-
-- Currently, Elasticsearch creates the default schema on insert. A custom schema (mapping) still needs to be defined.

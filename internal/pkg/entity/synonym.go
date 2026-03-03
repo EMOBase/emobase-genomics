@@ -6,9 +6,9 @@ import (
 )
 
 type Synonym struct {
-	Gene    string
-	Type    string
-	Synonym string
+	Gene    string `json:"gene"`
+	Type    string `json:"type"`
+	Synonym string `json:"synonym"`
 }
 
 const (

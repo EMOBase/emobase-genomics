@@ -1,8 +1,8 @@
 package entity
 
 type Orthology struct {
-	Group     string
-	Orthologs []string
+	Group     string   `json:"group"`
+	Orthologs []string `json:"orthologs"`
 }
 
 func (o *Orthology) GetID() string {

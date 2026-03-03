@@ -3,7 +3,8 @@ package orthology
 import (
 	"context"
 	"fmt"
-	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -24,12 +25,19 @@ func NewOrthologyUseCase(
 	}
 }
 
-func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader) error {
+func (uc *OrthologyUseCase) Load(ctx context.Context, f *os.File) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	// TODO: Get source from filename
-	source := "OrthoDB"
+	orthoPrefix := filepath.Base(f.Name())
+	for _, suffix := range []string{".tsv", ".txt"} {
+		if before, ok := strings.CutSuffix(orthoPrefix, suffix); ok {
+			orthoPrefix = before
+			break
+		}
+	}
+
+	orthoSource := strings.TrimSuffix(orthoPrefix, "_orthology")
 
 	lineCh, errCh := text.ReadLines(ctx, f)
 
@@ -61,7 +69,7 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader) error {
 		}
 
 		if isFirstLine {
-			species = strings.Split(line, delimiter)
+			species = strings.Split(line, delimiter)[1:]
 			isFirstLine = false
 			continue
 		}
@@ -74,12 +82,15 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader) error {
 		}
 
 		orthology := entity.Orthology{
-			Group: source + ":" + cols[0],
+			Group: orthoSource + ":" + cols[0],
 		}
 
-		for i, species := range species {
+		for i := 1; i < len(cols); i++ {
+			species := species[i-1]
 			genes := strings.SplitSeq(strings.TrimSpace(cols[i]), ",")
+
 			for gene := range genes {
+				gene = strings.TrimSpace(gene)
 				if gene == "" {
 					continue
 				}
