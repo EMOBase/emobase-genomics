@@ -1,0 +1,3 @@
+http:
+  bindAddress: ":8080"
+  mode: release # debug, test, release
