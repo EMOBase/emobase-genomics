@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/requestid"
@@ -12,8 +13,11 @@ import (
 
 func NewRequestResponseLogger(skipLogPaths map[string]struct{}) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if _, contained := skipLogPaths[c.Request.URL.Path]; contained {
-			return
+		for skipPath := range skipLogPaths {
+			if strings.HasPrefix(c.Request.URL.Path, skipPath) {
+				c.Next()
+				return
+			}
 		}
 
 		startTime := time.Now()
@@ -65,4 +69,8 @@ func (w bodyLogWriter) Write(b []byte) (int, error) {
 func (w bodyLogWriter) WriteString(s string) (int, error) {
 	w.body.WriteString(s)
 	return w.ResponseWriter.WriteString(s)
+}
+
+func (w bodyLogWriter) Unwrap() gin.ResponseWriter {
+	return w.ResponseWriter
 }

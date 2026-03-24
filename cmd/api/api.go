@@ -18,10 +18,9 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-const healthAPIPath = "/health"
-
 var skipLogPaths = map[string]struct{}{
-	healthAPIPath: {},
+	"/health":      {},
+	"/api/uploads": {},
 }
 
 func Action(ctx context.Context, cmd *cli.Command) error {
@@ -48,15 +47,19 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		corsMiddleware(),
 	)
 
-	router.GET(healthAPIPath, func(c *gin.Context) {
+	router.GET("/health", func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusOK, "OK")
 	})
 
 	api := router.Group("/api")
 
 	// Use ANY to support all TUS methods (PATCH, HEAD, OPTIONS, etc.)
-	api.Any("/uploads", func(c *gin.Context) {
-		tusHandler.ServeHTTP(c.Writer, c.Request)
+	api.POST("/uploads", func(c *gin.Context) {
+		http.StripPrefix("/api/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
+		c.Abort()
+	})
+	api.Any("/uploads/*any", func(c *gin.Context) {
+		http.StripPrefix("/api/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	})
 
@@ -74,6 +77,7 @@ func listenAndServe(httpServer *http.Server) error {
 	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
+		log.Info().Str("address", httpServer.Addr).Msg("starting api server")
 		if err := httpServer.ListenAndServe(); err != nil {
 			errCh <- err
 		}

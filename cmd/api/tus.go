@@ -36,6 +36,7 @@ func NewTUSHandler() (*tusd.Handler, error) {
 	handler, err := tusd.NewHandler(tusd.Config{
 		BasePath:              "/api/uploads",
 		StoreComposer:         composer,
+		DisableDownload:       true,
 		NotifyCreatedUploads:  true,
 		NotifyCompleteUploads: true,
 	})
@@ -43,6 +44,24 @@ func NewTUSHandler() (*tusd.Handler, error) {
 		log.Error().Err(err).Msg("unable to create tusd handler")
 		return nil, err
 	}
+
+	// Start another goroutine for receiving events from the handler whenever
+	// an upload is completed. The event will contains details about the upload
+	// itself and the relevant HTTP request.
+	go func() {
+		for {
+			select {
+			case event := <-handler.CreatedUploads:
+				log.Info().
+					Any("metaData", event.Upload.MetaData).
+					Msg("upload created")
+			case event := <-handler.CompleteUploads:
+				log.Info().
+					Any("metaData", event.Upload.MetaData).
+					Msg("upload complete")
+			}
+		}
+	}()
 
 	return handler, nil
 }

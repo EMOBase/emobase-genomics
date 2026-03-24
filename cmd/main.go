@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	log.Info().Msg("Hello, EMOBase Genomics!")
+	log.Info().Msg("hello, emobase genomics!")
 
 	cmd := &cli.Command{
 		Flags: []cli.Flag{
@@ -40,5 +40,5 @@ func main() {
 		log.Fatal().Err(err).Msg("application crashed")
 	}
 
-	log.Info().Msg("Goodbye, EMOBase Genomics!")
+	log.Info().Msg("goodbye, emobase genomics!")
 }
