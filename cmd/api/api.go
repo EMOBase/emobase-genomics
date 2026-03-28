@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,8 +20,8 @@ import (
 )
 
 var skipLogPaths = map[string]struct{}{
-	"/health":      {},
-	"/api/uploads": {},
+	"/health":  {},
+	"/uploads": {},
 }
 
 func Action(ctx context.Context, cmd *cli.Command) error {
@@ -51,20 +52,22 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		c.AbortWithStatusJSON(http.StatusOK, "OK")
 	})
 
-	api := router.Group("/api")
+	api := router.Group("/")
 
 	// Use ANY to support all TUS methods (PATCH, HEAD, OPTIONS, etc.)
 	api.POST("/uploads", func(c *gin.Context) {
-		http.StripPrefix("/api/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
+		fmt.Println("Received request for TUS upload:", c.Request.Method, c.Request.URL.Path)
+		http.StripPrefix("/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	})
 	api.Any("/uploads/*any", func(c *gin.Context) {
-		http.StripPrefix("/api/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
+		fmt.Println("Received request for TUS upload:", c.Request.Method, c.Request.URL.Path)
+		http.StripPrefix("/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	})
 
 	httpServer := &http.Server{
-		Addr:    config.HTTP.BindAddress,
+		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),
 		Handler: router,
 	}
 
@@ -77,7 +80,9 @@ func listenAndServe(httpServer *http.Server) error {
 	signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Info().Str("address", httpServer.Addr).Msg("starting api server")
+		log.Info().
+			Str("address", httpServer.Addr).
+			Msg("starting api server")
 		if err := httpServer.ListenAndServe(); err != nil {
 			errCh <- err
 		}

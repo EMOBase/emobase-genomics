@@ -14,8 +14,8 @@ type Config struct {
 }
 
 type HTTPConfig struct {
-	BindAddress string `mapstructure:"bindAddress"`
-	Mode        string `mapstructure:"mode"`
+	Port int    `mapstructure:"port"`
+	Mode string `mapstructure:"mode"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -29,7 +29,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "__", "-", "_"))
 	viper.AutomaticEnv()
 
 	if err := viper.Unmarshal(&config); err != nil {
@@ -38,6 +38,8 @@ func LoadConfig(path string) (*Config, error) {
 
 		panic(err)
 	}
+
+	log.Info().Any("config", config).Msg("configuration loaded successfully")
 
 	return config, nil
 }

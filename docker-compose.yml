@@ -1,0 +1,33 @@
+services:
+  api:
+    build: .
+    container_name: emobase_genomics_api
+    restart: unless-stopped
+    command: ["api", "-c", "/app/config.yaml"]
+    environment:
+      HTTP__MODE: ${HTTP__MODE:-release}
+    expose:
+      - "8080" # internal only, not bound to host
+    volumes:
+      - ./data/public/uploads:/app/public/uploads
+    networks:
+      - backend
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_proxy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./data/public/uploads:/var/www/public/uploads:ro
+    depends_on:
+      - api
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
