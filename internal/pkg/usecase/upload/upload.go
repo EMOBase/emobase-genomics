@@ -2,6 +2,7 @@ package upload
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -35,15 +36,17 @@ var allowedFileTypes = map[string]struct{}{
 var fileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
 type UseCase struct {
-	Handler     *tusd.Handler
-	uploadDir   string
-	versionRepo IVersionRepository
-	jobRepo     IJobRepository
-	uploadRepo  IUploadFileRepository
+	Handler       *tusd.Handler
+	uploadDir     string
+	maxRetryCount int
+	versionRepo   IVersionRepository
+	jobRepo       IJobRepository
+	uploadRepo    IUploadFileRepository
 }
 
 func New(
 	uploadDir string,
+	maxRetryCount int,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
@@ -56,10 +59,11 @@ func New(
 	locker.UseIn(composer)
 
 	uc := &UseCase{
-		uploadDir:   uploadDir,
-		versionRepo: versionRepo,
-		jobRepo:     jobRepo,
-		uploadRepo:  uploadRepo,
+		uploadDir:     uploadDir,
+		maxRetryCount: maxRetryCount,
+		versionRepo:   versionRepo,
+		jobRepo:       jobRepo,
+		uploadRepo:    uploadRepo,
 	}
 
 	handler, err := tusd.NewHandler(tusd.Config{
@@ -217,6 +221,59 @@ func (uc *UseCase) onCompleted(event tusd.HookEvent) {
 		Str("uploadID", upload.ID).
 		Str("path", dstPath).
 		Msg("upload complete, file moved")
+
+	uc.enqueueProcessJob(upload.ID, upload.MetaData, dstPath)
+}
+
+type processJobPayload struct {
+	UploadFileID string `json:"upload_file_id"`
+	VersionID    uint64 `json:"version_id"`
+	FilePath     string `json:"file_path"`
+	FileType     string `json:"file_type"`
+}
+
+func (uc *UseCase) enqueueProcessJob(uploadID string, meta tusd.MetaData, filePath string) {
+	versionID, err := strconv.ParseUint(meta["_versionID"], 10, 64)
+	if err != nil {
+		log.Error().Err(err).Str("uploadID", uploadID).Msg("failed to parse _versionID for job creation")
+		return
+	}
+
+	fileType := meta["fileType"]
+
+	rawPayload, err := json.Marshal(processJobPayload{
+		UploadFileID: uploadID,
+		VersionID:    versionID,
+		FilePath:     filePath,
+		FileType:     fileType,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("uploadID", uploadID).Msg("failed to marshal job payload")
+		return
+	}
+
+	payload := json.RawMessage(rawPayload)
+	job := &entity.Job{
+		VersionID:     versionID,
+		Type:          strings.ToUpper(fileType),
+		Payload:       &payload,
+		Status:        entity.JobStatusPending,
+		MaxRetryCount: uc.maxRetryCount,
+	}
+
+	if err := uc.jobRepo.Create(context.Background(), job); err != nil {
+		log.Error().Err(err).
+			Str("uploadID", uploadID).
+			Str("jobType", job.Type).
+			Msg("failed to create process job")
+		return
+	}
+
+	log.Info().
+		Str("uploadID", uploadID).
+		Str("jobType", job.Type).
+		Uint64("jobID", job.ID).
+		Msg("process job enqueued")
 }
 
 func (uc *UseCase) removeUploadFiles(uploadID string) {

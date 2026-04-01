@@ -40,6 +40,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	uploadUC, err := upload.New(
 		"./public/uploads",
+		config.Jobs.MaxRetryCount,
 		versionRepo,
 		repojob.NewMySQLRepository(db),
 		repouploadfile.NewMySQLRepository(db),

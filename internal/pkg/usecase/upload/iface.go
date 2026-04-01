@@ -11,6 +11,7 @@ type IVersionRepository interface {
 }
 
 type IJobRepository interface {
+	Create(ctx context.Context, j *entity.Job) error
 	HasActiveJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
 }
 

@@ -2,6 +2,7 @@ package configs
 
 import (
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -12,6 +13,14 @@ var config *Config
 type Config struct {
 	HTTP  HTTPConfig  `mapstructure:"http"`
 	MySQL MySQLConfig `mapstructure:"mysql"`
+	Jobs  JobsConfig  `mapstructure:"jobs"`
+}
+
+type JobsConfig struct {
+	MaxRetryCount int           `mapstructure:"max_retry_count"`
+	PollInterval  time.Duration `mapstructure:"poll_interval"`
+	StuckInterval time.Duration `mapstructure:"stuck_interval"`
+	StuckTimeout  time.Duration `mapstructure:"stuck_timeout"`
 }
 
 type HTTPConfig struct {

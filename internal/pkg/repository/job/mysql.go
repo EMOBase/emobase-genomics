@@ -81,6 +81,64 @@ func (r *MySQLRepository) FindPending(ctx context.Context, limit int) ([]entity.
 	return jobs, rows.Err()
 }
 
+// ClaimNextPending atomically selects the oldest PENDING job and marks it
+// RUNNING in a single transaction using FOR UPDATE SKIP LOCKED, so concurrent
+// workers never claim the same job.
+func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	j := &entity.Job{}
+	err = tx.QueryRowContext(ctx,
+		`SELECT id, version_id, type, payload, status, retry_count, max_retry_count,
+		        result_metadata, created_at, updated_at, started_at, completed_at
+		 FROM jobs WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+	).Scan(
+		&j.ID, &j.VersionID, &j.Type, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
+		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	if _, err = tx.ExecContext(ctx,
+		`UPDATE jobs SET status = 'RUNNING', started_at = ?, updated_at = ? WHERE id = ?`,
+		now, now, j.ID,
+	); err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	j.Status = entity.JobStatusRunning
+	j.StartedAt = &now
+	j.UpdatedAt = now
+	return j, nil
+}
+
+// RequeueStuckJobs resets RUNNING jobs whose started_at is before stuckBefore
+// back to PENDING, so they can be picked up again.
+func (r *MySQLRepository) RequeueStuckJobs(ctx context.Context, stuckBefore time.Time) (int64, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE jobs SET status = 'PENDING', started_at = NULL, updated_at = NOW()
+		 WHERE status = 'RUNNING' AND started_at < ?`,
+		stuckBefore,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (r *MySQLRepository) MarkRunning(ctx context.Context, id uint64) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,
