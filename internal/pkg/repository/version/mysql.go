@@ -32,6 +32,22 @@ func (r *MySQLRepository) Create(ctx context.Context, v *entity.Version) error {
 	return nil
 }
 
+func (r *MySQLRepository) FindByName(ctx context.Context, name string) (*entity.Version, error) {
+	v := &entity.Version{}
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, name, status, created_at, created_by, updated_at, updated_by
+		 FROM versions WHERE name = ?`,
+		name,
+	).Scan(&v.ID, &v.Name, &v.Status, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
 func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Version, error) {
 	v := &entity.Version{}
 	err := r.db.QueryRowContext(ctx,

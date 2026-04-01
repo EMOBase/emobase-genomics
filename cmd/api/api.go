@@ -11,7 +11,10 @@ import (
 
 	pkgapi "github.com/EMOBase/emobase-genomics/internal/pkg/api"
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
+	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
+	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -29,9 +32,17 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	db, err := database.NewMySQL(config.MySQL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	versionUC := ucversion.New(repoversion.NewMySQLRepository(db))
+
 	gin.SetMode(config.HTTP.Mode)
 
-	router := pkgapi.NewRouter(uploadUC)
+	router := pkgapi.NewRouter(uploadUC, versionUC)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),
