@@ -17,9 +17,9 @@ func NewMySQLRepository(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, v *entity.Version) error {
 	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO versions (name, description, status, created_by, updated_by)
-		 VALUES (?, ?, ?, ?, ?)`,
-		v.Name, v.Description, v.Status, v.CreatedBy, v.UpdatedBy,
+		`INSERT INTO versions (name, created_by, updated_by)
+		 VALUES (?, ?, ?)`,
+		v.Name, v.CreatedBy, v.UpdatedBy,
 	)
 	if err != nil {
 		return err
@@ -38,7 +38,7 @@ func (r *MySQLRepository) FindByName(ctx context.Context, name string) (*entity.
 		`SELECT id, name, status, created_at, created_by, updated_at, updated_by
 		 FROM versions WHERE name = ?`,
 		name,
-	).Scan(&v.ID, &v.Name, &v.Status, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+	).Scan(&v.ID, &v.Name, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -51,11 +51,11 @@ func (r *MySQLRepository) FindByName(ctx context.Context, name string) (*entity.
 func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Version, error) {
 	v := &entity.Version{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, status, created_at, created_by, updated_at, updated_by
+		`SELECT id, name, created_at, created_by, updated_at, updated_by
 		 FROM versions WHERE id = ?`,
 		id,
 	).Scan(
-		&v.ID, &v.Name, &v.Description, &v.Status,
+		&v.ID, &v.Name,
 		&v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy,
 	)
 	if err == sql.ErrNoRows {
@@ -69,7 +69,7 @@ func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Vers
 
 func (r *MySQLRepository) List(ctx context.Context) ([]entity.Version, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, status, created_at, created_by, updated_at, updated_by
+		`SELECT id, name, created_at, created_by, updated_at, updated_by
 		 FROM versions ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -81,7 +81,7 @@ func (r *MySQLRepository) List(ctx context.Context) ([]entity.Version, error) {
 	for rows.Next() {
 		var v entity.Version
 		if err := rows.Scan(
-			&v.ID, &v.Name, &v.Description, &v.Status,
+			&v.ID, &v.Name,
 			&v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy,
 		); err != nil {
 			return nil, err
@@ -89,14 +89,6 @@ func (r *MySQLRepository) List(ctx context.Context) ([]entity.Version, error) {
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
-}
-
-func (r *MySQLRepository) UpdateStatus(ctx context.Context, id uint64, status entity.VersionStatus, updatedBy string) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE versions SET status = ?, updated_by = ? WHERE id = ?`,
-		status, updatedBy, id,
-	)
-	return err
 }
 
 func (r *MySQLRepository) Delete(ctx context.Context, id uint64) error {

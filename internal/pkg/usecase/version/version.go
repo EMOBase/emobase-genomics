@@ -29,7 +29,6 @@ func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Vers
 
 	v := &entity.Version{
 		Name:      name,
-		Status:    entity.VersionStatusDraft,
 		CreatedBy: auth.UsernameFromContext(ctx),
 		UpdatedBy: auth.UsernameFromContext(ctx),
 	}
