@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/EMOBase/emobase-genomics/cmd/api"
+	"github.com/EMOBase/emobase-genomics/cmd/dbmigrate"
 	"github.com/EMOBase/emobase-genomics/cmd/worker"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -32,6 +33,18 @@ func main() {
 				Name:   "worker",
 				Usage:  "Start a worker instance to process background jobs",
 				Action: worker.Action,
+			},
+			{
+				Name:  "db:migrate",
+				Usage: "Run database migrations",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "direction",
+						Value: "up",
+						Usage: "Migration direction: 'up' or 'down'",
+					},
+				},
+				Action: dbmigrate.Action,
 			},
 		},
 	}

@@ -10,12 +10,21 @@ import (
 var config *Config
 
 type Config struct {
-	HTTP HTTPConfig `mapstructure:"http"`
+	HTTP  HTTPConfig  `mapstructure:"http"`
+	MySQL MySQLConfig `mapstructure:"mysql"`
 }
 
 type HTTPConfig struct {
 	Port int    `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
+}
+
+type MySQLConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+	Database string `mapstructure:"database"`
 }
 
 func LoadConfig(path string) (*Config, error) {

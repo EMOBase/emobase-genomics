@@ -9,20 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/EMOBase/emobase-genomics/internal/pkg/api"
-	"github.com/EMOBase/emobase-genomics/internal/pkg/api/middleware"
+	pkgapi "github.com/EMOBase/emobase-genomics/internal/pkg/api"
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
-	"github.com/gin-contrib/cors"
-	"github.com/gin-contrib/requestid"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 )
-
-var skipLogPaths = map[string]struct{}{
-	"/health":  {},
-	"/uploads": {},
-}
 
 func Action(ctx context.Context, cmd *cli.Command) error {
 	configFile := cmd.String("config")
@@ -31,40 +24,14 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	// Init TUS handler
-	tusHandler, err := NewTUSHandler()
+	uploadUC, err := upload.New("./public/uploads")
 	if err != nil {
 		return err
 	}
 
-	// Init Gin server
 	gin.SetMode(config.HTTP.Mode)
 
-	router := gin.New()
-	router.Use(
-		requestid.New(),
-		gin.CustomRecovery(api.Recovery),
-		middleware.NewRequestResponseLogger(skipLogPaths),
-		corsMiddleware(),
-	)
-
-	router.GET("/health", func(c *gin.Context) {
-		c.AbortWithStatusJSON(http.StatusOK, "OK")
-	})
-
-	api := router.Group("/")
-
-	// Use ANY to support all TUS methods (PATCH, HEAD, OPTIONS, etc.)
-	api.POST("/uploads", func(c *gin.Context) {
-		fmt.Println("Received request for TUS upload:", c.Request.Method, c.Request.URL.Path)
-		http.StripPrefix("/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
-		c.Abort()
-	})
-	api.Any("/uploads/*any", func(c *gin.Context) {
-		fmt.Println("Received request for TUS upload:", c.Request.Method, c.Request.URL.Path)
-		http.StripPrefix("/uploads", tusHandler).ServeHTTP(c.Writer, c.Request)
-		c.Abort()
-	})
+	router := pkgapi.NewRouter(uploadUC)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),
@@ -103,17 +70,4 @@ func listenAndServe(httpServer *http.Server) error {
 			return err
 		}
 	}
-}
-
-func corsMiddleware() gin.HandlerFunc {
-	corsConfig := cors.DefaultConfig()
-	corsConfig.AddAllowMethods(http.MethodOptions)
-	corsConfig.AllowAllOrigins = true
-
-	corsConfig.AddAllowHeaders("Authorization")
-	corsConfig.AddAllowHeaders("X-Request-ID")
-	corsConfig.AddAllowHeaders("X-Client-ID")
-	corsConfig.AddAllowHeaders("Accept-Version")
-
-	return cors.New(corsConfig)
 }

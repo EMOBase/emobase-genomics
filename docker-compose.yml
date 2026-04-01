@@ -6,10 +6,43 @@ services:
     command: ["api", "-c", "/app/config.yaml"]
     environment:
       HTTP__MODE: ${HTTP__MODE:-release}
+      MYSQL__HOST: mysql
+      MYSQL__PORT: 3306
+      MYSQL__USER: ${MYSQL__USER:-emobase}
+      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
+      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
     expose:
       - "8080" # internal only, not bound to host
     volumes:
       - ./data/public/uploads:/app/public/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - backend
+
+  mysql:
+    image: mysql:8.0
+    container_name: emobase_genomics_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL__ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
+      MYSQL_USER: ${MYSQL__USER:-emobase}
+      MYSQL_PASSWORD: ${MYSQL__PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h localhost -u root --password=${MYSQL__ROOT_PASSWORD}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - backend
 
@@ -27,6 +60,9 @@ services:
       - api
     networks:
       - backend
+
+volumes:
+  mysql_data:
 
 networks:
   backend:
