@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
 
@@ -29,8 +30,8 @@ func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Vers
 	v := &entity.Version{
 		Name:      name,
 		Status:    entity.VersionStatusDraft,
-		CreatedBy: "system", // TODO: replace with authenticated user
-		UpdatedBy: "system",
+		CreatedBy: auth.UsernameFromContext(ctx),
+		UpdatedBy: auth.UsernameFromContext(ctx),
 	}
 
 	if err := uc.versionRepo.Create(ctx, v); err != nil {

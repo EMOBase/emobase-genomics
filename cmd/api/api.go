@@ -12,6 +12,8 @@ import (
 	pkgapi "github.com/EMOBase/emobase-genomics/internal/pkg/api"
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
+	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
+	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
@@ -27,18 +29,24 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	uploadUC, err := upload.New("./public/uploads")
-	if err != nil {
-		return err
-	}
-
 	db, err := database.NewMySQL(config.MySQL)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	versionUC := ucversion.New(repoversion.NewMySQLRepository(db))
+	versionRepo := repoversion.NewMySQLRepository(db)
+	versionUC := ucversion.New(versionRepo)
+
+	uploadUC, err := upload.New(
+		"./public/uploads",
+		versionRepo,
+		repojob.NewMySQLRepository(db),
+		repouploadfile.NewMySQLRepository(db),
+	)
+	if err != nil {
+		return err
+	}
 
 	gin.SetMode(config.HTTP.Mode)
 

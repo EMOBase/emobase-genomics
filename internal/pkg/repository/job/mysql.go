@@ -99,6 +99,19 @@ func (r *MySQLRepository) MarkDone(ctx context.Context, id uint64, resultMetadat
 	return err
 }
 
+func (r *MySQLRepository) HasActiveJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs
+		 WHERE version_id = ? AND type = ? AND status IN ('PENDING', 'RUNNING')`,
+		versionID, jobType,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *MySQLRepository) MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,
