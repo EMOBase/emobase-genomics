@@ -69,12 +69,12 @@ func New(
 	}
 
 	handler, err := tusd.NewHandler(tusd.Config{
-		BasePath:                "/uploads",
-		StoreComposer:           composer,
-		DisableDownload:         true,
-		NotifyCreatedUploads:    true,
-		NotifyCompleteUploads:   true,
-		PreUploadCreateCallback: uc.handlePreUploadCreate,
+		BasePath:                  "/uploads",
+		StoreComposer:             composer,
+		DisableDownload:           true,
+		NotifyCreatedUploads:      true,
+		PreUploadCreateCallback:   uc.handlePreUploadCreate,
+		PreFinishResponseCallback: uc.handlePreFinish,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("unable to create tusd handler")
@@ -152,14 +152,8 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 }
 
 func (uc *UseCase) processEvents() {
-	for {
-		select {
-		case event := <-uc.Handler.CreatedUploads:
-			uc.onCreated(event)
-
-		case event := <-uc.Handler.CompleteUploads:
-			uc.onCompleted(event)
-		}
+	for event := range uc.Handler.CreatedUploads {
+		uc.onCreated(event)
 	}
 }
 
@@ -197,62 +191,64 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 		Msg("upload created, record saved")
 }
 
-func (uc *UseCase) onCompleted(event tusd.HookEvent) {
-	upload := event.Upload
-
-	version := upload.MetaData["version"]
-	fileName := upload.MetaData["fileName"]
-
-	if version == "" || fileName == "" {
-		log.Warn().Str("uploadID", upload.ID).Msg("missing version or fileName in metadata, skipping move")
-		return
-	}
+func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, error) {
+	upload := hook.Upload
+	ctx := hook.Context
 
 	srcPath := filepath.Join(uc.uploadDir, upload.ID)
 
-	// Verify gzip magic bytes before moving or processing the file.
-	if ok, err := isGzip(srcPath); err != nil || !ok {
-		if err != nil {
-			log.Error().Err(err).Str("uploadID", upload.ID).Msg("failed to read uploaded file for gzip check")
-		} else {
-			log.Warn().Str("uploadID", upload.ID).Msg("uploaded file is not gzip, discarding")
-		}
+	if ok, err := isGzip(srcPath); err != nil {
+		log.Ctx(ctx).Err(err).Str("uploadID", upload.ID).Msg("failed to read uploaded file for gzip check")
 		uc.removeUploadFiles(upload.ID)
-		_ = uc.uploadRepo.UpdateStatus(context.Background(), upload.ID, entity.UploadStatusFailed)
-		return
+		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
+		return tusd.HTTPResponse{}, err
+	} else if !ok {
+		log.Ctx(ctx).Warn().Str("uploadID", upload.ID).Msg("uploaded file is not gzip, discarding")
+		uc.removeUploadFiles(upload.ID)
+		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
+		return errResponse(http.StatusUnprocessableEntity, "uploaded file is not a valid gzip"), errors.New("not a gzip file")
 	}
 
+	version := upload.MetaData["version"]
+	fileName := upload.MetaData["fileName"]
 	dstDir := filepath.Join(uc.uploadDir, version)
 	dstPath := filepath.Join(dstDir, fileName)
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		log.Error().Err(err).Str("dir", dstDir).Msg("failed to create version directory")
-		return
+		log.Ctx(ctx).Err(err).Str("dir", dstDir).Msg("failed to create version directory")
+		return tusd.HTTPResponse{}, err
 	}
 
 	if err := os.Rename(srcPath, dstPath); err != nil {
-		log.Error().Err(err).Str("src", srcPath).Str("dst", dstPath).Msg("failed to move upload")
-		return
+		log.Ctx(ctx).Err(err).Str("src", srcPath).Str("dst", dstPath).Msg("failed to move upload")
+		return tusd.HTTPResponse{}, err
 	}
 
-	infoPath := filepath.Join(uc.uploadDir, upload.ID+".info")
-	if err := os.Remove(infoPath); err != nil {
-		log.Warn().Err(err).Msg("failed to remove .info file")
+	if err := os.Remove(filepath.Join(uc.uploadDir, upload.ID+".info")); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to remove .info file")
 	}
 
-	log.Info().
-		Str("uploadID", upload.ID).
-		Str("path", dstPath).
-		Msg("upload complete, file moved")
+	log.Ctx(ctx).Info().Str("uploadID", upload.ID).Str("path", dstPath).Msg("upload complete, file moved")
 
-	uc.enqueueProcessJob(upload.ID, upload.MetaData, dstPath)
+	jobs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
+	if err != nil {
+		return tusd.HTTPResponse{}, err
+	}
+
+	jobIDs := make([]string, len(jobs))
+	for i, job := range jobs {
+		jobIDs[i] = strconv.FormatUint(job.ID, 10)
+	}
+
+	return tusd.HTTPResponse{
+		Header: tusd.HTTPHeader{"X-Job-IDs": strings.Join(jobIDs, ",")},
+	}, nil
 }
 
-func (uc *UseCase) enqueueProcessJob(uploadID string, meta tusd.MetaData, filePath string) {
+func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta tusd.MetaData, filePath string) ([]*entity.Job, error) {
 	versionID, err := strconv.ParseUint(meta["_versionID"], 10, 64)
 	if err != nil {
-		log.Error().Err(err).Str("uploadID", uploadID).Msg("failed to parse _versionID for job creation")
-		return
+		return nil, fmt.Errorf("failed to parse _versionID for job creation: %w", err)
 	}
 
 	fileType := meta["fileType"]
@@ -264,8 +260,7 @@ func (uc *UseCase) enqueueProcessJob(uploadID string, meta tusd.MetaData, filePa
 		FileType:     fileType,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("uploadID", uploadID).Msg("failed to marshal job payload")
-		return
+		return nil, fmt.Errorf("failed to marshal job payload: %w", err)
 	}
 
 	payload := json.RawMessage(rawPayload)
@@ -277,19 +272,17 @@ func (uc *UseCase) enqueueProcessJob(uploadID string, meta tusd.MetaData, filePa
 		MaxRetryCount: uc.maxRetryCount,
 	}
 
-	if err := uc.jobRepo.Create(context.Background(), job); err != nil {
-		log.Error().Err(err).
-			Str("uploadID", uploadID).
-			Str("jobType", job.Type).
-			Msg("failed to create process job")
-		return
+	if err := uc.jobRepo.Create(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to create process job: %w", err)
 	}
 
-	log.Info().
+	log.Ctx(ctx).Info().
 		Str("uploadID", uploadID).
 		Str("jobType", job.Type).
 		Uint64("jobID", job.ID).
 		Msg("process job enqueued")
+
+	return []*entity.Job{job}, nil
 }
 
 func (uc *UseCase) removeUploadFiles(uploadID string) {
