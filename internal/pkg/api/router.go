@@ -5,6 +5,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/handler"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/middleware"
+	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/gin-contrib/requestid"
@@ -16,7 +17,7 @@ var skipLogPaths = map[string]struct{}{
 	"/uploads": {},
 }
 
-func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase) *gin.Engine {
+func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		requestid.New(),
@@ -25,12 +26,12 @@ func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase) *gin.Engi
 		middleware.NewCORSMiddleware(),
 	)
 
-	registerRoutes(router, uploadUC, versionUC)
+	registerRoutes(router, uploadUC, versionUC, jobUC)
 
 	return router
 }
 
-func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase) {
+func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase) {
 	router.GET("/health", func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusOK, "OK")
 	})
@@ -48,5 +49,8 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 
 		versionHandler := handler.NewVersionHandler(versionUC)
 		authenticated.POST("/versions", versionHandler.Create)
+
+		jobHandler := handler.NewJobHandler(jobUC)
+		authenticated.GET("/jobs/:id", jobHandler.Get)
 	}
 }

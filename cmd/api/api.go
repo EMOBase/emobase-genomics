@@ -15,6 +15,7 @@ import (
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
+	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/gin-gonic/gin"
@@ -35,14 +36,18 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	}
 	defer db.Close()
 
+	jobRepo := repojob.New(db)
+
 	versionRepo := repoversion.New(db)
 	versionUC := ucversion.New(versionRepo)
+
+	jobUC := ucjob.New(jobRepo)
 
 	uploadUC, err := upload.New(
 		"./public/uploads",
 		config.Jobs.MaxRetryCount,
 		versionRepo,
-		repojob.New(db),
+		jobRepo,
 		repouploadfile.New(db),
 	)
 	if err != nil {
@@ -51,7 +56,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	gin.SetMode(config.HTTP.Mode)
 
-	router := pkgapi.NewRouter(uploadUC, versionUC)
+	router := pkgapi.NewRouter(uploadUC, versionUC, jobUC)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),
