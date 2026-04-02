@@ -35,15 +35,15 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	}
 	defer db.Close()
 
-	versionRepo := repoversion.NewMySQLRepository(db)
+	versionRepo := repoversion.New(db)
 	versionUC := ucversion.New(versionRepo)
 
 	uploadUC, err := upload.New(
 		"./public/uploads",
 		config.Jobs.MaxRetryCount,
 		versionRepo,
-		repojob.NewMySQLRepository(db),
-		repouploadfile.NewMySQLRepository(db),
+		repojob.New(db),
+		repouploadfile.New(db),
 	)
 	if err != nil {
 		return err

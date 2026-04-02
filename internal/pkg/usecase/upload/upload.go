@@ -16,6 +16,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 	"github.com/tus/tusd/v2/pkg/filelocker"
 	"github.com/tus/tusd/v2/pkg/filestore"
@@ -247,13 +248,6 @@ func (uc *UseCase) onCompleted(event tusd.HookEvent) {
 	uc.enqueueProcessJob(upload.ID, upload.MetaData, dstPath)
 }
 
-type processJobPayload struct {
-	UploadFileID string `json:"upload_file_id"`
-	VersionID    uint64 `json:"version_id"`
-	FilePath     string `json:"file_path"`
-	FileType     string `json:"file_type"`
-}
-
 func (uc *UseCase) enqueueProcessJob(uploadID string, meta tusd.MetaData, filePath string) {
 	versionID, err := strconv.ParseUint(meta["_versionID"], 10, 64)
 	if err != nil {
@@ -263,7 +257,7 @@ func (uc *UseCase) enqueueProcessJob(uploadID string, meta tusd.MetaData, filePa
 
 	fileType := meta["fileType"]
 
-	rawPayload, err := json.Marshal(processJobPayload{
+	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
 		UploadFileID: uploadID,
 		VersionID:    versionID,
 		FilePath:     filePath,

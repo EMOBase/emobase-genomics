@@ -11,9 +11,15 @@ import (
 var config *Config
 
 type Config struct {
-	HTTP  HTTPConfig  `mapstructure:"http"`
-	MySQL MySQLConfig `mapstructure:"mysql"`
-	Jobs  JobsConfig  `mapstructure:"jobs"`
+	MainSpecies   string              `mapstructure:"main_species"`
+	HTTP          HTTPConfig          `mapstructure:"http"`
+	MySQL         MySQLConfig         `mapstructure:"mysql"`
+	Jobs          JobsConfig          `mapstructure:"jobs"`
+	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
+}
+
+type ElasticsearchConfig struct {
+	Addresses []string `mapstructure:"addresses"`
 }
 
 type JobsConfig struct {

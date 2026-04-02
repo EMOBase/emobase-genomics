@@ -11,7 +11,7 @@ type MySQLRepository struct {
 	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) *MySQLRepository {
+func New(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: db}
 }
 
@@ -35,7 +35,7 @@ func (r *MySQLRepository) Create(ctx context.Context, v *entity.Version) error {
 func (r *MySQLRepository) FindByName(ctx context.Context, name string) (*entity.Version, error) {
 	v := &entity.Version{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, status, created_at, created_by, updated_at, updated_by
+		`SELECT id, name, created_at, created_by, updated_at, updated_by
 		 FROM versions WHERE name = ?`,
 		name,
 	).Scan(&v.ID, &v.Name, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)

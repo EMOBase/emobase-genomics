@@ -8,6 +8,10 @@ import (
 
 type ProteinFAAHandler struct{}
 
+func NewProteinFAAHandler() *ProteinFAAHandler {
+	return &ProteinFAAHandler{}
+}
+
 func (h *ProteinFAAHandler) Handle(_ context.Context, _ entity.Job) error {
 	return nil
 }

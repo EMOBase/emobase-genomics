@@ -8,6 +8,10 @@ import (
 
 type OrthologyTSVHandler struct{}
 
+func NewOrthologyTSVHandler() *OrthologyTSVHandler {
+	return &OrthologyTSVHandler{}
+}
+
 func (h *OrthologyTSVHandler) Handle(_ context.Context, _ entity.Job) error {
 	return nil
 }

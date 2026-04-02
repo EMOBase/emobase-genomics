@@ -8,7 +8,10 @@ import (
 
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
+	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
+	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
+	ucgenomic "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
 	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker/handlers"
 	"github.com/rs/zerolog/log"
@@ -28,17 +31,27 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	}
 	defer db.Close()
 
+	esClient, err := database.NewElasticsearch(config.Elasticsearch)
+	if err != nil {
+		return err
+	}
+
+	versionRepo := repoversion.New(db)
+
+	genomicRepo := repogenomic.New(esClient)
+	genomicUC := ucgenomic.New(genomicRepo, config.MainSpecies)
+
 	jobHandlers := map[string]ucworker.Handler{
-		ucworker.JobTypeGenomicFNA:   &handlers.GenomicFNAHandler{},
-		ucworker.JobTypeGenomicGFF:   &handlers.GenomicGFFHandler{},
-		ucworker.JobTypeRNAFNA:       &handlers.RNAFNAHandler{},
-		ucworker.JobTypeCDSFNA:       &handlers.CDSFNAHandler{},
-		ucworker.JobTypeProteinFAA:   &handlers.ProteinFAAHandler{},
-		ucworker.JobTypeOrthologyTSV: &handlers.OrthologyTSVHandler{},
+		ucworker.JobTypeGenomicFNA:   handlers.NewGenomicFNAHandler(),
+		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
+		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(),
+		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(),
+		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(),
+		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(),
 	}
 
 	w := ucworker.New(
-		repojob.NewMySQLRepository(db),
+		repojob.New(db),
 		jobHandlers,
 		config.Jobs.PollInterval,
 		config.Jobs.StuckInterval,

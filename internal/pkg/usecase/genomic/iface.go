@@ -7,5 +7,5 @@ import (
 )
 
 type IGenomicLocationRepository interface {
-	SaveMany(ctx context.Context, locs []entity.GenomicLocation) error
+	SaveMany(ctx context.Context, indexName string, locs []entity.GenomicLocation) error
 }

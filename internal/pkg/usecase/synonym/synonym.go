@@ -12,15 +12,15 @@ import (
 
 type SynonymUseCase struct {
 	config            Config
-	synonymRepository ISynonymRepository
+	repo ISynonymRepository
 }
 
-func NewSynonymUseCase(
-	synonymRepository ISynonymRepository,
+func New(
+	repo ISynonymRepository,
 ) *SynonymUseCase {
 	return &SynonymUseCase{
 		config:            Config{BatchSize: 1000},
-		synonymRepository: synonymRepository,
+		repo: repo,
 	}
 }
 
@@ -53,7 +53,7 @@ func (uc *SynonymUseCase) Load(ctx context.Context, f *os.File) error {
 			}
 
 			if len(batch) > 0 {
-				err = uc.synonymRepository.SaveMany(ctx, batch)
+				err = uc.repo.SaveMany(ctx, batch)
 				if err != nil {
 					return err
 				}
@@ -88,7 +88,7 @@ func (uc *SynonymUseCase) Load(ctx context.Context, f *os.File) error {
 			continue
 		}
 
-		err = uc.synonymRepository.SaveMany(ctx, batch)
+		err = uc.repo.SaveMany(ctx, batch)
 		if err != nil {
 			return err
 		}

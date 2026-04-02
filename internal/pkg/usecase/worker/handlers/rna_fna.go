@@ -8,6 +8,10 @@ import (
 
 type RNAFNAHandler struct{}
 
+func NewRNAFNAHandler() *RNAFNAHandler {
+	return &RNAFNAHandler{}
+}
+
 func (h *RNAFNAHandler) Handle(_ context.Context, _ entity.Job) error {
 	return nil
 }

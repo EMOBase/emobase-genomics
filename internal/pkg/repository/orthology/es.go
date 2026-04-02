@@ -14,7 +14,7 @@ type ElasticSearchRepository struct {
 	indexName string
 }
 
-func NewElasticSearchRepository(
+func New(
 	esClient *elasticsearch.Client,
 	indexName string,
 ) *ElasticSearchRepository {

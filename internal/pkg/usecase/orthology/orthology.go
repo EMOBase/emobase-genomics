@@ -13,15 +13,15 @@ import (
 
 type OrthologyUseCase struct {
 	config              Config
-	orthologyRepository IOrthologyRepository
+	repo IOrthologyRepository
 }
 
-func NewOrthologyUseCase(
-	orthologyRepository IOrthologyRepository,
+func New(
+	repo IOrthologyRepository,
 ) *OrthologyUseCase {
 	return &OrthologyUseCase{
 		config:              Config{BatchSize: 1000},
-		orthologyRepository: orthologyRepository,
+		repo: repo,
 	}
 }
 
@@ -54,7 +54,7 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f *os.File) error {
 		line, ok := <-lineCh
 
 		if !ok && len(batch) > 0 {
-			err = uc.orthologyRepository.SaveMany(ctx, batch)
+			err = uc.repo.SaveMany(ctx, batch)
 			if err != nil {
 				return err
 			}
@@ -106,7 +106,7 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f *os.File) error {
 			continue
 		}
 
-		err = uc.orthologyRepository.SaveMany(ctx, batch)
+		err = uc.repo.SaveMany(ctx, batch)
 		if err != nil {
 			return err
 		}

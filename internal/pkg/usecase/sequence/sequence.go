@@ -13,15 +13,15 @@ import (
 
 type SequenceUseCase struct {
 	config             Config
-	sequenceRepository ISequenceRepository
+	repo ISequenceRepository
 }
 
-func NewSequenceUseCase(
-	sequenceRepository ISequenceRepository,
+func New(
+	repo ISequenceRepository,
 ) *SequenceUseCase {
 	return &SequenceUseCase{
 		config:             Config{BatchSize: 1000},
-		sequenceRepository: sequenceRepository,
+		repo: repo,
 	}
 }
 
@@ -44,7 +44,7 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f *os.File) error {
 		fastaRecord, ok := <-recordCh
 
 		if !ok && len(batch) > 0 {
-			err = uc.sequenceRepository.SaveMany(ctx, batch)
+			err = uc.repo.SaveMany(ctx, batch)
 			if err != nil {
 				return err
 			}
@@ -66,7 +66,7 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f *os.File) error {
 			continue
 		}
 
-		err = uc.sequenceRepository.SaveMany(ctx, batch)
+		err = uc.repo.SaveMany(ctx, batch)
 		if err != nil {
 			return err
 		}

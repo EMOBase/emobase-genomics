@@ -1,3 +1,5 @@
+main_species: Ptep
+
 http:
   port: 8080
   mode: release # debug, test, release
@@ -14,3 +16,7 @@ jobs:
   poll_interval: 1s
   stuck_interval: 5m
   stuck_timeout: 30m
+
+elasticsearch:
+  addresses:
+    - http://localhost:9200

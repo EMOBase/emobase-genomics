@@ -2,28 +2,29 @@ package genomic
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/gff3"
+	"github.com/rs/zerolog/log"
 )
 
 type GenomicLocationUseCase struct {
-	config                    Config
-	genomicLocationRepository IGenomicLocationRepository
+	config Config
+	repo   IGenomicLocationRepository
 }
 
-func NewGenomicLocationUseCase(
-	genomicLocationRepository IGenomicLocationRepository,
+func New(
+	repo IGenomicLocationRepository,
+	mainSpecies string,
 ) *GenomicLocationUseCase {
 	return &GenomicLocationUseCase{
-		config:                    Config{BatchSize: 1000},
-		genomicLocationRepository: genomicLocationRepository,
+		config: Config{MainSpecies: mainSpecies, BatchSize: 1000},
+		repo:   repo,
 	}
 }
 
-func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
+func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexName string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -33,18 +34,16 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 	batch := make([]entity.GenomicLocation, 0, uc.config.BatchSize)
 
 	for {
-		var err error
-
 		gff3Record, ok := <-recordCh
 
-		if !ok && len(batch) > 0 {
-			err = uc.genomicLocationRepository.SaveMany(ctx, batch)
-			if err != nil {
-				return err
+		if !ok {
+			if len(batch) > 0 {
+				if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
+					return err
+				}
+				count += len(batch)
+				log.Ctx(ctx).Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of genomic locations")
 			}
-
-			fmt.Println("Inserted last batch", len(batch), "genomic locations... Total:", count)
-
 			break
 		}
 
@@ -52,9 +51,7 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 			continue
 		}
 
-		count++
-
-		loc, err := mapGFF3RecordToGenomicLocation(gff3Record)
+		loc, err := uc.mapGFF3RecordToGenomicLocation(gff3Record)
 		if err != nil {
 			return err
 		}
@@ -65,14 +62,13 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 			continue
 		}
 
-		err = uc.genomicLocationRepository.SaveMany(ctx, batch)
-		if err != nil {
+		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 			return err
 		}
 
-		fmt.Println("Inserted", len(batch), "genomic locations... Total:", count)
-
-		batch = batch[:0] // reset batch len to 0, keep capacity
+		count += len(batch)
+		log.Ctx(ctx).Info().Int("batch", len(batch)).Int("total", count).Msg("inserted batch of genomic locations")
+		batch = batch[:0]
 	}
 
 	ctxCancel()
@@ -84,19 +80,17 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader) error {
 	return nil
 }
 
-func mapGFF3RecordToGenomicLocation(record gff3.GFF3Record) (entity.GenomicLocation, error) {
+func (uc *GenomicLocationUseCase) mapGFF3RecordToGenomicLocation(record gff3.GFF3Record) (entity.GenomicLocation, error) {
 	gene, err := gff3.NCBIFindGeneID(record)
 	if err != nil {
 		return entity.GenomicLocation{}, err
 	}
 
-	loc := entity.GenomicLocation{
-		Gene:         "Ptep:" + gene.Current, // TODO: Refactor to be like `species.createGeneId(gene)`
+	return entity.GenomicLocation{
+		Gene:         uc.config.MainSpecies + ":" + gene.Current,
 		ReferenceSeq: record.SeqID,
 		Start:        record.Start,
 		End:          record.End,
 		Strand:       record.Strand,
-	}
-
-	return loc, nil
+	}, nil
 }

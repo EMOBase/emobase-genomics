@@ -8,6 +8,10 @@ import (
 
 type CDSFNAHandler struct{}
 
+func NewCDSFNAHandler() *CDSFNAHandler {
+	return &CDSFNAHandler{}
+}
+
 func (h *CDSFNAHandler) Handle(_ context.Context, _ entity.Job) error {
 	return nil
 }
