@@ -130,7 +130,19 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		), tusd.FileInfoChanges{}, errors.New("version not found")
 	}
 
-	// 5. Reject if an active job of the same type already exists for this version.
+	// 5. Validate orthology-specific metadata fields.
+	if fileType == "orthology.tsv" {
+		if strings.TrimSpace(meta["order"]) == "" {
+			return errResponse(http.StatusBadRequest, "orthology.tsv uploads require an \"order\" metadata field"),
+				tusd.FileInfoChanges{}, errors.New("missing order metadata")
+		}
+		if strings.TrimSpace(meta["algorithm"]) == "" {
+			return errResponse(http.StatusBadRequest, "orthology.tsv uploads require an \"algorithm\" metadata field"),
+				tusd.FileInfoChanges{}, errors.New("missing algorithm metadata")
+		}
+	}
+
+	// 6. Reject if an active job of the same type already exists for this version.
 	hasActive, err := uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
 	if err != nil {
 		log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
@@ -258,6 +270,8 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		VersionID:    versionID,
 		FilePath:     filePath,
 		FileType:     fileType,
+		Order:        meta["order"],
+		Algorithm:    meta["algorithm"],
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal job payload: %w", err)

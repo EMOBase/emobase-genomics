@@ -7,5 +7,6 @@ import (
 )
 
 type IOrthologyRepository interface {
-	SaveMany(ctx context.Context, locs []entity.Orthology) error
+	SaveMany(ctx context.Context, indexName string, orthologies []entity.Orthology) error
+	SetAlias(ctx context.Context, indexName, aliasName string) error
 }

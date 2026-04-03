@@ -2,65 +2,51 @@ package orthology
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
+	"io"
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/text"
+	"github.com/rs/zerolog/log"
 )
 
 type OrthologyUseCase struct {
-	config              Config
-	repo IOrthologyRepository
+	config Config
+	repo   IOrthologyRepository
 }
 
-func New(
-	repo IOrthologyRepository,
-) *OrthologyUseCase {
+func New(repo IOrthologyRepository) *OrthologyUseCase {
 	return &OrthologyUseCase{
-		config:              Config{BatchSize: 1000},
-		repo: repo,
+		config: Config{BatchSize: 1000},
+		repo:   repo,
 	}
 }
 
-func (uc *OrthologyUseCase) Load(ctx context.Context, f *os.File) error {
+func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, order, algorithm string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	orthoPrefix := filepath.Base(f.Name())
-	for _, suffix := range []string{".tsv", ".txt"} {
-		if before, ok := strings.CutSuffix(orthoPrefix, suffix); ok {
-			orthoPrefix = before
-			break
-		}
-	}
-
-	orthoSource := strings.TrimSuffix(orthoPrefix, "_orthology")
+	orthoSource := order + "." + algorithm
 
 	lineCh, errCh := text.ReadLines(ctx, f)
 
 	count := 0
 	batch := make([]entity.Orthology, 0, uc.config.BatchSize)
-
 	isFirstLine := true
-
 	var species []string
 
 	for {
-		var err error
-
 		line, ok := <-lineCh
 
 		if !ok && len(batch) > 0 {
-			err = uc.repo.SaveMany(ctx, batch)
-			if err != nil {
+			if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 				return err
 			}
+			log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of orthologies")
+			break
+		}
 
-			fmt.Println("Inserted last batch", len(batch), "orthologies... Total:", count)
-
+		if !ok {
 			break
 		}
 
@@ -86,17 +72,13 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f *os.File) error {
 		}
 
 		for i := 1; i < len(cols); i++ {
-			species := species[i-1]
-			genes := strings.SplitSeq(strings.TrimSpace(cols[i]), ",")
-
-			for gene := range genes {
+			sp := species[i-1]
+			for gene := range strings.SplitSeq(strings.TrimSpace(cols[i]), ",") {
 				gene = strings.TrimSpace(gene)
 				if gene == "" {
 					continue
 				}
-
-				geneID := species + ":" + gene
-				orthology.Orthologs = append(orthology.Orthologs, geneID)
+				orthology.Orthologs = append(orthology.Orthologs, sp+":"+gene)
 			}
 		}
 
@@ -106,14 +88,11 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f *os.File) error {
 			continue
 		}
 
-		err = uc.repo.SaveMany(ctx, batch)
-		if err != nil {
+		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 			return err
 		}
-
-		fmt.Println("Inserted", len(batch), "orthologies... Total:", count)
-
-		batch = batch[:0] // reset batch len to 0, keep capacity
+		log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted orthologies batch")
+		batch = batch[:0]
 	}
 
 	ctxCancel()

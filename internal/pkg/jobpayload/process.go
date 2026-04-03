@@ -8,4 +8,7 @@ type ProcessPayload struct {
 	VersionID    uint64 `json:"version_id"`
 	FilePath     string `json:"file_path"`
 	FileType     string `json:"file_type"`
+	// Order and Algorithm are set for orthology.tsv jobs.
+	Order     string `json:"order,omitempty"`
+	Algorithm string `json:"algorithm,omitempty"`
 }
