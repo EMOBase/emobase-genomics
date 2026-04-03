@@ -23,6 +23,7 @@ WORKDIR /app
 # Copy the compiled binary from the builder
 COPY --from=builder /app/server .
 COPY internal/pkg/config/config.yaml /app/config.yaml
+COPY migrations ./migrations
 
 # Create the uploads directory so the volume mount point exists with correct perms
 RUN mkdir -p ./public/uploads

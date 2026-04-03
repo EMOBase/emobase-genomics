@@ -29,7 +29,10 @@ func (r *MySQLRepository) Create(ctx context.Context, v *entity.Version) error {
 		return err
 	}
 	v.ID = uint64(id)
-	return nil
+
+	return r.db.QueryRowContext(ctx,
+		`SELECT created_at, updated_at FROM versions WHERE id = ?`, v.ID,
+	).Scan(&v.CreatedAt, &v.UpdatedAt)
 }
 
 func (r *MySQLRepository) FindByName(ctx context.Context, name string) (*entity.Version, error) {

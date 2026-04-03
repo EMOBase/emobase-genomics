@@ -1,4 +1,21 @@
 services:
+  migrate:
+    build: .
+    container_name: emobase_genomics_migrate
+    restart: no
+    command: ["db:migrate", "-c", "/app/config.yaml"]
+    environment:
+      MYSQL__HOST: mysql
+      MYSQL__PORT: 3306
+      MYSQL__USER: ${MYSQL__USER:-emobase}
+      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
+      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - backend
+
   api:
     build: .
     container_name: emobase_genomics_api
@@ -17,8 +34,30 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
     depends_on:
-      mysql:
+      migrate:
+        condition: service_completed_successfully
+      elasticsearch:
         condition: service_healthy
+    networks:
+      - backend
+
+  worker:
+    build: .
+    container_name: emobase_genomics_worker
+    restart: unless-stopped
+    command: ["worker", "-c", "/app/config.yaml"]
+    environment:
+      MYSQL__HOST: mysql
+      MYSQL__PORT: 3306
+      MYSQL__USER: ${MYSQL__USER:-emobase}
+      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
+      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
+      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+    volumes:
+      - ./data/public/uploads:/app/public/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       elasticsearch:
         condition: service_healthy
     networks:
@@ -62,7 +101,11 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -v '\"status\":\"red\"'"]
+      test:
+        [
+          "CMD-SHELL",
+          'curl -sf http://localhost:9200/_cluster/health | grep -v ''"status":"red"''',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
