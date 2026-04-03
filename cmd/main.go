@@ -6,6 +6,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/cmd/api"
 	"github.com/EMOBase/emobase-genomics/cmd/dbmigrate"
+	"github.com/EMOBase/emobase-genomics/cmd/esmigrate"
 	"github.com/EMOBase/emobase-genomics/cmd/worker"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -45,6 +46,11 @@ func main() {
 					},
 				},
 				Action: dbmigrate.Action,
+			},
+			{
+				Name:   "es:migrate",
+				Usage:  "Apply Elasticsearch index templates and static index setup",
+				Action: esmigrate.Action,
 			},
 		},
 	}

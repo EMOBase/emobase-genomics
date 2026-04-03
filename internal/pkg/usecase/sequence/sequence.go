@@ -2,77 +2,64 @@ package sequence
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"io"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/fasta"
+	"github.com/rs/zerolog/log"
 )
 
 type SequenceUseCase struct {
-	config             Config
-	repo ISequenceRepository
+	config Config
+	repo   ISequenceRepository
 }
 
-func New(
-	repo ISequenceRepository,
-) *SequenceUseCase {
+func New(repo ISequenceRepository, mainSpecies string) *SequenceUseCase {
 	return &SequenceUseCase{
-		config:             Config{BatchSize: 1000},
-		repo: repo,
+		config: Config{MainSpecies: mainSpecies, BatchSize: 1000},
+		repo:   repo,
 	}
 }
 
-func (uc *SequenceUseCase) Load(ctx context.Context, f *os.File) error {
+func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, sequenceType string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
-
-	sequenceType := determineSequenceType(filepath.Base(f.Name()))
-	if sequenceType == SEQUENCE_TYPE_UNKNOWN {
-		return ErrInvalidSequenceType
-	}
 
 	recordCh, errCh := fasta.ReadFastaRecords(ctx, f)
 	count := 0
 	batch := make([]entity.Sequence, 0, uc.config.BatchSize)
 
 	for {
-		var err error
-
 		fastaRecord, ok := <-recordCh
 
 		if !ok && len(batch) > 0 {
-			err = uc.repo.SaveMany(ctx, batch)
-			if err != nil {
+			if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 				return err
 			}
+			log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of sequences")
+			break
+		}
 
-			fmt.Println("Inserted last batch", len(batch), "sequences... Total:", count)
-
+		if !ok {
 			break
 		}
 
 		count++
-
-		sequence, err := mapFastaRecordToSequence(fastaRecord, sequenceType)
-		if err != nil {
-			return err
-		}
-		batch = append(batch, sequence)
+		batch = append(batch, entity.Sequence{
+			Name:     fastaRecord.Header,
+			Sequence: fastaRecord.Sequence,
+			Type:     sequenceType,
+			Species:  uc.config.MainSpecies,
+		})
 
 		if len(batch) < uc.config.BatchSize {
 			continue
 		}
 
-		err = uc.repo.SaveMany(ctx, batch)
-		if err != nil {
+		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 			return err
 		}
-
-		fmt.Println("Inserted", len(batch), "sequences... Total:", count)
-
+		log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted sequences batch")
 		batch = batch[:0]
 	}
 
@@ -83,51 +70,4 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f *os.File) error {
 	}
 
 	return nil
-}
-
-func determineSequenceType(fileName string) string {
-	fileName = strings.ToLower(fileName)
-
-	for _, suffix := range GZIP_EXTENSIONS {
-		if strings.HasSuffix(fileName, suffix) {
-			fileName = strings.TrimSuffix(fileName, suffix)
-			break
-		}
-	}
-
-	for _, suffix := range FASTA_EXTENSIONS {
-		if strings.HasSuffix(fileName, suffix) {
-			fileName = strings.TrimSuffix(fileName, suffix)
-			break
-		}
-	}
-
-	if fileNameHasSuffix(fileName, CDS_SUFFICES) {
-		return SEQUENCE_TYPE_CDS
-	} else if fileNameHasSuffix(fileName, TRANSCRIPT_SUFFICES) {
-		return SEQUENCE_TYPE_TRANSCRIPT
-	} else if fileNameHasSuffix(fileName, PROTEIN_SUFFICES) {
-		return SEQUENCE_TYPE_PROTEIN
-	}
-
-	return SEQUENCE_TYPE_UNKNOWN
-}
-
-func fileNameHasSuffix(fileName string, suffixes []string) bool {
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(fileName, suffix) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func mapFastaRecordToSequence(record fasta.FastaRecord, sequenceType string) (entity.Sequence, error) {
-	return entity.Sequence{
-		Name:     record.Header,
-		Sequence: record.Sequence,
-		Type:     sequenceType,
-		Species:  "Ptep", // TODO: Refactor this hardcoded value
-	}, nil
 }

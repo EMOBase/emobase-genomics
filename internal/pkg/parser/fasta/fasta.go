@@ -3,7 +3,7 @@ package fasta
 import (
 	"context"
 	"errors"
-	"os"
+	"io"
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/text"
@@ -11,7 +11,7 @@ import (
 
 var ErrInvalidFastaFormat = errors.New("invalid FASTA format: sequence data found before header")
 
-func ReadFastaRecords(ctx context.Context, f *os.File) (<-chan FastaRecord, <-chan error) {
+func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-chan error) {
 	recordCh := make(chan FastaRecord)
 	errCh := make(chan error, 1)
 

@@ -1,5 +1,6 @@
 package sequence
 
 type Config struct {
-	BatchSize int
+	MainSpecies string
+	BatchSize   int
 }

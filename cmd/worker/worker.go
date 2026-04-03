@@ -10,8 +10,10 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
+	reposequence "github.com/EMOBase/emobase-genomics/internal/pkg/repository/sequence"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
 	ucgenomic "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
+	ucsequence "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
 	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker/handlers"
 	"github.com/rs/zerolog/log"
@@ -41,12 +43,15 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	genomicRepo := repogenomic.New(esClient)
 	genomicUC := ucgenomic.New(genomicRepo, config.MainSpecies)
 
+	sequenceRepo := reposequence.New(esClient)
+	sequenceUC := ucsequence.New(sequenceRepo, config.MainSpecies)
+
 	jobHandlers := map[string]ucworker.Handler{
 		ucworker.JobTypeGenomicFNA:   handlers.NewGenomicFNAHandler(),
 		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
-		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(),
-		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(),
-		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(),
+		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
+		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
+		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(),
 	}
 

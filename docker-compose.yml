@@ -16,6 +16,19 @@ services:
     networks:
       - backend
 
+  es-migrate:
+    build: .
+    container_name: emobase_genomics_es_migrate
+    restart: no
+    command: ["es:migrate", "-c", "/app/config.yaml"]
+    environment:
+      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - backend
+
   api:
     build: .
     container_name: emobase_genomics_api
@@ -36,8 +49,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      elasticsearch:
-        condition: service_healthy
+      es-migrate:
+        condition: service_completed_successfully
     networks:
       - backend
 
@@ -58,8 +71,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      elasticsearch:
-        condition: service_healthy
+      es-migrate:
+        condition: service_completed_successfully
     networks:
       - backend
 

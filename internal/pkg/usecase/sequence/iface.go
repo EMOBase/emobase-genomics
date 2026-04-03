@@ -7,5 +7,6 @@ import (
 )
 
 type ISequenceRepository interface {
-	SaveMany(ctx context.Context, seqs []entity.Sequence) error
+	SaveMany(ctx context.Context, indexName string, seqs []entity.Sequence) error
+	SetAlias(ctx context.Context, indexName, aliasName string) error
 }
