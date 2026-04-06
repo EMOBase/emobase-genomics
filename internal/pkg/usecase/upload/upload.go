@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -38,7 +39,10 @@ var allowedFileTypes = map[string]struct{}{
 var fileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
 type UseCase struct {
-	Handler       *tusd.Handler
+	// Handler is the HTTP handler to mount in the router. It wraps tusHandler
+	// and may inject an artificial chunk delay in development.
+	Handler       http.Handler
+	tusHandler    *tusd.Handler
 	uploadDir     string
 	maxRetryCount int
 	versionRepo   IVersionRepository
@@ -49,6 +53,7 @@ type UseCase struct {
 func New(
 	uploadDir string,
 	maxRetryCount int,
+	chunkDelay time.Duration,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
@@ -81,10 +86,31 @@ func New(
 		return nil, err
 	}
 
-	uc.Handler = handler
+	uc.tusHandler = handler
+	if chunkDelay > 0 {
+		log.Warn().Dur("chunk_delay", chunkDelay).Msg("[dev] upload chunk delay enabled")
+		uc.Handler = &chunkDelayMiddleware{handler: handler, delay: chunkDelay}
+	} else {
+		uc.Handler = handler
+	}
+
 	go uc.processEvents()
 
 	return uc, nil
+}
+
+// chunkDelayMiddleware wraps a handler and sleeps before each PATCH request
+// (TUS chunk upload) to simulate slow network conditions during development.
+type chunkDelayMiddleware struct {
+	handler http.Handler
+	delay   time.Duration
+}
+
+func (m *chunkDelayMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPatch {
+		time.Sleep(m.delay)
+	}
+	m.handler.ServeHTTP(w, r)
 }
 
 func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.FileInfoChanges, error) {
@@ -164,7 +190,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 }
 
 func (uc *UseCase) processEvents() {
-	for event := range uc.Handler.CreatedUploads {
+	for event := range uc.tusHandler.CreatedUploads {
 		uc.onCreated(event)
 	}
 }

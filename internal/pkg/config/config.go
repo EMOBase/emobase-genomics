@@ -16,6 +16,13 @@ type Config struct {
 	MySQL         MySQLConfig         `mapstructure:"mysql"`
 	Jobs          JobsConfig          `mapstructure:"jobs"`
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
+	Dev           DevConfig           `mapstructure:"dev"`
+}
+
+type DevConfig struct {
+	// UploadChunkDelay adds an artificial delay after each uploaded chunk.
+	// Set to a non-zero value (e.g. "500ms") to simulate slow uploads during development.
+	UploadChunkDelay time.Duration `mapstructure:"upload_chunk_delay"`
 }
 
 type ElasticsearchConfig struct {
