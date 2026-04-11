@@ -2,99 +2,60 @@ package synonym
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"io"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
-	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/gff3"
-	synonymGFF3Parser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
+	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
+	"github.com/rs/zerolog/log"
 )
 
 type SynonymUseCase struct {
-	config            Config
-	repo ISynonymRepository
+	config Config
+	repo   ISynonymRepository
 }
 
-func New(
-	repo ISynonymRepository,
-) *SynonymUseCase {
+func New(repo ISynonymRepository) *SynonymUseCase {
 	return &SynonymUseCase{
-		config:            Config{BatchSize: 1000},
-		repo: repo,
+		config: Config{BatchSize: 1000},
+		repo:   repo,
 	}
 }
 
-func (uc *SynonymUseCase) Load(ctx context.Context, f *os.File) error {
+func (uc *SynonymUseCase) Load(ctx context.Context, f io.Reader, indexName string, p synonymparser.ISynonymParser) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	// TODO: Move Synonym GFF3 parser to a separate package and use it here
-	recordCh, errCh := gff3.ReadGFF3Records(ctx, f)
-	count := 0
-	batch := make([]entity.Synonym, 0)
+	synonymCh, errCh := p.Parse(ctx, f)
 
-	gff3Records := make([]gff3.GFF3Record, 0)
+	count := 0
+	batch := make([]entity.Synonym, 0, uc.config.BatchSize)
 
 	for {
-		var err error
+		s, ok := <-synonymCh
 
-		gff3Record, ok := <-recordCh
-
-		if !ok {
-			if len(gff3Records) > 0 {
-				synonyms, err := synonymGFF3Parser.MakeSynonyms(gff3Records)
-				if err != nil {
-					return err
-				}
-				for _, synonym := range synonyms {
-					batch = append(batch, synonym)
-					count++
-				}
+		if !ok && len(batch) > 0 {
+			if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
+				return err
 			}
-
-			if len(batch) > 0 {
-				err = uc.repo.SaveMany(ctx, batch)
-				if err != nil {
-					return err
-				}
-
-				fmt.Println("Inserted last batch", len(batch), "synonyms... Total:", count)
-			}
-
+			log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of synonyms")
 			break
 		}
 
-		if gff3Record.Type == "gene" {
-			if len(gff3Records) == 0 {
-				gff3Records = append(gff3Records, gff3Record)
-			} else {
-				synonyms, err := synonymGFF3Parser.MakeSynonyms(gff3Records)
-				if err != nil {
-					return err
-				}
-				for _, synonym := range synonyms {
-					batch = append(batch, synonym)
-					count++
-				}
-				gff3Records = []gff3.GFF3Record{gff3Record}
-			}
-		} else {
-			if len(gff3Records) > 0 {
-				gff3Records = append(gff3Records, gff3Record)
-			}
+		if !ok {
+			break
 		}
+
+		count++
+		batch = append(batch, s)
 
 		if len(batch) < uc.config.BatchSize {
 			continue
 		}
 
-		err = uc.repo.SaveMany(ctx, batch)
-		if err != nil {
+		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 			return err
 		}
-
-		fmt.Println("Inserted", len(batch), "synonyms... Total:", count)
-
+		log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted synonyms batch")
 		batch = batch[:0]
 	}
 

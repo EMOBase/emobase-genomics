@@ -12,10 +12,13 @@ import (
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
 	reposequence "github.com/EMOBase/emobase-genomics/internal/pkg/repository/sequence"
+	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
 	ucgenomic "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
 	ucorthology "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/orthology"
 	ucsequence "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
+	ucsynonym "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym"
+	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
 	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker/handlers"
 	"github.com/rs/zerolog/log"
@@ -51,13 +54,28 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	orthologyRepo := repoorthology.New(esClient)
 	orthologyUC := ucorthology.New(orthologyRepo)
 
+	synonymRepo := reposynonym.New(esClient)
+	synonymUC := ucsynonym.New(synonymRepo)
+
 	jobHandlers := map[string]ucworker.Handler{
 		ucworker.JobTypeGenomicFNA:   handlers.NewGenomicFNAHandler(),
-		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
+		ucworker.JobTypeGenomicGFF: handlers.NewGenomicGFFHandler(
+			versionRepo, genomicUC, genomicRepo,
+			synonymUC, synonymRepo,
+			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
+		),
 		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
+		ucworker.JobTypeFBSynonymTSV: handlers.NewFBSynonymTSVHandler(
+			synonymUC, synonymRepo,
+			synonymparser.NewFlyBaseSynonymParser(config.MainSpecies),
+		),
+		ucworker.JobTypeFBGNFBTRFBPPTSV: handlers.NewFBGNFBTRFBPPTSVHandler(
+			synonymUC, synonymRepo,
+			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
+		),
 	}
 
 	w := ucworker.New(

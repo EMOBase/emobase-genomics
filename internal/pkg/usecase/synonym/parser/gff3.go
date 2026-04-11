@@ -16,8 +16,21 @@ var (
 	ErrCDSMustHaveMRNAParent  = errors.New("CDS must have an mRNA parent declared before it")
 )
 
+// GFF3SynonymParser implements ISynonymParser for GFF3 genomic annotation files.
+type GFF3SynonymParser struct {
+	mainSpecies string
+}
+
+func NewGFF3SynonymParser(mainSpecies string) *GFF3SynonymParser {
+	return &GFF3SynonymParser{mainSpecies: mainSpecies}
+}
+
+func (p *GFF3SynonymParser) Parse(ctx context.Context, r io.Reader) (<-chan entity.Synonym, <-chan error) {
+	return parseSynonyms(ctx, r, p.mainSpecies)
+}
+
 // TODO: Return errors with line number for better debugging
-func ParseSynonyms(ctx context.Context, f io.Reader) (<-chan entity.Synonym, <-chan error) {
+func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies string) (<-chan entity.Synonym, <-chan error) {
 	synonymCh := make(chan entity.Synonym)
 	errCh := make(chan error, 1)
 
@@ -35,7 +48,7 @@ func ParseSynonyms(ctx context.Context, f io.Reader) (<-chan entity.Synonym, <-c
 					break
 				}
 
-				synonyms, err := MakeSynonyms(gff3Records)
+				synonyms, err := MakeSynonyms(gff3Records, mainSpecies)
 				if err != nil {
 					errCh <- err
 					return
@@ -57,7 +70,7 @@ func ParseSynonyms(ctx context.Context, f io.Reader) (<-chan entity.Synonym, <-c
 				if len(gff3Records) == 0 {
 					gff3Records = append(gff3Records, gff3Record)
 				} else {
-					synonyms, err := MakeSynonyms(gff3Records)
+					synonyms, err := MakeSynonyms(gff3Records, mainSpecies)
 					if err != nil {
 						errCh <- err
 						return
@@ -90,7 +103,7 @@ func ParseSynonyms(ctx context.Context, f io.Reader) (<-chan entity.Synonym, <-c
 	return synonymCh, errCh
 }
 
-func MakeSynonyms(gff3Records []gff3.GFF3Record) ([]entity.Synonym, error) {
+func MakeSynonyms(gff3Records []gff3.GFF3Record, mainSpecies string) ([]entity.Synonym, error) {
 	synonyms := make([]entity.Synonym, 0)
 
 	geneRecord := gff3Records[0]
@@ -103,8 +116,7 @@ func MakeSynonyms(gff3Records []gff3.GFF3Record) ([]entity.Synonym, error) {
 		return nil, err
 	}
 
-	species := "Ptep" // TODO: Use species from request input
-	gene := species + ":" + geneXrefIdGroup.Current
+	gene := mainSpecies + ":" + geneXrefIdGroup.Current
 
 	synonyms = append(synonyms, entity.Synonym{
 		Gene:    gene,

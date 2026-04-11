@@ -11,4 +11,9 @@ type ProcessPayload struct {
 	// Order and Algorithm are set for orthology.tsv jobs.
 	Order     string `json:"order,omitempty"`
 	Algorithm string `json:"algorithm,omitempty"`
+	// SynonymIndexName and SynonymAliasName are pre-computed at job creation time
+	// and shared across all synonym jobs for the same version (GENOMIC.GFF,
+	// FB_SYNONYM.TSV, FBGN_FBTR_FBPP.TSV) so they all write to the same index.
+	SynonymIndexName string `json:"synonym_index_name,omitempty"`
+	SynonymAliasName string `json:"synonym_alias_name,omitempty"`
 }

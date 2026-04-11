@@ -7,5 +7,6 @@ import (
 )
 
 type ISynonymRepository interface {
-	SaveMany(ctx context.Context, synonyms []entity.Synonym) error
+	SaveMany(ctx context.Context, indexName string, synonyms []entity.Synonym) error
+	SetAlias(ctx context.Context, indexName, aliasName string) error
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
+	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
 )
 
 type IVersionRepository interface {
@@ -30,17 +31,26 @@ type GenomicGFFHandler struct {
 	versionRepo IVersionRepository
 	genomicUC   IGenomicUseCase
 	genomicRepo IGenomicRepository
+	synonymUC   ISynonymUseCase
+	synonymRepo ISynonymRepository
+	gff3Parser  synonymparser.ISynonymParser
 }
 
 func NewGenomicGFFHandler(
 	versionRepo IVersionRepository,
 	genomicUC IGenomicUseCase,
 	genomicRepo IGenomicRepository,
+	synonymUC ISynonymUseCase,
+	synonymRepo ISynonymRepository,
+	gff3Parser synonymparser.ISynonymParser,
 ) *GenomicGFFHandler {
 	return &GenomicGFFHandler{
 		versionRepo: versionRepo,
 		genomicUC:   genomicUC,
 		genomicRepo: genomicRepo,
+		synonymUC:   synonymUC,
+		synonymRepo: synonymRepo,
+		gff3Parser:  gff3Parser,
 	}
 }
 
@@ -58,12 +68,34 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 		return fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("emobasegenomics-genomiclocation-%s", strings.ToLower(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().UnixMilli())
+	genomicAliasName := fmt.Sprintf("emobasegenomics-genomiclocation-%s", strings.ToLower(version.Name))
+	genomicIndexName := fmt.Sprintf("%s-%d", genomicAliasName, time.Now().UnixMilli())
 
-	f, err := os.Open(payload.FilePath)
+	// --- Genomic locations ---
+	if err := h.loadGzipFile(payload.FilePath, func(r io.Reader) error {
+		return h.genomicUC.Load(ctx, r, genomicIndexName)
+	}); err != nil {
+		return err
+	}
+
+	if err := h.genomicRepo.SetAlias(ctx, genomicIndexName, genomicAliasName); err != nil {
+		return err
+	}
+
+	// --- Synonyms from GFF3 (second pass over the same file) ---
+	if err := h.loadGzipFile(payload.FilePath, func(r io.Reader) error {
+		return h.synonymUC.Load(ctx, r, payload.SynonymIndexName, h.gff3Parser)
+	}); err != nil {
+		return err
+	}
+
+	return h.synonymRepo.SetAlias(ctx, payload.SynonymIndexName, payload.SynonymAliasName)
+}
+
+func (h *GenomicGFFHandler) loadGzipFile(path string, fn func(io.Reader) error) error {
+	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("failed to open file %q: %w", payload.FilePath, err)
+		return fmt.Errorf("failed to open file %q: %w", path, err)
 	}
 	defer f.Close()
 
@@ -73,9 +105,5 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 	}
 	defer gr.Close()
 
-	if err := h.genomicUC.Load(ctx, gr, indexName); err != nil {
-		return err
-	}
-
-	return h.genomicRepo.SetAlias(ctx, indexName, aliasName)
+	return fn(gr)
 }
