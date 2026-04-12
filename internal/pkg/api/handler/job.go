@@ -40,8 +40,8 @@ func (h *JobHandler) Get(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":              job.ID,
-		"status":          job.Status,
-		"result_metadata": job.ResultMetadata,
+		"id":             job.ID,
+		"status":         job.Status,
+		"resultMetadata": job.ResultMetadata,
 	})
 }

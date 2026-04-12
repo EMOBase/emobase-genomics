@@ -70,10 +70,11 @@ func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Vers
 	return v, nil
 }
 
-func (r *MySQLRepository) List(ctx context.Context) ([]entity.Version, error) {
+func (r *MySQLRepository) List(ctx context.Context, offset, limit int) ([]entity.Version, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, name, created_at, created_by, updated_at, updated_by
-		 FROM versions ORDER BY created_at DESC`,
+		 FROM versions ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+		limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -92,6 +93,12 @@ func (r *MySQLRepository) List(ctx context.Context) ([]entity.Version, error) {
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
+}
+
+func (r *MySQLRepository) Count(ctx context.Context) (int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM versions`).Scan(&total)
+	return total, err
 }
 
 func (r *MySQLRepository) Delete(ctx context.Context, id uint64) error {

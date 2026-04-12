@@ -170,6 +170,52 @@ func (r *MySQLRepository) HasActiveJobOfType(ctx context.Context, versionID uint
 	return count > 0, nil
 }
 
+// StatusCountsByVersionIDs returns job status counts for each of the given
+// version IDs in a single query. Versions with no jobs are not present in the
+// returned map.
+func (r *MySQLRepository) StatusCountsByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]entity.JobStatusCounts, error) {
+	if len(versionIDs) == 0 {
+		return map[uint64]entity.JobStatusCounts{}, nil
+	}
+
+	// Build the IN clause placeholders.
+	placeholders := make([]byte, 0, len(versionIDs)*2-1)
+	args := make([]any, len(versionIDs))
+	for i, id := range versionIDs {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args[i] = id
+	}
+
+	query := `SELECT version_id,
+	                 SUM(status = 'RUNNING') AS running_count,
+	                 SUM(status = 'FAILED')  AS failed_count,
+	                 SUM(status = 'DONE')    AS done_count,
+	                 COUNT(*)                AS total_count
+	          FROM jobs
+	          WHERE version_id IN (` + string(placeholders) + `)
+	          GROUP BY version_id`
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uint64]entity.JobStatusCounts, len(versionIDs))
+	for rows.Next() {
+		var versionID uint64
+		var counts entity.JobStatusCounts
+		if err := rows.Scan(&versionID, &counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount); err != nil {
+			return nil, err
+		}
+		result[versionID] = counts
+	}
+	return result, rows.Err()
+}
+
 func (r *MySQLRepository) MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,

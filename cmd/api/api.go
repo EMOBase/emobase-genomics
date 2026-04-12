@@ -12,6 +12,7 @@ import (
 	pkgapi "github.com/EMOBase/emobase-genomics/internal/pkg/api"
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
+	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
@@ -39,7 +40,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	jobRepo := repojob.New(db)
 
 	versionRepo := repoversion.New(db)
-	versionUC := ucversion.New(versionRepo)
+	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo)
 
 	jobUC := ucjob.New(jobRepo)
 

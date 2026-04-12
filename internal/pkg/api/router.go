@@ -48,7 +48,9 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		authenticated.Any("/uploads/*any", uploadHandler)
 
 		versionHandler := handler.NewVersionHandler(versionUC)
+		authenticated.GET("/versions", versionHandler.List)
 		authenticated.POST("/versions", versionHandler.Create)
+		authenticated.POST("/versions/default", versionHandler.SetDefault)
 
 		jobHandler := handler.NewJobHandler(jobUC)
 		authenticated.GET("/jobs/:id", jobHandler.Get)
