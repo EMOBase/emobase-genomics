@@ -14,12 +14,11 @@ type Handler interface {
 
 // Job type constants — must match the values stored in jobs.type.
 const (
-	JobTypeGenomicFNA      = "GENOMIC.FNA"
-	JobTypeGenomicGFF      = "GENOMIC.GFF"
-	JobTypeRNAFNA          = "RNA.FNA"
-	JobTypeCDSFNA          = "CDS.FNA"
-	JobTypeProteinFAA      = "PROTEIN.FAA"
-	JobTypeOrthologyTSV    = "ORTHOLOGY.TSV"
-	JobTypeFBSynonymTSV    = "FB_SYNONYM.TSV"
-	JobTypeFBGNFBTRFBPPTSV = "FBGN_FBTR_FBPP.TSV"
+	JobTypeGenomicFNA   = "GENOMIC.FNA"
+	JobTypeGenomicGFF   = "GENOMIC.GFF"
+	JobTypeRNAFNA       = "RNA.FNA"
+	JobTypeCDSFNA       = "CDS.FNA"
+	JobTypeProteinFAA   = "PROTEIN.FAA"
+	JobTypeOrthologyTSV = "ORTHOLOGY.TSV"
+	JobTypeSynonym      = "SYNONYM"
 )

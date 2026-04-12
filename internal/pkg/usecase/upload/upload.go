@@ -332,24 +332,13 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	fileType := meta["fileType"]
 
-	// For genomic.gff uploads, pre-compute a shared synonym index name so that
-	// the GENOMIC.GFF handler (which extracts GFF3 synonyms) and the FB synonym
-	// handlers all write to the same timestamped ES index.
-	var synonymAliasName, synonymIndexName string
-	if fileType == "genomic.gff" {
-		synonymAliasName = "emobasegenomics-synonym-" + strings.ToLower(meta["version"])
-		synonymIndexName = fmt.Sprintf("%s-%d", synonymAliasName, time.Now().UnixMilli())
-	}
-
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
-		UploadFileID:     uploadID,
-		VersionID:        versionID,
-		FilePath:         filePath,
-		FileType:         fileType,
-		Order:            meta["order"],
-		Algorithm:        meta["algorithm"],
-		SynonymIndexName: synonymIndexName,
-		SynonymAliasName: synonymAliasName,
+		UploadFileID: uploadID,
+		VersionID:    versionID,
+		FilePath:     filePath,
+		FileType:     fileType,
+		Order:        meta["order"],
+		Algorithm:    meta["algorithm"],
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal job payload: %w", err)
@@ -376,73 +365,63 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	jobs := []*entity.Job{job}
 
-	// When a genomic GFF file is uploaded, also enqueue jobs for any synonym
-	// files already present on disk (they are uploaded separately, versionless).
+	// When a genomic GFF file is uploaded, also enqueue a SYNONYM job that
+	// processes GFF3 + any versionless FB synonym files into a single index.
 	if fileType == "genomic.gff" {
-		synonymJobs, err := uc.enqueueSynonymJobs(ctx, versionID, synonymIndexName, synonymAliasName)
+		synonymJob, err := uc.enqueueSynonymJob(ctx, versionID, filePath)
 		if err != nil {
 			return nil, err
 		}
-		jobs = append(jobs, synonymJobs...)
+		if synonymJob != nil {
+			jobs = append(jobs, synonymJob)
+		}
 	}
 
 	return jobs, nil
 }
 
-// enqueueSynonymJobs creates FB_SYNONYM.TSV and FBGN_FBTR_FBPP.TSV jobs for
-// any matching synonym files found in the uploads root directory.
-func (uc *UseCase) enqueueSynonymJobs(ctx context.Context, versionID uint64, synonymIndexName, synonymAliasName string) ([]*entity.Job, error) {
-	type synonymJobDef struct {
-		pattern string
-		jobType string
-	}
-
-	defs := []synonymJobDef{
-		{pattern: "fb_synonym_*.tsv.gz", jobType: "FB_SYNONYM.TSV"},
-		{pattern: "fbgn_fbtr_fbpp_*.tsv.gz", jobType: "FBGN_FBTR_FBPP.TSV"},
-	}
-
-	var jobs []*entity.Job
-	for _, def := range defs {
-		matches, err := filepath.Glob(filepath.Join(uc.uploadDir, def.pattern))
+// enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
+// path plus any versionless FB synonym files found in the uploads root.
+func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffFilePath string) (*entity.Job, error) {
+	var synonymFiles []string
+	for _, pattern := range []string{"fb_synonym_*.tsv.gz", "fbgn_fbtr_fbpp_*.tsv.gz"} {
+		matches, err := filepath.Glob(filepath.Join(uc.uploadDir, pattern))
 		if err != nil {
-			return nil, fmt.Errorf("failed to glob for %s: %w", def.pattern, err)
+			return nil, fmt.Errorf("failed to glob for %s: %w", pattern, err)
 		}
-		for _, match := range matches {
-			rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
-				VersionID:        versionID,
-				FilePath:         match,
-				FileType:         def.jobType,
-				SynonymIndexName: synonymIndexName,
-				SynonymAliasName: synonymAliasName,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal synonym job payload: %w", err)
-			}
-
-			p := json.RawMessage(rawPayload)
-			j := &entity.Job{
-				VersionID:     versionID,
-				Type:          def.jobType,
-				Payload:       &p,
-				Status:        entity.JobStatusPending,
-				MaxRetryCount: uc.maxRetryCount,
-			}
-
-			if err := uc.jobRepo.Create(ctx, j); err != nil {
-				return nil, fmt.Errorf("failed to create synonym job: %w", err)
-			}
-
-			log.Ctx(ctx).Info().
-				Str("jobType", j.Type).
-				Uint64("jobID", j.ID).
-				Str("filePath", match).
-				Msg("synonym job enqueued")
-
-			jobs = append(jobs, j)
-		}
+		synonymFiles = append(synonymFiles, matches...)
 	}
-	return jobs, nil
+
+	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
+		VersionID:    versionID,
+		FilePath:     gffFilePath,
+		FileType:     "synonym",
+		SynonymFiles: synonymFiles,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal synonym job payload: %w", err)
+	}
+
+	p := json.RawMessage(rawPayload)
+	j := &entity.Job{
+		VersionID:     versionID,
+		Type:          "SYNONYM",
+		Payload:       &p,
+		Status:        entity.JobStatusPending,
+		MaxRetryCount: uc.maxRetryCount,
+	}
+
+	if err := uc.jobRepo.Create(ctx, j); err != nil {
+		return nil, fmt.Errorf("failed to create synonym job: %w", err)
+	}
+
+	log.Ctx(ctx).Info().
+		Uint64("jobID", j.ID).
+		Str("gffFile", gffFilePath).
+		Strs("synonymFiles", synonymFiles).
+		Msg("synonym job enqueued")
+
+	return j, nil
 }
 
 func (uc *UseCase) removeUploadFiles(uploadID string) {

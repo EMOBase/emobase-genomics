@@ -59,21 +59,15 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	jobHandlers := map[string]ucworker.Handler{
 		ucworker.JobTypeGenomicFNA:   handlers.NewGenomicFNAHandler(),
-		ucworker.JobTypeGenomicGFF: handlers.NewGenomicGFFHandler(
-			versionRepo, genomicUC, genomicRepo,
-			synonymUC, synonymRepo,
-			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
-		),
+		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
 		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
-		ucworker.JobTypeFBSynonymTSV: handlers.NewFBSynonymTSVHandler(
-			synonymUC, synonymRepo,
+		ucworker.JobTypeSynonym: handlers.NewSynonymHandler(
+			versionRepo, synonymUC, synonymRepo,
+			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
 			synonymparser.NewFlyBaseSynonymParser(config.MainSpecies),
-		),
-		ucworker.JobTypeFBGNFBTRFBPPTSV: handlers.NewFBGNFBTRFBPPTSVHandler(
-			synonymUC, synonymRepo,
 			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
 		),
 	}
