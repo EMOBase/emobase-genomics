@@ -28,10 +28,10 @@ type VersionList struct {
 }
 
 type UseCase struct {
-	versionRepo    IVersionRepository
+	versionRepo     IVersionRepository
 	appSettingsRepo IAppSettingsRepository
-	jobRepo        IJobRepository
-	uploadFileRepo IUploadFileRepository
+	jobRepo         IJobRepository
+	uploadFileRepo  IUploadFileRepository
 }
 
 func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository) *UseCase {
@@ -91,15 +91,15 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 
 func computeVersionStatus(c entity.JobStatusCounts) string {
 	if c.FailedCount > 0 {
-		return "error"
+		return "ERROR"
 	}
 	if c.RunningCount > 0 {
-		return "processing"
+		return "PROCESSING"
 	}
 	if c.TotalCount > 0 && c.DoneCount == c.TotalCount {
-		return "ready"
+		return "READY"
 	}
-	return "draft"
+	return "DRAFT"
 }
 
 func (uc *UseCase) SetDefaultVersion(ctx context.Context, name string) (*entity.Version, error) {
