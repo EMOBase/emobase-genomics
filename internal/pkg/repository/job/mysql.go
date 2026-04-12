@@ -37,7 +37,7 @@ func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 // Intended for workers to claim jobs.
 func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName string) ([]entity.Job, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT j.id, j.version_id, j.type, j.status, j.result_metadata
+		`SELECT j.id, j.version_id, j.type, j.status, j.payload, j.result_metadata
 		 FROM jobs j
 		 JOIN versions v ON v.id = j.version_id
 		 WHERE v.name = ?
@@ -52,7 +52,7 @@ func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName str
 	var jobs []entity.Job
 	for rows.Next() {
 		var j entity.Job
-		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Status, &j.ResultMetadata); err != nil {
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Status, &j.Payload, &j.ResultMetadata); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, j)

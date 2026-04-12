@@ -128,7 +128,7 @@ components:
 
     JobSummary:
       type: object
-      required: [id, versionId, type, status]
+      required: [id, versionId, type, status, payload]
       properties:
         id:
           type: integer
@@ -142,6 +142,9 @@ components:
           $ref: '#/components/schemas/JobType'
         status:
           $ref: '#/components/schemas/JobStatus'
+        payload:
+          description: Job-specific input parameters stored at enqueue time.
+          nullable: true
         error:
           type: string
           description: Error message from the worker. Present only when `status` is `FAILED`.
