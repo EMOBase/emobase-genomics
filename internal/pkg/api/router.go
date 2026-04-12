@@ -5,6 +5,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/handler"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/middleware"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
@@ -33,7 +34,8 @@ func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *uc
 
 func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase) {
 	router.GET("/health", func(c *gin.Context) {
-		c.AbortWithStatusJSON(http.StatusOK, "OK")
+		apires.OK(c, "OK")
+		c.Abort()
 	})
 
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
@@ -53,6 +55,6 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		authenticated.POST("/versions/default", versionHandler.SetDefault)
 
 		jobHandler := handler.NewJobHandler(jobUC)
-		authenticated.GET("/jobs/:id", jobHandler.Get)
+		authenticated.GET("/jobs", jobHandler.ListByVersion)
 	}
 }

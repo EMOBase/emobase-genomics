@@ -33,28 +33,33 @@ func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	return nil
 }
 
-func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Job, error) {
-	j := &entity.Job{}
-	err := r.db.QueryRowContext(ctx,
-		`SELECT id, version_id, type, payload, status, retry_count, max_retry_count,
-		        result_metadata, created_at, updated_at, started_at, completed_at
-		 FROM jobs WHERE id = ?`,
-		id,
-	).Scan(
-		&j.ID, &j.VersionID, &j.Type, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
-		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
+// FindPending returns up to limit jobs in PENDING status, ordered by created_at.
+// Intended for workers to claim jobs.
+func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName string) ([]entity.Job, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT j.id, j.version_id, j.type, j.status, j.result_metadata
+		 FROM jobs j
+		 JOIN versions v ON v.id = j.version_id
+		 WHERE v.name = ?
+		 ORDER BY j.created_at ASC`,
+		versionName,
 	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
-	return j, nil
+	defer rows.Close()
+
+	var jobs []entity.Job
+	for rows.Next() {
+		var j entity.Job
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Status, &j.ResultMetadata); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
 }
 
-// FindPending returns up to limit jobs in PENDING status, ordered by created_at.
-// Intended for workers to claim jobs.
 func (r *MySQLRepository) FindPending(ctx context.Context, limit int) ([]entity.Job, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, version_id, type, payload, status, retry_count, max_retry_count,

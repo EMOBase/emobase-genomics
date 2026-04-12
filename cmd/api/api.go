@@ -40,7 +40,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	jobRepo := repojob.New(db)
 
 	versionRepo := repoversion.New(db)
-	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo)
+	uploadFileRepo := repouploadfile.New(db)
+	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo, uploadFileRepo)
 
 	jobUC := ucjob.New(jobRepo)
 
@@ -50,7 +51,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		config.Dev.UploadChunkDelay,
 		versionRepo,
 		jobRepo,
-		repouploadfile.New(db),
+		uploadFileRepo,
 	)
 	if err != nil {
 		return err

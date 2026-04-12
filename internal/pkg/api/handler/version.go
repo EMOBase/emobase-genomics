@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/gin-gonic/gin"
@@ -45,7 +46,7 @@ func (h *VersionHandler) List(c *gin.Context) {
 		panic(err)
 	}
 
-	c.JSON(http.StatusOK, result)
+	apires.OK(c, result)
 }
 
 func (h *VersionHandler) SetDefault(c *gin.Context) {
@@ -53,20 +54,20 @@ func (h *VersionHandler) SetDefault(c *gin.Context) {
 		Name string `json:"name" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		apires.Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	v, err := h.uc.SetDefaultVersion(c.Request.Context(), body.Name)
 	if err != nil {
 		if errors.Is(err, ucversion.ErrVersionNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"message": "version not found"})
+			apires.Fail(c, http.StatusNotFound, "version not found")
 			return
 		}
 		panic(err)
 	}
 
-	c.JSON(http.StatusOK, v)
+	apires.OK(c, v)
 }
 
 func (h *VersionHandler) Create(c *gin.Context) {
@@ -74,18 +75,18 @@ func (h *VersionHandler) Create(c *gin.Context) {
 		Name string `json:"name" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		apires.Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	v, err := h.uc.CreateVersion(c.Request.Context(), body.Name)
 	if err != nil {
 		if errors.Is(err, ucversion.ErrVersionAlreadyExists) {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "version already exists"})
+			apires.Fail(c, http.StatusBadRequest, "version already exists")
 			return
 		}
 		panic(err)
 	}
 
-	c.JSON(http.StatusCreated, v)
+	apires.Created(c, v)
 }

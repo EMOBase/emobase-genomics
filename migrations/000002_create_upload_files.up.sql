@@ -4,6 +4,7 @@ CREATE TABLE upload_files (
     file_path     VARCHAR(1024)                             NOT NULL,
     file_type     VARCHAR(100)                              NOT NULL,
     metadata      JSON,
+    file_size     BIGINT UNSIGNED                           NOT NULL DEFAULT 0,
     upload_status ENUM('UPLOADING','COMPLETED','FAILED')    NOT NULL DEFAULT 'UPLOADING',
     created_at    DATETIME                                  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by    VARCHAR(255)                              NOT NULL,

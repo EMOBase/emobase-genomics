@@ -2,17 +2,15 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"strconv"
 
-	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	"github.com/gin-gonic/gin"
 )
 
 type jobUseCase interface {
-	GetJob(ctx context.Context, id uint64) (*entity.Job, error)
+	ListJobsByVersion(ctx context.Context, versionName string) ([]ucjob.JobSummary, error)
 }
 
 type JobHandler struct {
@@ -23,25 +21,17 @@ func NewJobHandler(uc jobUseCase) *JobHandler {
 	return &JobHandler{uc: uc}
 }
 
-func (h *JobHandler) Get(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid job id"})
+func (h *JobHandler) ListByVersion(c *gin.Context) {
+	version := c.Query("version")
+	if version == "" {
+		apires.Fail(c, http.StatusBadRequest, "version query parameter is required")
 		return
 	}
 
-	job, err := h.uc.GetJob(c.Request.Context(), id)
+	summaries, err := h.uc.ListJobsByVersion(c.Request.Context(), version)
 	if err != nil {
-		if errors.Is(err, ucjob.ErrJobNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"message": "job not found"})
-			return
-		}
 		panic(err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":             job.ID,
-		"status":         job.Status,
-		"resultMetadata": job.ResultMetadata,
-	})
+	apires.OK(c, summaries)
 }

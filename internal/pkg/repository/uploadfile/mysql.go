@@ -18,11 +18,50 @@ func New(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, f *entity.UploadFile) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO upload_files (id, version_id, file_path, file_type, metadata, upload_status, created_by)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		f.ID, f.VersionID, f.FilePath, f.FileType, f.Metadata, f.UploadStatus, f.CreatedBy,
+		`INSERT INTO upload_files (id, version_id, file_path, file_type, file_size, metadata, upload_status, created_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.VersionID, f.FilePath, f.FileType, f.FileSize, f.Metadata, f.UploadStatus, f.CreatedBy,
 	)
 	return err
+}
+
+func (r *MySQLRepository) TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error) {
+	if len(versionIDs) == 0 {
+		return map[uint64]int64{}, nil
+	}
+
+	placeholders := make([]byte, 0, len(versionIDs)*2-1)
+	args := make([]any, len(versionIDs))
+	for i, id := range versionIDs {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args[i] = id
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT version_id, COALESCE(SUM(file_size), 0)
+		 FROM upload_files
+		 WHERE version_id IN (`+string(placeholders)+`) AND deleted_at IS NULL
+		 GROUP BY version_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uint64]int64, len(versionIDs))
+	for rows.Next() {
+		var versionID uint64
+		var total int64
+		if err := rows.Scan(&versionID, &total); err != nil {
+			return nil, err
+		}
+		result[versionID] = total
+	}
+	return result, rows.Err()
 }
 
 func (r *MySQLRepository) FindByID(ctx context.Context, id string) (*entity.UploadFile, error) {

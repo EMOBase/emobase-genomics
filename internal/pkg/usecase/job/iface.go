@@ -7,5 +7,5 @@ import (
 )
 
 type IJobRepository interface {
-	FindByID(ctx context.Context, id uint64) (*entity.Job, error)
+	FindByVersionName(ctx context.Context, versionName string) ([]entity.Job, error)
 }

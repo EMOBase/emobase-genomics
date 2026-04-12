@@ -18,6 +18,7 @@ type UploadFile struct {
 	VersionID    uint64           `db:"version_id"`
 	FilePath     string           `db:"file_path"`
 	FileType     string           `db:"file_type"`
+	FileSize     int64            `db:"file_size"`
 	Metadata     *json.RawMessage `db:"metadata"`
 	UploadStatus UploadStatus     `db:"upload_status"`
 	CreatedAt    time.Time        `db:"created_at"`

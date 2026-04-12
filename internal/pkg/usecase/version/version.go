@@ -15,8 +15,9 @@ var (
 
 type VersionItem struct {
 	entity.Version
-	IsDefault bool   `json:"isDefault"`
-	Status    string `json:"status"`
+	IsDefault     bool   `json:"isDefault"`
+	Status        string `json:"status"`
+	TotalFileSize int64  `json:"totalFileSize"`
 }
 
 type VersionList struct {
@@ -27,13 +28,14 @@ type VersionList struct {
 }
 
 type UseCase struct {
-	versionRepo     IVersionRepository
+	versionRepo    IVersionRepository
 	appSettingsRepo IAppSettingsRepository
-	jobRepo         IJobRepository
+	jobRepo        IJobRepository
+	uploadFileRepo IUploadFileRepository
 }
 
-func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository) *UseCase {
-	return &UseCase{versionRepo: versionRepo, appSettingsRepo: appSettingsRepo, jobRepo: jobRepo}
+func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository) *UseCase {
+	return &UseCase{versionRepo: versionRepo, appSettingsRepo: appSettingsRepo, jobRepo: jobRepo, uploadFileRepo: uploadFileRepo}
 }
 
 func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*VersionList, error) {
@@ -64,12 +66,18 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 		return nil, err
 	}
 
+	fileSizes, err := uc.uploadFileRepo.TotalFileSizeByVersionIDs(ctx, versionIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]VersionItem, len(versions))
 	for i, v := range versions {
 		items[i] = VersionItem{
-			Version:   v,
-			IsDefault: defaultVersionID != nil && *defaultVersionID == v.ID,
-			Status:    computeVersionStatus(statusCounts[v.ID]),
+			Version:       v,
+			IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
+			Status:        computeVersionStatus(statusCounts[v.ID]),
+			TotalFileSize: fileSizes[v.ID],
 		}
 	}
 

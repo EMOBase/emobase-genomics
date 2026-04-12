@@ -21,3 +21,7 @@ type IAppSettingsRepository interface {
 type IJobRepository interface {
 	StatusCountsByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]entity.JobStatusCounts, error)
 }
+
+type IUploadFileRepository interface {
+	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
+}

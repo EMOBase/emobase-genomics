@@ -1,0 +1,621 @@
+openapi: 3.0.3
+info:
+  title: EMOBase Genomics API
+  version: 1.0.0
+
+servers:
+  - url: localhost:8000
+    description: Local development server
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [error, requestId]
+      properties:
+        error:
+          type: string
+        requestId:
+          type: string
+          example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    Version:
+      type: object
+      required: [id, name, createdAt, createdBy, updatedAt, updatedBy]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: dmel_r6.54
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          example: admin
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          example: admin
+
+    VersionItem:
+      allOf:
+        - $ref: '#/components/schemas/Version'
+        - type: object
+          required: [isDefault, status]
+          properties:
+            isDefault:
+              type: boolean
+              description: Whether this is the currently configured default version.
+            totalFileSize:
+              type: integer
+              format: int64
+              description: Sum of `file_size` for all non-deleted upload files belonging to this version, in bytes.
+              example: 1073741824
+            status:
+              type: string
+              enum: [draft, processing, error, ready]
+              description: |
+                Derived from the state of jobs associated with this version.
+                - `draft` — no jobs exist, or all jobs are PENDING.
+                - `processing` — at least one job is RUNNING, none are FAILED.
+                - `error` — at least one job is FAILED.
+                - `ready` — all jobs are DONE.
+
+    VersionList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VersionItem'
+        total:
+          type: integer
+          description: Total number of versions across all pages.
+          example: 42
+        page:
+          type: integer
+          description: Current page number (1-based).
+          example: 1
+        pageSize:
+          type: integer
+          description: Number of items per page.
+          example: 20
+
+    JobStatus:
+      type: string
+      enum: [PENDING, RUNNING, DONE, FAILED]
+      description: |
+        - `PENDING` — queued, not yet picked up by a worker.
+        - `RUNNING` — currently being processed by a worker.
+        - `DONE` — completed successfully.
+        - `FAILED` — exhausted all retry attempts; see `resultMetadata` or `error` for details.
+
+    JobType:
+      type: string
+      enum:
+        - GENOMIC.FNA
+        - GENOMIC.GFF
+        - RNA.FNA
+        - CDS.FNA
+        - PROTEIN.FAA
+        - ORTHOLOGY.TSV
+        - SYNONYM
+      description: |
+        Identifies which file type and pipeline the job processes.
+        - `GENOMIC.FNA` — genomic FASTA sequences.
+        - `GENOMIC.GFF` — genomic feature annotations (GFF3).
+        - `RNA.FNA` — RNA FASTA sequences.
+        - `CDS.FNA` — CDS FASTA sequences.
+        - `PROTEIN.FAA` — protein FASTA sequences.
+        - `ORTHOLOGY.TSV` — orthology group mappings.
+        - `SYNONYM` — gene synonyms extracted from GFF3, `fb_synonym.tsv`, and `fbgn_fbtr_fbpp.tsv`.
+
+    JobSummary:
+      type: object
+      required: [id, versionId, type, status]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        versionId:
+          type: integer
+          format: int64
+          example: 1
+        type:
+          $ref: '#/components/schemas/JobType'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        error:
+          type: string
+          description: Error message from the worker. Present only when `status` is `FAILED`.
+          example: failed to open file "/uploads/dmel/genomic.gff.gz"
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    example: OK
+                  requestId:
+                    type: string
+                    example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions:
+    get:
+      summary: List versions
+      operationId: listVersions
+      tags: [Versions]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number (1-based).
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of items per page.
+      responses:
+        '200':
+          description: Paginated list of versions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/VersionList'
+                  requestId:
+                    type: string
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    post:
+      summary: Create a version
+      operationId: createVersion
+      tags: [Versions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: dmel_r6.54
+      responses:
+        '201':
+          description: Version created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Version'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing name, or version already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingName:
+                  summary: name field is required
+                  value:
+                    error: "Key: 'Name' Error:Field validation for 'Name' failed on the 'required' tag"
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                alreadyExists:
+                  summary: version already exists
+                  value:
+                    error: version already exists
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/default:
+    post:
+      summary: Set the default version
+      operationId: setDefaultVersion
+      tags: [Versions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: dmel_r6.54
+      responses:
+        '200':
+          description: Default version updated. Returns the version that was set as default.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Version'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingName:
+                  value:
+                    error: "Key: 'Name' Error:Field validation for 'Name' failed on the 'required' tag"
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /jobs:
+    get:
+      summary: List jobs for a version
+      operationId: listVersionJobs
+      tags: [Jobs]
+      parameters:
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.54`).
+      responses:
+        '200':
+          description: All jobs belonging to the given version, ordered by creation time ascending.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JobSummary'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing `version` query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingVersion:
+                  value:
+                    error: version query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /uploads:
+    post:
+      summary: Create a TUS upload
+      description: |
+        Initiates a resumable file upload using the [TUS protocol v1.0.0](https://tus.io/protocols/resumable-upload).
+
+        **Upload-Metadata fields** (each value is base64-encoded):
+
+        | Key | Required | Description |
+        |---|---|---|
+        | `fileType` | Yes | One of the accepted file types (see enum below). |
+        | `fileName` | Yes | File name; must end with `.gz` or `.gzip`. |
+        | `version` | Conditional | Version name. Required for all file types except `fb_synonym.tsv` and `fbgn_fbtr_fbpp.tsv`. |
+        | `order` | Conditional | Required when `fileType` is `orthology.tsv`. |
+        | `algorithm` | Conditional | Required when `fileType` is `orthology.tsv`. |
+
+        **Accepted `fileType` values:**
+        - `genomic.fna`
+        - `genomic.gff`
+        - `rna.fna`
+        - `cds.fna`
+        - `protein.faa`
+        - `orthology.tsv`
+        - `fb_synonym.tsv` *(versionless — `version` field not required)*
+        - `fbgn_fbtr_fbpp.tsv` *(versionless — `version` field not required)*
+
+        On success, the `Location` response header contains the URL for subsequent PATCH / HEAD requests.
+      operationId: createUpload
+      tags: [Uploads]
+      parameters:
+        - name: Tus-Resumable
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: ['1.0.0']
+        - name: Upload-Length
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Total size of the upload in bytes.
+        - name: Upload-Metadata
+          in: header
+          required: true
+          schema:
+            type: string
+          description: |
+            Comma-separated `key base64(value)` pairs.
+            Example: `fileType Z2Vub21pYy5nZmY=,fileName ZG1lbC5nZmYuZ3o=,version ZG1lbF9yNi41NA==`
+      responses:
+        '201':
+          description: Upload created.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created upload resource.
+            Tus-Resumable:
+              schema:
+                type: string
+                enum: ['1.0.0']
+        '400':
+          description: Invalid metadata (unknown fileType, invalid fileName, missing required fields, non-gzip extension).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidFileType:
+                  summary: unknown fileType
+                  value:
+                    error: 'invalid fileType "genomic.xyz", must be one of: genomic.fna, genomic.gff, ...'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidExtension:
+                  summary: file is not gzip
+                  value:
+                    error: only gzip files are accepted (.gz or .gzip)
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                versionNotFound:
+                  summary: version does not exist
+                  value:
+                    error: 'version "dmel_r6.99" not found'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '409':
+          description: A job for this file type is already pending or running for the given version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                conflict:
+                  value:
+                    error: a job for file type "genomic.gff" is already pending or running for this version
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /uploads/{id}:
+    head:
+      summary: Query upload offset (TUS)
+      description: Returns the current byte offset of a resumable upload.
+      operationId: getUploadOffset
+      tags: [Uploads]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Upload ID returned in the `Location` header of the create response.
+        - name: Tus-Resumable
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: ['1.0.0']
+      responses:
+        '200':
+          description: Current offset.
+          headers:
+            Upload-Offset:
+              schema:
+                type: integer
+              description: Number of bytes already uploaded.
+            Upload-Length:
+              schema:
+                type: integer
+              description: Total upload size in bytes.
+            Tus-Resumable:
+              schema:
+                type: string
+                enum: ['1.0.0']
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Upload not found.
+
+    patch:
+      summary: Upload a chunk (TUS)
+      description: Appends bytes to an in-progress upload. When the final chunk is received and the file is valid, the server enqueues background processing jobs.
+      operationId: uploadChunk
+      tags: [Uploads]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Tus-Resumable
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: ['1.0.0']
+        - name: Upload-Offset
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Byte offset at which this chunk begins.
+        - name: Content-Type
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [application/offset+octet-stream]
+      requestBody:
+        required: true
+        content:
+          application/offset+octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: Chunk accepted.
+          headers:
+            Upload-Offset:
+              schema:
+                type: integer
+              description: New byte offset after this chunk.
+            Tus-Resumable:
+              schema:
+                type: string
+                enum: ['1.0.0']
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Upload not found.
+        '422':
+          description: Uploaded file is not a valid gzip archive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notGzip:
+                  value:
+                    error: uploaded file is not a valid gzip
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+tags:
+  - name: Versions
+    description: Genome version management.
+  - name: Jobs
+    description: Background processing job tracking.
+  - name: Uploads
+    description: Resumable file uploads (TUS protocol v1.0.0).
+  - name: System
+    description: Infrastructure endpoints.
