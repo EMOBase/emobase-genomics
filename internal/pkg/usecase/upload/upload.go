@@ -43,6 +43,16 @@ var versionlessFileTypes = map[string]struct{}{
 	"fbgn_fbtr_fbpp.tsv": {},
 }
 
+// versionlessFileMeta maps each versionless fileType to the required filename
+// prefix (for validation) and the canonical name used when storing the file.
+var versionlessFileMeta = map[string]struct {
+	prefix        string
+	canonicalName string
+}{
+	"fb_synonym.tsv":     {prefix: "fb_synonym_", canonicalName: "fb_synonym.tsv.gz"},
+	"fbgn_fbtr_fbpp.tsv": {prefix: "fbgn_fbtr_fbpp_", canonicalName: "fbgn_fbtr_fbpp.tsv.gz"},
+}
+
 // fileNamePattern allows filenames up to 255 characters starting with an
 // alphanumeric character, followed by letters, digits, dots, dashes, or underscores.
 var fileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
@@ -153,8 +163,14 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		), tusd.FileInfoChanges{}, errors.New("invalid file extension")
 	}
 
-	// Versionless file types skip all version and job conflict checks.
-	if _, versionless := versionlessFileTypes[fileType]; versionless {
+	// Versionless file types: validate the expected filename prefix, then skip
+	// all version and job conflict checks.
+	if meta, versionless := versionlessFileMeta[fileType]; versionless {
+		if !strings.HasPrefix(fileName, meta.prefix) {
+			return errResponse(http.StatusBadRequest,
+				fmt.Sprintf("invalid fileName for fileType %q: must start with %q", fileType, meta.prefix),
+			), tusd.FileInfoChanges{}, errors.New("invalid versionless fileName prefix")
+		}
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, nil
 	}
 
@@ -278,11 +294,12 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return errResponse(http.StatusUnprocessableEntity, "uploaded file is not a valid gzip"), errors.New("not a gzip file")
 	}
 
-	// Versionless files go to the uploads root; versioned files go into a subfolder.
+	// Versionless files go to the uploads root under a canonical fixed name;
+	// versioned files go into a version subfolder.
 	var dstDir, dstPath string
 	if versionless {
 		dstDir = uc.uploadDir
-		dstPath = filepath.Join(dstDir, fileName)
+		dstPath = filepath.Join(dstDir, versionlessFileMeta[fileType].canonicalName)
 	} else {
 		version := upload.MetaData["version"]
 		dstDir = filepath.Join(uc.uploadDir, version)
@@ -308,6 +325,15 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	// Versionless files require no further processing.
 	if versionless {
 		return tusd.HTTPResponse{}, nil
+	}
+
+	// For genomic.fna uploads, keep an up-to-date copy at the upload root so
+	// workers can always reference the latest genomic.fna regardless of version.
+	if fileType == "genomic.fna" {
+		canonicalPath := filepath.Join(uc.uploadDir, "genomic.fna")
+		if err := copyFile(dstPath, canonicalPath); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Str("src", dstPath).Str("dst", canonicalPath).Msg("failed to copy genomic.fna to upload root")
+		}
 	}
 
 	jobIDs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
@@ -383,12 +409,11 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 // path plus any versionless FB synonym files found in the uploads root.
 func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffFilePath string) (uint64, error) {
 	var synonymFiles []string
-	for _, pattern := range []string{"fb_synonym_*.tsv.gz", "fbgn_fbtr_fbpp_*.tsv.gz"} {
-		matches, err := filepath.Glob(filepath.Join(uc.uploadDir, pattern))
-		if err != nil {
-			return 0, fmt.Errorf("failed to glob for %s: %w", pattern, err)
+	for _, name := range []string{"fb_synonym.tsv.gz", "fbgn_fbtr_fbpp.tsv.gz"} {
+		p := filepath.Join(uc.uploadDir, name)
+		if _, err := os.Stat(p); err == nil {
+			synonymFiles = append(synonymFiles, p)
 		}
-		synonymFiles = append(synonymFiles, matches...)
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
@@ -432,6 +457,23 @@ func (uc *UseCase) removeUploadFiles(uploadID string) {
 			log.Error().Err(err).Str("path", path).Msg("failed to remove upload file during cleanup")
 		}
 	}
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }
 
 func isGzip(filePath string) (bool, error) {
