@@ -578,7 +578,7 @@ paths:
               format: binary
       responses:
         '204':
-          description: Chunk accepted.
+          description: Chunk accepted. On the final chunk, `X-Job-IDs` is included with the IDs of enqueued processing jobs.
           headers:
             Upload-Offset:
               schema:
@@ -588,6 +588,10 @@ paths:
               schema:
                 type: string
                 enum: ['1.0.0']
+            X-Job-IDs:
+              schema:
+                type: string
+              description: Comma-separated list of enqueued job IDs. Present only on the final chunk of versioned file uploads (e.g. `"42"` or `"42,43"` when a SYNONYM job is also created).
         '403':
           description: Missing or invalid token.
           content:

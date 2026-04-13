@@ -310,17 +310,25 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return tusd.HTTPResponse{}, nil
 	}
 
-	if err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath); err != nil {
+	jobIDs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
+	if err != nil {
 		return tusd.HTTPResponse{}, err
 	}
 
-	return tusd.HTTPResponse{}, nil
+	idStrs := make([]string, len(jobIDs))
+	for i, id := range jobIDs {
+		idStrs[i] = strconv.FormatUint(id, 10)
+	}
+
+	return tusd.HTTPResponse{
+		Header: tusd.HTTPHeader{"X-Job-IDs": strings.Join(idStrs, ",")},
+	}, nil
 }
 
-func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta tusd.MetaData, filePath string) error {
+func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta tusd.MetaData, filePath string) ([]uint64, error) {
 	versionID, err := strconv.ParseUint(meta["_versionID"], 10, 64)
 	if err != nil {
-		return fmt.Errorf("failed to parse _versionID for job creation: %w", err)
+		return nil, fmt.Errorf("failed to parse _versionID for job creation: %w", err)
 	}
 
 	fileType := meta["fileType"]
@@ -334,7 +342,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		Algorithm:    meta["algorithm"],
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal job payload: %w", err)
+		return nil, fmt.Errorf("failed to marshal job payload: %w", err)
 	}
 
 	payload := json.RawMessage(rawPayload)
@@ -347,7 +355,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {
-		return fmt.Errorf("failed to create process job: %w", err)
+		return nil, fmt.Errorf("failed to create process job: %w", err)
 	}
 
 	log.Ctx(ctx).Info().
@@ -356,23 +364,29 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		Uint64("jobID", job.ID).
 		Msg("process job enqueued")
 
+	jobIDs := []uint64{job.ID}
+
 	// When a genomic GFF file is uploaded, also enqueue a SYNONYM job that
 	// processes GFF3 + any versionless FB synonym files into a single index.
 	if fileType == "genomic.gff" {
-		return uc.enqueueSynonymJob(ctx, versionID, filePath)
+		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, filePath)
+		if err != nil {
+			return nil, err
+		}
+		jobIDs = append(jobIDs, synonymID)
 	}
 
-	return nil
+	return jobIDs, nil
 }
 
 // enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
 // path plus any versionless FB synonym files found in the uploads root.
-func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffFilePath string) error {
+func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffFilePath string) (uint64, error) {
 	var synonymFiles []string
 	for _, pattern := range []string{"fb_synonym_*.tsv.gz", "fbgn_fbtr_fbpp_*.tsv.gz"} {
 		matches, err := filepath.Glob(filepath.Join(uc.uploadDir, pattern))
 		if err != nil {
-			return fmt.Errorf("failed to glob for %s: %w", pattern, err)
+			return 0, fmt.Errorf("failed to glob for %s: %w", pattern, err)
 		}
 		synonymFiles = append(synonymFiles, matches...)
 	}
@@ -384,7 +398,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 		SynonymFiles: synonymFiles,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal synonym job payload: %w", err)
+		return 0, fmt.Errorf("failed to marshal synonym job payload: %w", err)
 	}
 
 	p := json.RawMessage(rawPayload)
@@ -397,7 +411,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
-		return fmt.Errorf("failed to create synonym job: %w", err)
+		return 0, fmt.Errorf("failed to create synonym job: %w", err)
 	}
 
 	log.Ctx(ctx).Info().
@@ -406,7 +420,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 		Strs("synonymFiles", synonymFiles).
 		Msg("synonym job enqueued")
 
-	return nil
+	return j.ID, nil
 }
 
 func (uc *UseCase) removeUploadFiles(uploadID string) {
