@@ -46,6 +46,7 @@ services:
       - "8080" # internal only, not bound to host
     volumes:
       - ./data/public/uploads:/app/public/uploads
+      - blast_data:/db/
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -68,6 +69,7 @@ services:
       ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
     volumes:
       - ./data/public/uploads:/app/public/uploads
+      - blast_data:/db/
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -127,7 +129,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: nginx_proxy
+    container_name: emobase_genomics_nginx
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -140,9 +142,29 @@ services:
     networks:
       - backend
 
+  blast:
+    image: wurmlab/sequenceserver:latest
+    container_name: emobase_genomics_blast
+    restart: unless-stopped
+    tty: true
+    mem_limit: 1g
+    # Fix the redirect URL produced after a job is submitted on the BLAST page.
+    command:
+      - sh
+      - -c
+      - |
+        sed -i 's|redirect to("/#{job.id}")|redirect to("'$${PUBLIC_SERVER}'/ibb/blast/#{job.id}")|g' \
+          /sequenceserver/lib/sequenceserver/routes.rb
+        sequenceserver
+    environment:
+      - PUBLIC_SERVER
+    volumes:
+      - blast_data:/db/
+
 volumes:
   mysql_data:
   elasticsearch_data:
+  blast_data:
 
 networks:
   backend:

@@ -16,7 +16,16 @@ type Config struct {
 	MySQL         MySQLConfig         `mapstructure:"mysql"`
 	Jobs          JobsConfig          `mapstructure:"jobs"`
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
+	Blast         BlastConfig         `mapstructure:"blast"`
 	Dev           DevConfig           `mapstructure:"dev"`
+}
+
+type BlastConfig struct {
+	// DisplayName is used as the human-readable title prefix in makeblastdb
+	// (e.g. "Drosophila melanogaster" → "Drosophila melanogaster Genome").
+	DisplayName string `mapstructure:"display_name"`
+	// DBPath is the directory where makeblastdb writes its output databases.
+	DBPath string `mapstructure:"db_path"`
 }
 
 type DevConfig struct {

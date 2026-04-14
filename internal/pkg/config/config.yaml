@@ -21,5 +21,9 @@ elasticsearch:
   addresses:
     - http://localhost:9200
 
+blast:
+  display_name: OGS3  # used as the title prefix in makeblastdb (e.g. "OGS3 Genome")
+  db_path: /db        # directory where makeblastdb writes its output databases
+
 dev:
   upload_chunk_delay: 500ms # set to e.g. "500ms" to simulate slow uploads

@@ -18,6 +18,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
+	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/rs/zerolog/log"
 	"github.com/tus/tusd/v2/pkg/filelocker"
 	"github.com/tus/tusd/v2/pkg/filestore"
@@ -327,15 +328,6 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return tusd.HTTPResponse{}, nil
 	}
 
-	// For genomic.fna uploads, keep an up-to-date copy at the upload root so
-	// workers can always reference the latest genomic.fna regardless of version.
-	if fileType == "genomic.fna" {
-		canonicalPath := filepath.Join(uc.uploadDir, "genomic.fna")
-		if err := copyFile(dstPath, canonicalPath); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Str("src", dstPath).Str("dst", canonicalPath).Msg("failed to copy genomic.fna to upload root")
-		}
-	}
-
 	jobIDs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
 	if err != nil {
 		return tusd.HTTPResponse{}, err
@@ -358,6 +350,15 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	fileType := meta["fileType"]
+
+	// genomic.fna has no sequence-parsing step; only the BLAST setup job is needed.
+	if fileType == "genomic.fna" {
+		setupID, err := uc.enqueueSetupBlastJob(ctx, versionID, filePath, ucworker.JobTypeGenomicFNASetupBlast)
+		if err != nil {
+			return nil, err
+		}
+		return []uint64{setupID}, nil
+	}
 
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
 		UploadFileID: uploadID,
@@ -392,9 +393,8 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	jobIDs := []uint64{job.ID}
 
-	// When a genomic GFF file is uploaded, also enqueue a SYNONYM job that
-	// processes GFF3 + any versionless FB synonym files into a single index.
 	if fileType == "genomic.gff" {
+		// Also enqueue a SYNONYM job that combines GFF3 + versionless FB synonym files.
 		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, filePath)
 		if err != nil {
 			return nil, err
@@ -403,6 +403,34 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	return jobIDs, nil
+}
+
+func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, filePath, jobType string) (uint64, error) {
+	rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: filePath})
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal setup_blast payload: %w", err)
+	}
+
+	p := json.RawMessage(rawPayload)
+	j := &entity.Job{
+		VersionID:     versionID,
+		Type:          jobType,
+		Payload:       &p,
+		Status:        entity.JobStatusPending,
+		MaxRetryCount: uc.maxRetryCount,
+	}
+
+	if err := uc.jobRepo.Create(ctx, j); err != nil {
+		return 0, fmt.Errorf("failed to create %s job: %w", jobType, err)
+	}
+
+	log.Ctx(ctx).Info().
+		Str("jobType", jobType).
+		Uint64("jobID", j.ID).
+		Str("filePath", filePath).
+		Msg("setup_blast job enqueued")
+
+	return j.ID, nil
 }
 
 // enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
@@ -457,23 +485,6 @@ func (uc *UseCase) removeUploadFiles(uploadID string) {
 			log.Error().Err(err).Str("path", path).Msg("failed to remove upload file during cleanup")
 		}
 	}
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
 }
 
 func isGzip(filePath string) (bool, error) {
