@@ -9,7 +9,8 @@
 1. Start the application:
 
   ```bash
-  docker compose up
+  docker compose --profile migrate up migrate es-migrate
+  docker compose up -d
   ```
 
 2. Configuration can be overridden using environment variables.
