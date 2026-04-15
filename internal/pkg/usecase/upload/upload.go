@@ -457,7 +457,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
 		VersionID:     versionID,
-		Type:          "SYNONYM",
+		Type:          ucworker.JobTypeGenomicGFFSynonym,
 		Payload:       &p,
 		Status:        entity.JobStatusPending,
 		MaxRetryCount: uc.maxRetryCount,

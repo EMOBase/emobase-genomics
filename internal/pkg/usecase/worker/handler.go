@@ -19,7 +19,7 @@ const (
 	JobTypeCDSFNA       = "CDS.FNA"
 	JobTypeProteinFAA   = "PROTEIN.FAA"
 	JobTypeOrthologyTSV = "ORTHOLOGY.TSV"
-	JobTypeSynonym      = "GENOMIC.GFF:SYNONYM"
+	JobTypeGenomicGFFSynonym = "GENOMIC.GFF:SYNONYM"
 
 	// SETUP_BLAST jobs run makeblastdb to build a SequenceServer-compatible
 	// BLAST database from the processed file.

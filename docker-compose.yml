@@ -51,6 +51,7 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
+      - jbrowse2-data:/web/
     depends_on:
       mysql:
         condition: service_healthy
@@ -74,6 +75,7 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
+      - jbrowse2-data:/web/
     depends_on:
       mysql:
         condition: service_healthy
@@ -97,6 +99,7 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
+      - jbrowse2-data:/web/
     depends_on:
       mysql:
         condition: service_healthy
@@ -184,7 +187,7 @@ services:
           /sequenceserver/lib/sequenceserver/routes.rb
         sequenceserver
     environment:
-      - PUBLIC_SERVER
+      - PUBLIC_SERVER=http://localhost:8000
     volumes:
       - blast_data:/db/
     networks:
@@ -194,6 +197,7 @@ volumes:
   mysql_data:
   elasticsearch_data:
   blast_data:
+  jbrowse2-data:
 
 networks:
   backend:

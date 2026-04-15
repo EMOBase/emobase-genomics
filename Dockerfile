@@ -21,13 +21,24 @@ FROM docker.io/ncbi/blast-static:${BLAST_VERSION} AS ncbi-blast
 # ─── Stage 3: Runtime ────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
-# Install CA certificates and timezone data (needed for HTTPS and time parsing)
+# Install system dependencies:
+#   - ca-certificates, tzdata  : HTTPS and time parsing
+#   - libsqlite3-0, libgomp1   : BLAST+ runtime libraries
+#   - samtools, tabix          : genome file processing (tabix also provides bgzip)
+#   - wget                     : download JBrowse CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       tzdata \
       libsqlite3-0 \
       libgomp1 \
+      samtools \
+      tabix \
+      wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Install JBrowse CLI (no Node.js required — unpkg serves the standalone bundle)
+RUN wget -q https://unpkg.com/@jbrowse/cli/bundle/index.js -O /usr/local/bin/jbrowse \
+    && chmod +x /usr/local/bin/jbrowse
 
 WORKDIR /app
 
