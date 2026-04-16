@@ -167,6 +167,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./data/public/uploads:/var/www/public/uploads:ro
+      - jbrowse2-data:/jbrowse2/:ro
     depends_on:
       - api
     networks:

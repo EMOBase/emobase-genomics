@@ -25,7 +25,10 @@ FROM debian:bookworm-slim
 #   - ca-certificates, tzdata  : HTTPS and time parsing
 #   - libsqlite3-0, libgomp1   : BLAST+ runtime libraries
 #   - samtools, tabix          : genome file processing (tabix also provides bgzip)
+#   - nodejs                   : required by JBrowse CLI
 #   - wget                     : download JBrowse CLI
+#   - gzip                     : file compression/decompression
+#   - bash                     : interactive shell for local development
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       tzdata \
@@ -33,7 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgomp1 \
       samtools \
       tabix \
+      nodejs \
       wget \
+      gzip \
+      bash \
     && rm -rf /var/lib/apt/lists/*
 
 # Install JBrowse CLI (no Node.js required — unpkg serves the standalone bundle)
@@ -60,8 +66,10 @@ ENV PATH=/blast/bin:${PATH}
 
 COPY internal/pkg/config/config.yaml /app/config.yaml
 COPY migrations ./migrations
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Create the uploads directory so the volume mount point exists with correct perms
 RUN mkdir -p ./public/uploads
 
-ENTRYPOINT ["./server"]
+ENTRYPOINT ["/entrypoint.sh", "./server"]
