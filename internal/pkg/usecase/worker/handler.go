@@ -26,4 +26,8 @@ const (
 	JobTypeGenomicFNASetupBlast = "GENOMIC.FNA:SETUP_BLAST"
 	JobTypeProteinFAASetupBlast = "PROTEIN.FAA:SETUP_BLAST"
 	JobTypeRNAFNASetupBlast     = "RNA.FNA:SETUP_BLAST"
+
+	// SETUP_JBROWSE2 builds the JBrowse2 genome browser tracks.
+	// Requires both GENOMIC.GFF and GENOMIC.FNA:SETUP_BLAST to be done first.
+	JobTypeGenomicFNASetupJBrowse2 = "GENOMIC.FNA:SETUP_JBROWSE2"
 )

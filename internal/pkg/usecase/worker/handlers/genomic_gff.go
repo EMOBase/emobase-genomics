@@ -12,6 +12,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
+	"github.com/rs/zerolog/log"
 )
 
 type IVersionRepository interface {
@@ -30,17 +31,20 @@ type GenomicGFFHandler struct {
 	versionRepo IVersionRepository
 	genomicUC   IGenomicUseCase
 	genomicRepo IGenomicRepository
+	jobRepo     IJobRepository
 }
 
 func NewGenomicGFFHandler(
 	versionRepo IVersionRepository,
 	genomicUC IGenomicUseCase,
 	genomicRepo IGenomicRepository,
+	jobRepo IJobRepository,
 ) *GenomicGFFHandler {
 	return &GenomicGFFHandler{
 		versionRepo: versionRepo,
 		genomicUC:   genomicUC,
 		genomicRepo: genomicRepo,
+		jobRepo:     jobRepo,
 	}
 }
 
@@ -77,5 +81,13 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 		return err
 	}
 
-	return h.genomicRepo.SetAlias(ctx, genomicIndexName, genomicAliasName)
+	if err := h.genomicRepo.SetAlias(ctx, genomicIndexName, genomicAliasName); err != nil {
+		return err
+	}
+
+	if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, job.VersionID); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after genomic_gff")
+	}
+
+	return nil
 }

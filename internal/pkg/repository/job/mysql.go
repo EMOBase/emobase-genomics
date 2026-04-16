@@ -221,6 +221,60 @@ func (r *MySQLRepository) StatusCountsByVersionIDs(ctx context.Context, versionI
 	return result, rows.Err()
 }
 
+// FindDoneByVersionAndTypes returns DONE jobs matching any of the given types
+// for the specified version. Used to check prerequisite job completion.
+func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, versionID uint64, jobTypes []string) ([]entity.Job, error) {
+	if len(jobTypes) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]byte, 0, len(jobTypes)*2-1)
+	args := make([]any, 0, len(jobTypes)+1)
+	args = append(args, versionID)
+	for i, t := range jobTypes {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, t)
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, type, payload FROM jobs
+		 WHERE version_id = ? AND status = 'DONE' AND type IN (`+string(placeholders)+`)`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []entity.Job
+	for rows.Next() {
+		var j entity.Job
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Payload); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// HasNonFailedJobOfType returns true if a PENDING, RUNNING, or DONE job of the
+// given type exists for the version. Used to prevent duplicate enqueuing.
+func (r *MySQLRepository) HasNonFailedJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs
+		 WHERE version_id = ? AND type = ? AND status IN ('PENDING', 'RUNNING', 'DONE')`,
+		versionID, jobType,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *MySQLRepository) MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,

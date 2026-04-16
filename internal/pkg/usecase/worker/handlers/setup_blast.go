@@ -14,13 +14,23 @@ import (
 // SetupBlastHandler runs makeblastdb to build a SequenceServer-compatible
 // BLAST database from an uploaded file.
 type SetupBlastHandler struct {
-	dbType string // "nucl" or "prot"
-	title  string // full title passed to makeblastdb -title
-	out    string // output database path (e.g. "/db/genome")
+	dbType          string // "nucl" or "prot"
+	title           string // full title passed to makeblastdb -title
+	out             string // output database path (e.g. "/db/genome")
+	jobRepo         IJobRepository // non-nil only when triggerJBrowse2 is true
+	triggerJBrowse2 bool
 }
 
 func NewSetupBlastHandler(dbType, title, out string) *SetupBlastHandler {
 	return &SetupBlastHandler{dbType: dbType, title: title, out: out}
+}
+
+// WithJBrowse2Trigger configures the handler to attempt enqueuing a
+// GENOMIC.FNA:SETUP_JBROWSE2 job after a successful run.
+func (h *SetupBlastHandler) WithJBrowse2Trigger(jobRepo IJobRepository) *SetupBlastHandler {
+	h.jobRepo = jobRepo
+	h.triggerJBrowse2 = true
+	return h
 }
 
 func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
@@ -46,6 +56,12 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 		Str("jobType", job.Type).
 		Str("out", h.out).
 		Msg("makeblastdb completed successfully")
+
+	if h.triggerJBrowse2 {
+		if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, job.VersionID); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after setup_blast")
+		}
+	}
 
 	return nil
 }

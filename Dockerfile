@@ -66,6 +66,7 @@ ENV PATH=/blast/bin:${PATH}
 
 COPY internal/pkg/config/config.yaml /app/config.yaml
 COPY migrations ./migrations
+COPY scripts ./scripts
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
