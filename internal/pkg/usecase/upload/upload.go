@@ -116,7 +116,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	fileName := meta["fileName"]
 	if !fileNamePattern.MatchString(fileName) {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-			"invalid fileName: must be 1–255 characters, start with a letter or digit, and contain only letters, digits, dots, dashes, or underscores")
+			"invalid fileName: must be 1–255 characters and must not contain path separators or control characters")
 	}
 
 	// 3. Reject non-gzip files by extension before any data is stored.
@@ -209,7 +209,7 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 	f := &entity.UploadFile{
 		ID:           upload.ID,
 		VersionID:    versionID,
-		FilePath:     filepath.Join(upload.MetaData["version"], upload.MetaData["fileName"]),
+		FilePath:     filepath.Join(upload.MetaData["version"], filepath.Base(upload.MetaData["fileName"])),
 		FileType:     upload.MetaData["fileType"],
 		FileSize:     upload.Size,
 		UploadStatus: entity.UploadStatusUploading,
@@ -263,7 +263,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	} else {
 		version := upload.MetaData["version"]
 		dstDir = filepath.Join(uc.uploadDir, version)
-		dstPath = filepath.Join(dstDir, fileName)
+		dstPath = filepath.Join(dstDir, filepath.Base(fileName))
 	}
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {

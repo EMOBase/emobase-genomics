@@ -42,6 +42,6 @@ var versionlessFileMeta = map[string]struct {
 	FileTypeFBGNFBTRFBPPTSV: {prefix: "fbgn_fbtr_fbpp_", canonicalName: "fbgn_fbtr_fbpp.tsv.gz"},
 }
 
-// fileNamePattern allows filenames up to 255 characters starting with an
-// alphanumeric character, followed by letters, digits, dots, dashes, or underscores.
-var fileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
+// fileNamePattern blocks path separators and control characters. Path traversal
+// (names starting with "..") is checked separately in the upload handler.
+var fileNamePattern = regexp.MustCompile(`^[^\x00-\x1f/\\]{1,255}$`)
