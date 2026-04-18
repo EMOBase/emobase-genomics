@@ -29,45 +29,41 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, seq
 	count := 0
 	batch := make([]entity.Sequence, 0, uc.config.BatchSize)
 
-	for {
-		fastaRecord, ok := <-recordCh
-
-		if !ok && len(batch) > 0 {
-			if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
-				return err
-			}
-			log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of sequences")
-			break
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
-
-		if !ok {
-			break
-		}
-
-		count++
-		batch = append(batch, entity.Sequence{
-			Name:     fastaRecord.Header,
-			Sequence: fastaRecord.Sequence,
-			Type:     sequenceType,
-			Species:  uc.config.MainSpecies,
-		})
-
-		if len(batch) < uc.config.BatchSize {
-			continue
-		}
-
 		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 			return err
 		}
-		log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted sequences batch")
+		count += len(batch)
 		batch = batch[:0]
+		return nil
 	}
 
-	ctxCancel()
+	for record := range recordCh {
+		batch = append(batch, entity.Sequence{
+			Name:     record.Header,
+			Sequence: record.Sequence,
+			Type:     sequenceType,
+			Species:  uc.config.MainSpecies,
+		})
+		if len(batch) >= uc.config.BatchSize {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := flush(); err != nil {
+		return err
+	}
 
 	if err := <-errCh; err != nil {
 		return err
 	}
+
+	log.Ctx(ctx).Info().Int("total", count).Msg("sequences loaded")
 
 	return nil
 }

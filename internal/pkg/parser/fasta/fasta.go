@@ -2,14 +2,12 @@ package fasta
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/text"
 )
-
-var ErrInvalidFastaFormat = errors.New("invalid FASTA format: sequence data found before header")
 
 func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-chan error) {
 	recordCh := make(chan FastaRecord)
@@ -21,8 +19,10 @@ func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-c
 
 		textCh, textErrCh := text.ReadLines(ctx, f)
 		var currentRecord *FastaRecord
+		lineNum := 0
 
 		for line := range textCh {
+			lineNum++
 			if isEmptyLine(line) {
 				continue
 			}
@@ -40,11 +40,11 @@ func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-c
 				header := line[1:]                     // Remove '>' from header
 				header = strings.Split(header, " ")[0] // Keep only the first part of the header
 
-				currentRecord = &FastaRecord{Header: header}
+				currentRecord = &FastaRecord{Line: lineNum, Header: header}
 			} else if currentRecord != nil {
 				currentRecord.Sequence += line
 			} else {
-				errCh <- ErrInvalidFastaFormat
+				errCh <- fmt.Errorf("line %d: sequence data found before header", lineNum)
 				return
 			}
 		}

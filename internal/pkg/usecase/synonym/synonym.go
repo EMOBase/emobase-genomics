@@ -30,40 +30,36 @@ func (uc *SynonymUseCase) Load(ctx context.Context, f io.Reader, indexName strin
 	count := 0
 	batch := make([]entity.Synonym, 0, uc.config.BatchSize)
 
-	for {
-		s, ok := <-synonymCh
-
-		if !ok && len(batch) > 0 {
-			if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
-				return err
-			}
-			log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of synonyms")
-			break
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
-
-		if !ok {
-			break
-		}
-
-		count++
-		batch = append(batch, s)
-
-		if len(batch) < uc.config.BatchSize {
-			continue
-		}
-
 		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
 			return err
 		}
-		log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted synonyms batch")
+		count += len(batch)
 		batch = batch[:0]
+		return nil
 	}
 
-	ctxCancel()
+	for s := range synonymCh {
+		batch = append(batch, s)
+		if len(batch) >= uc.config.BatchSize {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := flush(); err != nil {
+		return err
+	}
 
 	if err := <-errCh; err != nil {
 		return err
 	}
+
+	log.Ctx(ctx).Info().Int("total", count).Msg("synonyms loaded")
 
 	return nil
 }

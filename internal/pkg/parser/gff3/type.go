@@ -10,6 +10,7 @@ const (
 )
 
 type GFF3Record struct {
+	Line       int
 	SeqID      string
 	Source     string
 	Type       string

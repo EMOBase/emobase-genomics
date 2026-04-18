@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -29,7 +30,6 @@ func (p *GFF3SynonymParser) Parse(ctx context.Context, r io.Reader) (<-chan enti
 	return parseSynonyms(ctx, r, p.mainSpecies)
 }
 
-// TODO: Return errors with line number for better debugging
 func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies string) (<-chan entity.Synonym, <-chan error) {
 	synonymCh := make(chan entity.Synonym)
 	errCh := make(chan error, 1)
@@ -41,62 +41,45 @@ func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies string) (<-chan
 		recordCh, recordErrCh := gff3.ReadGFF3Records(ctx, f)
 
 		gff3Records := make([]gff3.GFF3Record, 0)
-		for {
-			gff3Record, ok := <-recordCh
-			if !ok {
-				if len(gff3Records) == 0 {
-					break
-				}
 
-				synonyms, err := MakeSynonyms(gff3Records, mainSpecies)
-				if err != nil {
+		flushGroup := func() error {
+			if len(gff3Records) == 0 {
+				return nil
+			}
+			synonyms, err := MakeSynonyms(gff3Records, mainSpecies)
+			if err != nil {
+				return fmt.Errorf("line %d: %w", gff3Records[0].Line, err)
+			}
+			for _, s := range synonyms {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case synonymCh <- s:
+				}
+			}
+			gff3Records = gff3Records[:0]
+			return nil
+		}
+
+		for record := range recordCh {
+			if record.Type == "gene" && len(gff3Records) > 0 {
+				if err := flushGroup(); err != nil {
 					errCh <- err
 					return
 				}
-
-				for _, synonym := range synonyms {
-					select {
-					case <-ctx.Done():
-						errCh <- ctx.Err()
-						return
-					case synonymCh <- synonym:
-					}
-				}
-
-				break
 			}
-
-			if gff3Record.Type == "gene" {
-				if len(gff3Records) == 0 {
-					gff3Records = append(gff3Records, gff3Record)
-				} else {
-					synonyms, err := MakeSynonyms(gff3Records, mainSpecies)
-					if err != nil {
-						errCh <- err
-						return
-					}
-
-					for _, synonym := range synonyms {
-						select {
-						case <-ctx.Done():
-							errCh <- ctx.Err()
-							return
-						case synonymCh <- synonym:
-						}
-					}
-
-					gff3Records = []gff3.GFF3Record{gff3Record}
-				}
-			} else {
-				if len(gff3Records) > 0 {
-					gff3Records = append(gff3Records, gff3Record)
-				}
+			if record.Type == "gene" || len(gff3Records) > 0 {
+				gff3Records = append(gff3Records, record)
 			}
+		}
+
+		if err := flushGroup(); err != nil {
+			errCh <- err
+			return
 		}
 
 		if err := <-recordErrCh; err != nil {
 			errCh <- err
-			return
 		}
 	}()
 

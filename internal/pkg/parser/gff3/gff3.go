@@ -2,6 +2,7 @@ package gff3
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -20,16 +21,19 @@ func ReadGFF3Records(ctx context.Context, f io.Reader) (<-chan GFF3Record, <-cha
 		defer close(errCh)
 
 		textCh, textErrCh := text.ReadLines(ctx, f)
+		lineNum := 0
 		for line := range textCh {
+			lineNum++
 			if isHeaderLine(line) || isEmptyLine(line) {
 				continue
 			}
 
 			gff3Record, err := parseLine(line)
 			if err != nil {
-				errCh <- err
+				errCh <- fmt.Errorf("line %d: %w", lineNum, err)
 				return
 			}
+			gff3Record.Line = lineNum
 
 			select {
 			case <-ctx.Done():
