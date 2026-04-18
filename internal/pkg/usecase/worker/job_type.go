@@ -1,5 +1,19 @@
 package worker
 
+// JobDescriptions maps each job type to a human-readable title shown in the UI.
+var JobDescriptions = map[string]string{
+	JobTypeGenomicGFF:               "Parse genomic GFF file",
+	JobTypeRNAFNA:                   "Parse RNA FASTA file",
+	JobTypeCDSFNA:                   "Parse CDS FASTA file",
+	JobTypeProteinFAA:               "Parse protein FASTA file",
+	JobTypeOrthologyTSV:             "Parse orthology TSV file",
+	JobTypeGenomicGFFSynonym:        "Build gene synonyms",
+	JobTypeGenomicFNASetupBlast:     "Setup genome BLAST database",
+	JobTypeProteinFAASetupBlast:     "Setup protein BLAST database",
+	JobTypeRNAFNASetupBlast:         "Setup RNA BLAST database",
+	JobTypeGenomicFNASetupJBrowse2:  "Setup JBrowse2 genome browser",
+}
+
 // Job type constants — must match the values stored in jobs.type.
 const (
 	JobTypeGenomicGFF   = "GENOMIC.GFF"

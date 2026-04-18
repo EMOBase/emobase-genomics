@@ -8,6 +8,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
+	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/rs/zerolog/log"
 )
 
@@ -81,10 +82,11 @@ func enqueueSetupBlastJob(ctx context.Context, jobRepo IJobRepository, sourceJob
 
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
-		VersionID: sourceJob.VersionID,
-		Type:      jobType,
-		Payload:   &p,
-		Status:    entity.JobStatusPending,
+		VersionID:   sourceJob.VersionID,
+		Type:        jobType,
+		Description: ucworker.JobDescriptions[jobType],
+		Payload:     &p,
+		Status:      entity.JobStatusPending,
 	}
 
 	if err := jobRepo.Create(ctx, j); err != nil {

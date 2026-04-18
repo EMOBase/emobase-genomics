@@ -18,6 +18,7 @@ type Job struct {
 	ID             uint64           `db:"id"`
 	VersionID      uint64           `db:"version_id"`
 	Type           string           `db:"type"`
+	Description    string           `db:"description"`
 	Payload        *json.RawMessage `db:"payload"`
 	Status         JobStatus        `db:"status"`
 	RetryCount     int              `db:"retry_count"`

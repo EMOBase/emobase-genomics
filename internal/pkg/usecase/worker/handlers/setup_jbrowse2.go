@@ -104,10 +104,11 @@ func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versio
 
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
-		VersionID: versionID,
-		Type:      ucworker.JobTypeGenomicFNASetupJBrowse2,
-		Payload:   &p,
-		Status:    entity.JobStatusPending,
+		VersionID:   versionID,
+		Type:        ucworker.JobTypeGenomicFNASetupJBrowse2,
+		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicFNASetupJBrowse2],
+		Payload:     &p,
+		Status:      entity.JobStatusPending,
 	}
 
 	if err := jobRepo.Create(ctx, j); err != nil {

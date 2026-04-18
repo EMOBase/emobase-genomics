@@ -332,9 +332,11 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	payload := json.RawMessage(rawPayload)
+	jobType := strings.ToUpper(fileType)
 	job := &entity.Job{
 		VersionID:     versionID,
-		Type:          strings.ToUpper(fileType),
+		Type:          jobType,
+		Description:   ucworker.JobDescriptions[jobType],
 		Payload:       &payload,
 		Status:        entity.JobStatusPending,
 		MaxRetryCount: uc.maxRetryCount,
@@ -374,6 +376,7 @@ func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, f
 	j := &entity.Job{
 		VersionID:     versionID,
 		Type:          jobType,
+		Description:   ucworker.JobDescriptions[jobType],
 		Payload:       &p,
 		Status:        entity.JobStatusPending,
 		MaxRetryCount: uc.maxRetryCount,
@@ -417,6 +420,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 	j := &entity.Job{
 		VersionID:     versionID,
 		Type:          ucworker.JobTypeGenomicGFFSynonym,
+		Description:   ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
 		Payload:       &p,
 		Status:        entity.JobStatusPending,
 		MaxRetryCount: uc.maxRetryCount,

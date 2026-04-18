@@ -18,9 +18,9 @@ func New(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO jobs (version_id, type, payload, status, max_retry_count)
-		 VALUES (?, ?, ?, ?, ?)`,
-		j.VersionID, j.Type, j.Payload, j.Status, j.MaxRetryCount,
+		`INSERT INTO jobs (version_id, type, description, payload, status, max_retry_count)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		j.VersionID, j.Type, j.Description, j.Payload, j.Status, j.MaxRetryCount,
 	)
 	if err != nil {
 		return err
@@ -36,7 +36,7 @@ func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 // FindByVersionName returns all jobs for the version with the given name, ordered by creation time.
 func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName string) ([]entity.Job, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT j.id, j.version_id, j.type, j.status, j.payload, j.result_metadata
+		`SELECT j.id, j.version_id, j.type, j.description, j.status, j.payload, j.result_metadata
 		 FROM jobs j
 		 JOIN versions v ON v.id = j.version_id
 		 WHERE v.name = ?
@@ -51,7 +51,7 @@ func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName str
 	var jobs []entity.Job
 	for rows.Next() {
 		var j entity.Job
-		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Status, &j.Payload, &j.ResultMetadata); err != nil {
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Description, &j.Status, &j.Payload, &j.ResultMetadata); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, j)
@@ -71,11 +71,11 @@ func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, er
 
 	j := &entity.Job{}
 	err = tx.QueryRowContext(ctx,
-		`SELECT id, version_id, type, payload, status, retry_count, max_retry_count,
+		`SELECT id, version_id, type, description, payload, status, retry_count, max_retry_count,
 		        result_metadata, created_at, updated_at, started_at, completed_at
 		 FROM jobs WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
 	).Scan(
-		&j.ID, &j.VersionID, &j.Type, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
+		&j.ID, &j.VersionID, &j.Type, &j.Description, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
 		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
 	)
 	if err == sql.ErrNoRows {

@@ -2,6 +2,7 @@ CREATE TABLE jobs (
     id              BIGINT UNSIGNED AUTO_INCREMENT                  PRIMARY KEY,
     version_id      BIGINT UNSIGNED                                 NOT NULL,
     type            VARCHAR(100)                                    NOT NULL,
+    description     VARCHAR(255)                                    NOT NULL DEFAULT '',
     payload         JSON,
     status          ENUM('PENDING','RUNNING','DONE','FAILED')       NOT NULL DEFAULT 'PENDING',
     retry_count     INT UNSIGNED                                    NOT NULL DEFAULT 0,
