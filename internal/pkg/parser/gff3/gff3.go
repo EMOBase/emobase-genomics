@@ -8,10 +8,8 @@ import (
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/text"
-	"github.com/samber/lo"
 )
 
-// TODO: Return errors with line number for better debugging
 func ReadGFF3Records(ctx context.Context, f io.Reader) (<-chan GFF3Record, <-chan error) {
 	lineCh := make(chan GFF3Record)
 	errCh := make(chan error, 1)
@@ -82,7 +80,7 @@ func parseLine(line string) (GFF3Record, error) {
 		return GFF3Record{}, ErrEndMissing
 	}
 
-	if _, ok := symbolToStrand[fields[6]]; !ok {
+	if _, ok := validStrands[fields[6]]; !ok {
 		return GFF3Record{}, ErrInvalidStrand
 	}
 
@@ -123,9 +121,12 @@ func parseAttributes(attrStr string) map[string][]string {
 			continue
 		}
 
-		values := lo.Filter(strings.Split(parts[1], valueDelimiter), func(s string, _ int) bool {
-			return !isEmptyValue(s)
-		})
+		var values []string
+		for v := range strings.SplitSeq(parts[1], valueDelimiter) {
+			if !isEmptyValue(v) {
+				values = append(values, v)
+			}
+		}
 
 		res[parts[0]] = values
 	}

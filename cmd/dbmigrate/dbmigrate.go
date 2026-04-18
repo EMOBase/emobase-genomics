@@ -26,7 +26,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	defer m.Close()
+	defer func() { _, _ = m.Close() }()
 
 	switch direction {
 	case "up":

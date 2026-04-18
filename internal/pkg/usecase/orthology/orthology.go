@@ -18,7 +18,7 @@ type OrthologyUseCase struct {
 
 func New(repo IOrthologyRepository) *OrthologyUseCase {
 	return &OrthologyUseCase{
-		config: Config{BatchSize: 1000},
+		config: Config{BatchSize: 5000},
 		repo:   repo,
 	}
 }

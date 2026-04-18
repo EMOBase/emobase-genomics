@@ -66,13 +66,13 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 	if err != nil {
 		return fmt.Errorf("failed to open file %q: %w", payload.FilePath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	if err := h.genomicUC.Load(ctx, gr, genomicIndexName); err != nil {
 		return err

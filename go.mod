@@ -10,7 +10,6 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/rs/zerolog v1.34.0
-	github.com/samber/lo v1.52.0
 	github.com/spf13/viper v1.21.0
 	github.com/tus/tusd/v2 v2.9.2
 	github.com/urfave/cli/v3 v3.7.0

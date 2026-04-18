@@ -79,7 +79,7 @@ func (r *MySQLRepository) List(ctx context.Context, offset, limit int) ([]entity
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var versions []entity.Version
 	for rows.Next() {

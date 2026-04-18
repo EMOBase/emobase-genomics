@@ -49,7 +49,7 @@ func (r *ElasticSearchRepository) SaveMany(
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		return fmt.Errorf("elasticsearch bulk request failed: %s", res.String())
@@ -82,7 +82,7 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 	if err != nil {
 		return fmt.Errorf("failed to query alias %q: %w", aliasName, err)
 	}
-	defer getRes.Body.Close()
+	defer func() { _ = getRes.Body.Close() }()
 
 	if getRes.StatusCode == http.StatusNotFound {
 		// Alias does not exist yet — nothing to remove.
@@ -116,7 +116,7 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 	if err != nil {
 		return fmt.Errorf("failed to update aliases: %w", err)
 	}
-	defer updateRes.Body.Close()
+	defer func() { _ = updateRes.Body.Close() }()
 
 	if updateRes.IsError() {
 		return fmt.Errorf("elasticsearch update aliases failed: %s", updateRes.String())

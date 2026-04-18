@@ -13,6 +13,7 @@ func New(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: db}
 }
 
+// SetDefaultVersion updates the global default version ID in app_settings.
 func (r *MySQLRepository) SetDefaultVersion(ctx context.Context, versionID uint64) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE app_settings SET default_version_id = ? LIMIT 1`,

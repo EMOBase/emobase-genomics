@@ -1,14 +1,5 @@
 package gff3
 
-type Strand int
-
-// TODO: use this, and ask why we need this
-const (
-	StrandForward Strand = iota
-	StrandReverse
-	StrandUnknown
-)
-
 type GFF3Record struct {
 	Line       int
 	SeqID      string

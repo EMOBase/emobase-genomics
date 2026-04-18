@@ -35,7 +35,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	jobRepo := repojob.New(db)
 

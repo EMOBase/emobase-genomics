@@ -123,7 +123,7 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client) e
 		if err != nil {
 			return err
 		}
-		res.Body.Close()
+		_ = res.Body.Close()
 
 		if res.IsError() {
 			return errorFromResponse("put index template "+t.name, res.String())

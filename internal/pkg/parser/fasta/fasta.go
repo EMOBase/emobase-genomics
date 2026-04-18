@@ -9,6 +9,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/parser/text"
 )
 
+// ReadFastaRecords streams parsed FASTA records from f, one per header entry.
 func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-chan error) {
 	recordCh := make(chan FastaRecord)
 	errCh := make(chan error, 1)
@@ -18,8 +19,21 @@ func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-c
 		defer close(errCh)
 
 		textCh, textErrCh := text.ReadLines(ctx, f)
-		var currentRecord *FastaRecord
+		var currentHeader string
+		var headerLine int
+		var seqBuilder strings.Builder
 		lineNum := 0
+		inRecord := false
+
+		flush := func() (FastaRecord, bool) {
+			if !inRecord {
+				return FastaRecord{}, false
+			}
+			r := FastaRecord{Line: headerLine, Header: currentHeader, Sequence: seqBuilder.String()}
+			seqBuilder.Reset()
+			inRecord = false
+			return r, true
+		}
 
 		for line := range textCh {
 			lineNum++
@@ -28,33 +42,31 @@ func ReadFastaRecords(ctx context.Context, f io.Reader) (<-chan FastaRecord, <-c
 			}
 
 			if isHeaderLine(line) {
-				if currentRecord != nil {
+				if r, ok := flush(); ok {
 					select {
 					case <-ctx.Done():
 						errCh <- ctx.Err()
 						return
-					case recordCh <- *currentRecord:
+					case recordCh <- r:
 					}
 				}
-
-				header := line[1:]                     // Remove '>' from header
-				header = strings.Split(header, " ")[0] // Keep only the first part of the header
-
-				currentRecord = &FastaRecord{Line: lineNum, Header: header}
-			} else if currentRecord != nil {
-				currentRecord.Sequence += line
+				headerLine = lineNum
+				currentHeader = strings.SplitN(line[1:], " ", 2)[0]
+				inRecord = true
+			} else if inRecord {
+				seqBuilder.WriteString(line)
 			} else {
 				errCh <- fmt.Errorf("line %d: sequence data found before header", lineNum)
 				return
 			}
 		}
 
-		if currentRecord != nil {
+		if r, ok := flush(); ok {
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
 				return
-			case recordCh <- *currentRecord:
+			case recordCh <- r:
 			}
 		}
 

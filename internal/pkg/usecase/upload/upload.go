@@ -451,7 +451,7 @@ func isGzip(filePath string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	magic := make([]byte, 2)
 	if _, err := io.ReadFull(f, magic); err != nil {

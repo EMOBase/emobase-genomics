@@ -13,7 +13,7 @@ type GFF3GeneID struct {
 var ErrNilGeneXRefID = errors.New("cannot find gene xref id")
 
 func NCBIFindGeneID(record GFF3Record) (GFF3GeneID, error) {
-	xrefAttributes, _ := record.Attributes["Dbxref"]
+	xrefAttributes := record.Attributes["Dbxref"]
 
 	for _, xref := range xrefAttributes {
 		parts := strings.SplitN(xref, ":", 2)
@@ -21,11 +21,8 @@ func NCBIFindGeneID(record GFF3Record) (GFF3GeneID, error) {
 			continue
 		}
 
-		db := parts[0]
-		xrefID := parts[1]
-
-		if db == "GeneID" {
-			return GFF3GeneID{Current: xrefID}, nil
+		if parts[0] == "GeneID" {
+			return GFF3GeneID{Current: parts[1]}, nil
 		}
 	}
 

@@ -50,7 +50,7 @@ func (r *MySQLRepository) TotalFileSizeByVersionIDs(ctx context.Context, version
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[uint64]int64, len(versionIDs))
 	for rows.Next() {
@@ -94,7 +94,7 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var files []entity.UploadFile
 	for rows.Next() {

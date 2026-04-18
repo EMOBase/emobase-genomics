@@ -33,8 +33,7 @@ func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	return nil
 }
 
-// FindPending returns up to limit jobs in PENDING status, ordered by created_at.
-// Intended for workers to claim jobs.
+// FindByVersionName returns all jobs for the version with the given name, ordered by creation time.
 func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName string) ([]entity.Job, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT j.id, j.version_id, j.type, j.status, j.payload, j.result_metadata
@@ -47,38 +46,12 @@ func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var jobs []entity.Job
 	for rows.Next() {
 		var j entity.Job
 		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Status, &j.Payload, &j.ResultMetadata); err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, j)
-	}
-	return jobs, rows.Err()
-}
-
-func (r *MySQLRepository) FindPending(ctx context.Context, limit int) ([]entity.Job, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, version_id, type, payload, status, retry_count, max_retry_count,
-		        result_metadata, created_at, updated_at, started_at, completed_at
-		 FROM jobs WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT ?`,
-		limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var jobs []entity.Job
-	for rows.Next() {
-		var j entity.Job
-		if err := rows.Scan(
-			&j.ID, &j.VersionID, &j.Type, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
-			&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
-		); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, j)
@@ -94,7 +67,7 @@ func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, er
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	j := &entity.Job{}
 	err = tx.QueryRowContext(ctx,
@@ -207,7 +180,7 @@ func (r *MySQLRepository) StatusCountsByVersionIDs(ctx context.Context, versionI
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[uint64]entity.JobStatusCounts, len(versionIDs))
 	for rows.Next() {
@@ -247,7 +220,7 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var jobs []entity.Job
 	for rows.Next() {

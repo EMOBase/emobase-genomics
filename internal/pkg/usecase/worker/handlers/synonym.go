@@ -104,13 +104,13 @@ func (h *SynonymHandler) loadGzip(ctx context.Context, path, indexName string, p
 	if err != nil {
 		return fmt.Errorf("failed to open file %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader for %q: %w", path, err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	return h.synonymUC.Load(ctx, gr, indexName, parser)
 }

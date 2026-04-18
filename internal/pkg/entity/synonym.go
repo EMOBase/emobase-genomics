@@ -23,7 +23,7 @@ const (
 )
 
 func (s *Synonym) GetID() string {
-	if slices.Contains([]string{"CURRENT_ID", "NAME", "SYMBOL"}, s.Type) {
+	if slices.Contains([]string{SYNONYM_TYPE_CURRENT_ID, SYNONYM_TYPE_NAME, SYNONYM_TYPE_SYMBOL}, s.Type) {
 		return s.Gene + ":" + strings.ToLower(s.Type)
 	}
 
