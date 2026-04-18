@@ -75,7 +75,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		),
 		ucworker.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" Genome", blastDBPath+"/genome",
-		).WithJBrowse2Trigger(jobRepo),
+		).WithJBrowse2Trigger(jobRepo, versionRepo),
 		ucworker.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
 			"prot", blastTitle+" Proteins", blastDBPath+"/protein",
 		),

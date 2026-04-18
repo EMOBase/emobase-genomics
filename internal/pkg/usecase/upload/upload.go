@@ -3,14 +3,12 @@ package upload
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,39 +22,6 @@ import (
 	"github.com/tus/tusd/v2/pkg/filestore"
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 )
-
-// allowedFileTypes is the set of accepted values for the fileType metadata field.
-var allowedFileTypes = map[string]struct{}{
-	"genomic.fna":        {},
-	"genomic.gff":        {},
-	"rna.fna":            {},
-	"cds.fna":            {},
-	"protein.faa":        {},
-	"orthology.tsv":      {},
-	"fb_synonym.tsv":     {},
-	"fbgn_fbtr_fbpp.tsv": {},
-}
-
-// versionlessFileTypes are uploaded once and stored globally — they do not
-// belong to any version and do not trigger a processing job on upload.
-var versionlessFileTypes = map[string]struct{}{
-	"fb_synonym.tsv":     {},
-	"fbgn_fbtr_fbpp.tsv": {},
-}
-
-// versionlessFileMeta maps each versionless fileType to the required filename
-// prefix (for validation) and the canonical name used when storing the file.
-var versionlessFileMeta = map[string]struct {
-	prefix        string
-	canonicalName string
-}{
-	"fb_synonym.tsv":     {prefix: "fb_synonym_", canonicalName: "fb_synonym.tsv.gz"},
-	"fbgn_fbtr_fbpp.tsv": {prefix: "fbgn_fbtr_fbpp_", canonicalName: "fbgn_fbtr_fbpp.tsv.gz"},
-}
-
-// fileNamePattern allows filenames up to 255 characters starting with an
-// alphanumeric character, followed by letters, digits, dots, dashes, or underscores.
-var fileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
 type UseCase struct {
 	// Handler is the HTTP handler to mount in the router. It wraps tusHandler
@@ -143,47 +108,43 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		for k := range allowedFileTypes {
 			allowed = append(allowed, k)
 		}
-		return errResponse(http.StatusBadRequest,
-			fmt.Sprintf("invalid fileType %q, must be one of: %s", fileType, strings.Join(allowed, ", ")),
-		), tusd.FileInfoChanges{}, errors.New("invalid fileType")
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			fmt.Sprintf("invalid fileType %q, must be one of: %s", fileType, strings.Join(allowed, ", ")))
 	}
 
 	// 2. Validate fileName.
 	fileName := meta["fileName"]
 	if !fileNamePattern.MatchString(fileName) {
-		return errResponse(http.StatusBadRequest,
-			"invalid fileName: must be 1–255 characters, start with a letter or digit, and contain only letters, digits, dots, dashes, or underscores",
-		), tusd.FileInfoChanges{}, errors.New("invalid fileName")
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			"invalid fileName: must be 1–255 characters, start with a letter or digit, and contain only letters, digits, dots, dashes, or underscores")
 	}
 
 	// 3. Reject non-gzip files by extension before any data is stored.
 	lower := strings.ToLower(fileName)
 	if !strings.HasSuffix(lower, ".gz") && !strings.HasSuffix(lower, ".gzip") {
-		return errResponse(http.StatusBadRequest,
-			"only gzip files are accepted (.gz or .gzip)",
-		), tusd.FileInfoChanges{}, errors.New("invalid file extension")
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			"only gzip files are accepted (.gz or .gzip)")
 	}
 
 	// Versionless file types: validate the expected filename prefix, then skip
 	// all version and job conflict checks.
 	if meta, versionless := versionlessFileMeta[fileType]; versionless {
 		if !strings.HasPrefix(fileName, meta.prefix) {
-			return errResponse(http.StatusBadRequest,
-				fmt.Sprintf("invalid fileName for fileType %q: must start with %q", fileType, meta.prefix),
-			), tusd.FileInfoChanges{}, errors.New("invalid versionless fileName prefix")
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				fmt.Sprintf("invalid fileName for fileType %q: must start with %q", fileType, meta.prefix))
 		}
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, nil
 	}
 
 	// 4. Validate orthology-specific metadata fields.
-	if fileType == "orthology.tsv" {
+	if fileType == FileTypeOrthologyTSV {
 		if strings.TrimSpace(meta["order"]) == "" {
-			return errResponse(http.StatusBadRequest, "orthology.tsv uploads require an \"order\" metadata field"),
-				tusd.FileInfoChanges{}, errors.New("missing order metadata")
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"orthology.tsv uploads require an \"order\" metadata field")
 		}
 		if strings.TrimSpace(meta["algorithm"]) == "" {
-			return errResponse(http.StatusBadRequest, "orthology.tsv uploads require an \"algorithm\" metadata field"),
-				tusd.FileInfoChanges{}, errors.New("missing algorithm metadata")
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"orthology.tsv uploads require an \"algorithm\" metadata field")
 		}
 	}
 
@@ -191,24 +152,22 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	version, err := uc.versionRepo.FindByName(hook.Context, meta["version"])
 	if err != nil {
 		log.Ctx(hook.Context).Err(err).Msg("version lookup failed in pre-upload hook")
-		return errResponse(http.StatusInternalServerError, "internal server error"), tusd.FileInfoChanges{}, err
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
 	}
 	if version == nil {
-		return errResponse(http.StatusBadRequest,
-			fmt.Sprintf("version %q not found", meta["version"]),
-		), tusd.FileInfoChanges{}, errors.New("version not found")
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			fmt.Sprintf("version %q not found", meta["version"]))
 	}
 
 	// 6. Reject if an active job of the same type already exists for this version.
 	hasActive, err := uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
 	if err != nil {
 		log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
-		return errResponse(http.StatusInternalServerError, "internal server error"), tusd.FileInfoChanges{}, err
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
 	}
 	if hasActive {
-		return errResponse(http.StatusConflict,
-			fmt.Sprintf("a job for file type %q is already pending or running for this version", fileType),
-		), tusd.FileInfoChanges{}, errors.New("active job conflict")
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusConflict,
+			fmt.Sprintf("a job for file type %q is already pending or running for this version", fileType))
 	}
 
 	// Propagate versionID through metadata so the CreatedUploads handler can
@@ -292,7 +251,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		if !versionless {
 			_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
 		}
-		return errResponse(http.StatusUnprocessableEntity, "uploaded file is not a valid gzip"), errors.New("not a gzip file")
+		return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity, "uploaded file is not a valid gzip")
 	}
 
 	// Versionless files go to the uploads root under a canonical fixed name;
@@ -352,7 +311,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	fileType := meta["fileType"]
 
 	// genomic.fna has no sequence-parsing step; only the BLAST setup job is needed.
-	if fileType == "genomic.fna" {
+	if fileType == FileTypeGenomicFNA {
 		setupID, err := uc.enqueueSetupBlastJob(ctx, versionID, filePath, ucworker.JobTypeGenomicFNASetupBlast)
 		if err != nil {
 			return nil, err
@@ -393,7 +352,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	jobIDs := []uint64{job.ID}
 
-	if fileType == "genomic.gff" {
+	if fileType == FileTypeGenomicGFF {
 		// Also enqueue a SYNONYM job that combines GFF3 + versionless FB synonym files.
 		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, filePath)
 		if err != nil {
@@ -502,10 +461,14 @@ func isGzip(filePath string) (bool, error) {
 	return magic[0] == 0x1f && magic[1] == 0x8b, nil
 }
 
-func errResponse(statusCode int, message string) tusd.HTTPResponse {
-	return tusd.HTTPResponse{
-		StatusCode: statusCode,
-		Body:       fmt.Sprintf(`{"error":%q}`, message),
-		Header:     tusd.HTTPHeader{"Content-Type": "application/json"},
-	}
+// uploadError returns a tusd.Error whose HTTPResponse carries the given status
+// code and a JSON body. tusd's sendError only honours the status code when the
+// error satisfies errors.As(err, &tusd.Error{}), so returning plain errors.New
+// always produces a 500 — this helper fixes that.
+func uploadError(statusCode int, message string) tusd.Error {
+	return tusd.NewError(
+		http.StatusText(statusCode),
+		message,
+		statusCode,
+	)
 }

@@ -15,9 +15,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type IVersionRepository interface {
-	FindByID(ctx context.Context, id uint64) (*entity.Version, error)
-}
 
 type IGenomicUseCase interface {
 	Load(ctx context.Context, f io.Reader, indexName string) error
@@ -85,7 +82,7 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 		return err
 	}
 
-	if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, job.VersionID); err != nil {
+	if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, h.versionRepo, job.VersionID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after genomic_gff")
 	}
 

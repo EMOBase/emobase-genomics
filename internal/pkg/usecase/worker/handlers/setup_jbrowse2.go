@@ -28,7 +28,7 @@ func (h *SetupJBrowse2Handler) Handle(ctx context.Context, job entity.Job) error
 		return fmt.Errorf("failed to unmarshal setup_jbrowse2 payload: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, setupJBrowse2Script, payload.GenomicFNAPath, payload.GenomicGFFPath)
+	cmd := exec.CommandContext(ctx, setupJBrowse2Script, payload.GenomicFNAPath, payload.GenomicGFFPath, payload.VersionName)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("setup_jbrowse2 script failed: %w\noutput: %s", err, out)
@@ -36,6 +36,7 @@ func (h *SetupJBrowse2Handler) Handle(ctx context.Context, job entity.Job) error
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
+		Str("version", payload.VersionName).
 		Msg("JBrowse2 setup completed successfully")
 
 	return nil
@@ -45,7 +46,7 @@ func (h *SetupJBrowse2Handler) Handle(ctx context.Context, job entity.Job) error
 // GENOMIC.FNA:SETUP_BLAST) are done for the version, and if so enqueues a
 // GENOMIC.FNA:SETUP_JBROWSE2 job. Safe to call from either prerequisite handler
 // — it is a no-op when prerequisites are incomplete or the job already exists.
-func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versionID uint64) error {
+func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versionRepo IVersionRepository, versionID uint64) error {
 	prereqs := []string{ucworker.JobTypeGenomicGFF, ucworker.JobTypeGenomicFNASetupBlast}
 
 	doneJobs, err := jobRepo.FindDoneByVersionAndTypes(ctx, versionID, prereqs)
@@ -84,7 +85,16 @@ func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versio
 		}
 	}
 
+	version, err := versionRepo.FindByID(ctx, versionID)
+	if err != nil {
+		return fmt.Errorf("failed to look up version: %w", err)
+	}
+	if version == nil {
+		return fmt.Errorf("version %d not found", versionID)
+	}
+
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2Payload{
+		VersionName:    version.Name,
 		GenomicFNAPath: fnaPath,
 		GenomicGFFPath: gffPath,
 	})

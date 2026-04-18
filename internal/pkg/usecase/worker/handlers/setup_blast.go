@@ -11,13 +11,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const setupBlastScript = "/app/scripts/setup_blast.sh"
+
 // SetupBlastHandler runs makeblastdb to build a SequenceServer-compatible
 // BLAST database from an uploaded file.
 type SetupBlastHandler struct {
-	dbType          string // "nucl" or "prot"
-	title           string // full title passed to makeblastdb -title
-	out             string // output database path (e.g. "/db/genome")
+	dbType          string         // "nucl" or "prot"
+	title           string         // full title passed to makeblastdb -title
+	out             string         // output database path (e.g. "/db/genome")
 	jobRepo         IJobRepository // non-nil only when triggerJBrowse2 is true
+	versionRepo     IVersionRepository
 	triggerJBrowse2 bool
 }
 
@@ -27,8 +30,9 @@ func NewSetupBlastHandler(dbType, title, out string) *SetupBlastHandler {
 
 // WithJBrowse2Trigger configures the handler to attempt enqueuing a
 // GENOMIC.FNA:SETUP_JBROWSE2 job after a successful run.
-func (h *SetupBlastHandler) WithJBrowse2Trigger(jobRepo IJobRepository) *SetupBlastHandler {
+func (h *SetupBlastHandler) WithJBrowse2Trigger(jobRepo IJobRepository, versionRepo IVersionRepository) *SetupBlastHandler {
 	h.jobRepo = jobRepo
+	h.versionRepo = versionRepo
 	h.triggerJBrowse2 = true
 	return h
 }
@@ -39,17 +43,13 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 		return fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "makeblastdb",
-		"-in", payload.FilePath,
-		"-dbtype", h.dbType,
-		"-title", h.title,
-		"-parse_seqids",
-		"-out", h.out,
+	cmd := exec.CommandContext(ctx, setupBlastScript,
+		payload.FilePath, h.dbType, h.title, h.out,
 	)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("makeblastdb failed: %w\noutput: %s", err, out)
+		return fmt.Errorf("setup_blast script failed: %w\noutput: %s", err, out)
 	}
 
 	log.Ctx(ctx).Info().
@@ -58,7 +58,7 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 		Msg("makeblastdb completed successfully")
 
 	if h.triggerJBrowse2 {
-		if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, job.VersionID); err != nil {
+		if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, h.versionRepo, job.VersionID); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after setup_blast")
 		}
 	}

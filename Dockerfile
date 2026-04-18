@@ -73,4 +73,8 @@ RUN chmod +x /entrypoint.sh
 # Create the uploads directory so the volume mount point exists with correct perms
 RUN mkdir -p ./public/uploads
 
+# Dedicated temp directory for JBrowse2 setup — inside the image, never mounted
+# in nginx, so users cannot access intermediate decompressed files.
+RUN mkdir -p /jbrowse2-tmp
+
 ENTRYPOINT ["/entrypoint.sh", "./server"]
