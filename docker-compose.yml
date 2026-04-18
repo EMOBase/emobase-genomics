@@ -184,7 +184,7 @@ services:
       - sh
       - -c
       - |
-        sed -i 's|redirect to("/#{job.id}")|redirect to("'$${PUBLIC_SERVER}'/ibb/blast/#{job.id}")|g' \
+        sed -i 's|redirect to("/#{job.id}")|redirect to("'$${PUBLIC_SERVER}'/blast/#{job.id}")|g' \
           /sequenceserver/lib/sequenceserver/routes.rb
         sequenceserver
     environment:
