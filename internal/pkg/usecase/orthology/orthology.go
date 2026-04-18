@@ -2,6 +2,7 @@ package orthology
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -31,24 +32,25 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, or
 	lineCh, errCh := text.ReadLines(ctx, f)
 
 	count := 0
+	lineNum := 0
 	batch := make([]entity.Orthology, 0, uc.config.BatchSize)
 	isFirstLine := true
 	var species []string
 
-	for {
-		line, ok := <-lineCh
-
-		if !ok && len(batch) > 0 {
-			if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
-				return err
-			}
-			log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted last batch of orthologies")
-			break
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
-
-		if !ok {
-			break
+		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
+			return err
 		}
+		count += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+
+	for line := range lineCh {
+		lineNum++
 
 		if line == "" {
 			continue
@@ -60,11 +62,9 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, or
 			continue
 		}
 
-		count++
-
 		cols := strings.Split(line, delimiter)
 		if len(cols) != 3 {
-			return ErrInvalidOrthologyFormat
+			return fmt.Errorf("line %d: %w", lineNum, ErrInvalidOrthologyFormat)
 		}
 
 		orthology := entity.Orthology{
@@ -83,23 +83,22 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, or
 		}
 
 		batch = append(batch, orthology)
-
-		if len(batch) < uc.config.BatchSize {
-			continue
+		if len(batch) >= uc.config.BatchSize {
+			if err := flush(); err != nil {
+				return err
+			}
 		}
-
-		if err := uc.repo.SaveMany(ctx, indexName, batch); err != nil {
-			return err
-		}
-		log.Info().Int("batch", len(batch)).Int("total", count).Msg("inserted orthologies batch")
-		batch = batch[:0]
 	}
 
-	ctxCancel()
+	if err := flush(); err != nil {
+		return err
+	}
 
 	if err := <-errCh; err != nil {
 		return err
 	}
+
+	log.Ctx(ctx).Info().Int("total", count).Msg("orthologies loaded")
 
 	return nil
 }

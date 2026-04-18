@@ -3,6 +3,7 @@ package parser
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -29,7 +30,9 @@ func (p *FlyBaseGeneRNAProteinMapParser) Parse(ctx context.Context, r io.Reader)
 		defer close(errCh)
 
 		scanner := bufio.NewScanner(r)
+		lineNum := 0
 		for scanner.Scan() {
+			lineNum++
 			line := scanner.Text()
 			if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
 				continue
@@ -68,7 +71,7 @@ func (p *FlyBaseGeneRNAProteinMapParser) Parse(ctx context.Context, r io.Reader)
 		}
 
 		if err := scanner.Err(); err != nil {
-			errCh <- err
+			errCh <- fmt.Errorf("line %d: %w", lineNum, err)
 		}
 	}()
 
