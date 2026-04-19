@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# Populate the JBrowse2 web app into the volume on first run.
-# The volume is mounted at /web — if index.html is absent, the app hasn't been created yet.
-if [ ! -f /web/index.html ]; then
+# Only the dedicated jbrowse worker needs to initialise the shared /web volume.
+# Other containers skip this to avoid downloading JBrowse2 on every start.
+if [ "${JBROWSE_ENABLED}" = "true" ] && [ ! -f /web/index.html ]; then
   echo "JBrowse2 not found in /web, running jbrowse create..."
   jbrowse create /web
   echo "JBrowse2 created."

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
@@ -61,7 +62,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	blastDBPath := config.Blast.DBPath
 	blastTitle := config.Blast.DisplayName
 
-	jobHandlers := map[string]ucworker.Handler{
+	allHandlers := map[string]ucworker.Handler{
 		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, jobRepo),
 		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, jobRepo),
 		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
@@ -83,6 +84,25 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 			"nucl", blastTitle+" RNAs", blastDBPath+"/rna",
 		),
 		ucworker.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupJBrowse2Handler(),
+	}
+
+	jobHandlers := allHandlers
+	if raw := cmd.String("job-types"); raw != "" {
+		allowed := strings.Split(raw, ",")
+		jobHandlers = make(map[string]ucworker.Handler, len(allowed))
+		for _, t := range allowed {
+			t = strings.TrimSpace(t)
+			if h, ok := allHandlers[t]; ok {
+				jobHandlers[t] = h
+			} else {
+				log.Warn().Str("jobType", t).Msg("unknown job type in --job-types, ignoring")
+			}
+		}
+	}
+	if raw := cmd.String("exclude-types"); raw != "" {
+		for _, t := range strings.Split(raw, ",") {
+			delete(jobHandlers, strings.TrimSpace(t))
+		}
 	}
 
 	w := ucworker.New(

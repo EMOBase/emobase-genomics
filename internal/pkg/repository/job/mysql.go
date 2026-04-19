@@ -59,10 +59,20 @@ func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName str
 	return jobs, rows.Err()
 }
 
-// ClaimNextPending atomically selects the oldest PENDING job and marks it
-// RUNNING in a single transaction using FOR UPDATE SKIP LOCKED, so concurrent
-// workers never claim the same job.
-func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, error) {
+// ClaimNextPendingOfTypes atomically selects the oldest PENDING job whose type
+// is in the provided list and marks it RUNNING, using FOR UPDATE SKIP LOCKED so
+// concurrent workers never claim the same job.
+func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []string) (*entity.Job, error) {
+	placeholders := make([]byte, 0, len(types)*2-1)
+	args := make([]any, len(types))
+	for i, t := range types {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args[i] = t
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -73,7 +83,9 @@ func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, er
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, version_id, type, description, payload, status, retry_count, max_retry_count,
 		        result_metadata, created_at, updated_at, started_at, completed_at
-		 FROM jobs WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		 FROM jobs WHERE status = 'PENDING' AND type IN (`+string(placeholders)+`)
+		 ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		args...,
 	).Scan(
 		&j.ID, &j.VersionID, &j.Type, &j.Description, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
 		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,

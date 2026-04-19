@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -12,6 +14,7 @@ import (
 type Worker struct {
 	jobRepo       IJobRepository
 	handlers      map[string]Handler
+	allowedTypes  []string
 	pollInterval  time.Duration
 	stuckInterval time.Duration
 	stuckTimeout  time.Duration
@@ -27,6 +30,7 @@ func New(
 	return &Worker{
 		jobRepo:       jobRepo,
 		handlers:      handlers,
+		allowedTypes:  slices.Sorted(maps.Keys(handlers)),
 		pollInterval:  pollInterval,
 		stuckInterval: stuckInterval,
 		stuckTimeout:  stuckTimeout,
@@ -37,7 +41,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	go w.runStuckJobRecovery(ctx)
 
 	for {
-		job, err := w.jobRepo.ClaimNextPending(ctx)
+		job, err := w.jobRepo.ClaimNextPendingOfTypes(ctx, w.allowedTypes)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil

@@ -53,7 +53,6 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
-      - jbrowse2-data:/web/
     depends_on:
       mysql:
         condition: service_healthy
@@ -66,7 +65,7 @@ services:
     build: .
     container_name: emobase_genomics_worker_1
     restart: unless-stopped
-    command: ["worker", "-c", "/app/config.yaml"]
+    command: ["worker", "-c", "/app/config.yaml", "--exclude-types", "GENOMIC.FNA:SETUP_JBROWSE2"]
     environment:
       MYSQL__HOST: mysql
       MYSQL__PORT: 3306
@@ -77,7 +76,6 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
-      - jbrowse2-data:/web/
     depends_on:
       mysql:
         condition: service_healthy
@@ -90,7 +88,7 @@ services:
     build: .
     container_name: emobase_genomics_worker_2
     restart: unless-stopped
-    command: ["worker", "-c", "/app/config.yaml"]
+    command: ["worker", "-c", "/app/config.yaml", "--exclude-types", "GENOMIC.FNA:SETUP_JBROWSE2"]
     environment:
       MYSQL__HOST: mysql
       MYSQL__PORT: 3306
@@ -101,6 +99,29 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - backend
+
+  worker-jbrowse:
+    build: .
+    container_name: emobase_genomics_worker_jbrowse
+    restart: unless-stopped
+    command: ["worker", "-c", "/app/config.yaml", "--job-types", "GENOMIC.FNA:SETUP_JBROWSE2"]
+    environment:
+      JBROWSE_ENABLED: "true"
+      MYSQL__HOST: mysql
+      MYSQL__PORT: 3306
+      MYSQL__USER: ${MYSQL__USER:-emobase}
+      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
+      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
+      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+    volumes:
+      - ./data/public/uploads:/app/public/uploads
       - jbrowse2-data:/web/
     depends_on:
       mysql:
