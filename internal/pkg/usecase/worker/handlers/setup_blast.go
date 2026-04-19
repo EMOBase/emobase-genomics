@@ -58,12 +58,16 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 		Str("out", h.out).
 		Msg("makeblastdb completed successfully")
 
-	if h.triggerJBrowse2 {
-		if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, h.versionRepo, job.VersionID); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after setup_blast")
-		}
-	}
+	return nil
+}
 
+func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job) error {
+	if !h.triggerJBrowse2 {
+		return nil
+	}
+	if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, h.versionRepo, job.VersionID); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after setup_blast")
+	}
 	return nil
 }
 

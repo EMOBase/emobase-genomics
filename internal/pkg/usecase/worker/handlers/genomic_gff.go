@@ -15,7 +15,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-
 type IGenomicUseCase interface {
 	Load(ctx context.Context, f io.Reader, indexName string) error
 }
@@ -82,9 +81,12 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 		return err
 	}
 
+	return nil
+}
+
+func (h *GenomicGFFHandler) OnComplete(ctx context.Context, job entity.Job) error {
 	if err := tryEnqueueSetupJBrowse2(ctx, h.jobRepo, h.versionRepo, job.VersionID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("failed to enqueue setup_jbrowse2 after genomic_gff")
 	}
-
 	return nil
 }

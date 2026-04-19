@@ -68,6 +68,12 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 }
 
+// OnCompleteHook is an optional interface handlers can implement to run logic
+// after the job has been marked DONE in the database.
+type OnCompleteHook interface {
+	OnComplete(ctx context.Context, job entity.Job) error
+}
+
 func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 	logger := log.With().Uint64("jobID", job.ID).Str("jobType", job.Type).Logger()
 
@@ -94,6 +100,12 @@ func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 	}
 
 	logger.Info().Msg("job completed")
+
+	if hook, ok := handler.(OnCompleteHook); ok {
+		if err := hook.OnComplete(ctx, *job); err != nil {
+			logger.Warn().Err(err).Msg("post-completion hook failed")
+		}
+	}
 }
 
 func (w *Worker) runStuckJobRecovery(ctx context.Context) {

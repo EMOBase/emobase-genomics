@@ -53,6 +53,7 @@ services:
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - blast_data:/db/
+      - jbrowse2-data:/web/
     depends_on:
       mysql:
         condition: service_healthy
