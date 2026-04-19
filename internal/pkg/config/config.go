@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
@@ -54,8 +55,15 @@ type MySQLConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password" json:"-"`
+	Password string `mapstructure:"password"`
 	Database string `mapstructure:"database"`
+}
+
+func (c MySQLConfig) MarshalZerologObject(e *zerolog.Event) {
+	e.Str("host", c.Host).
+		Int("port", c.Port).
+		Str("user", c.User).
+		Str("database", c.Database)
 }
 
 func LoadConfig(path string) (*Config, error) {

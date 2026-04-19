@@ -9,9 +9,9 @@
 1. Start the application:
 
   ```bash
-  docker compose up -d --build && \
-  docker compose --profile migrate run --rm migrate && \
-  docker compose --profile migrate run --rm es-migrate
+  docker compose --profile migrate run --build --rm migrate && \
+  docker compose --profile migrate run --build --rm es-migrate && \
+  docker compose up --build -d
   ```
 
 2. Configuration can be overridden using environment variables.
