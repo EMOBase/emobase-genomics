@@ -5,8 +5,6 @@ CREATE TABLE jobs (
     description     VARCHAR(255)                                    NOT NULL DEFAULT '',
     payload         JSON,
     status          ENUM('PENDING','RUNNING','DONE','FAILED')       NOT NULL DEFAULT 'PENDING',
-    retry_count     INT UNSIGNED                                    NOT NULL DEFAULT 0,
-    max_retry_count INT UNSIGNED                                    NOT NULL DEFAULT 3,
     result_metadata JSON,
     created_at      DATETIME                                        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME                                        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -18,9 +18,9 @@ func New(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO jobs (version_id, type, description, payload, status, max_retry_count)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		j.VersionID, j.Type, j.Description, j.Payload, j.Status, j.MaxRetryCount,
+		`INSERT INTO jobs (version_id, type, description, payload, status)
+		 VALUES (?, ?, ?, ?, ?)`,
+		j.VersionID, j.Type, j.Description, j.Payload, j.Status,
 	)
 	if err != nil {
 		return err
@@ -81,13 +81,13 @@ func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []s
 
 	j := &entity.Job{}
 	err = tx.QueryRowContext(ctx,
-		`SELECT id, version_id, type, description, payload, status, retry_count, max_retry_count,
+		`SELECT id, version_id, type, description, payload, status,
 		        result_metadata, created_at, updated_at, started_at, completed_at
 		 FROM jobs WHERE status = 'PENDING' AND type IN (`+string(placeholders)+`)
 		 ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
 		args...,
 	).Scan(
-		&j.ID, &j.VersionID, &j.Type, &j.Description, &j.Payload, &j.Status, &j.RetryCount, &j.MaxRetryCount,
+		&j.ID, &j.VersionID, &j.Type, &j.Description, &j.Payload, &j.Status,
 		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -263,12 +263,7 @@ func (r *MySQLRepository) HasNonFailedJobOfType(ctx context.Context, versionID u
 func (r *MySQLRepository) MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs
-		 SET status = CASE WHEN retry_count + 1 < max_retry_count THEN 'PENDING' ELSE 'FAILED' END,
-		     retry_count = retry_count + 1,
-		     completed_at = ?,
-		     result_metadata = ?
-		 WHERE id = ?`,
+		`UPDATE jobs SET status = 'FAILED', completed_at = ?, result_metadata = ? WHERE id = ?`,
 		now, resultMetadata, id,
 	)
 	return err

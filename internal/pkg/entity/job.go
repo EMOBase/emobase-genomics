@@ -21,8 +21,6 @@ type Job struct {
 	Description    string           `db:"description"`
 	Payload        *json.RawMessage `db:"payload"`
 	Status         JobStatus        `db:"status"`
-	RetryCount     int              `db:"retry_count"`
-	MaxRetryCount  int              `db:"max_retry_count"`
 	ResultMetadata *json.RawMessage `db:"result_metadata"`
 	CreatedAt      time.Time        `db:"created_at"`
 	UpdatedAt      time.Time        `db:"updated_at"`

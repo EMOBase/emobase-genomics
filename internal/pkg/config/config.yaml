@@ -12,7 +12,6 @@ mysql:
   database: emobase_genomics
 
 jobs:
-  max_retry_count: 1
   poll_interval: 1s
   stuck_interval: 5m
   stuck_timeout: 30m

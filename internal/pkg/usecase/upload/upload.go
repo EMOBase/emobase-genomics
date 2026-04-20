@@ -26,18 +26,16 @@ import (
 type UseCase struct {
 	// Handler is the HTTP handler to mount in the router. It wraps tusHandler
 	// and may inject an artificial chunk delay in development.
-	Handler       http.Handler
-	tusHandler    *tusd.Handler
-	uploadDir     string
-	maxRetryCount int
-	versionRepo   IVersionRepository
+	Handler     http.Handler
+	tusHandler  *tusd.Handler
+	uploadDir   string
+	versionRepo IVersionRepository
 	jobRepo       IJobRepository
 	uploadRepo    IUploadFileRepository
 }
 
 func New(
 	uploadDir string,
-	maxRetryCount int,
 	chunkDelay time.Duration,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
@@ -51,9 +49,8 @@ func New(
 	locker.UseIn(composer)
 
 	uc := &UseCase{
-		uploadDir:     uploadDir,
-		maxRetryCount: maxRetryCount,
-		versionRepo:   versionRepo,
+		uploadDir:   uploadDir,
+		versionRepo: versionRepo,
 		jobRepo:       jobRepo,
 		uploadRepo:    uploadRepo,
 	}
@@ -339,7 +336,6 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		Description:   ucworker.JobDescriptions[jobType],
 		Payload:       &payload,
 		Status:        entity.JobStatusPending,
-		MaxRetryCount: uc.maxRetryCount,
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {
@@ -379,7 +375,6 @@ func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, f
 		Description:   ucworker.JobDescriptions[jobType],
 		Payload:       &p,
 		Status:        entity.JobStatusPending,
-		MaxRetryCount: uc.maxRetryCount,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -423,7 +418,6 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 		Description:   ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
 		Payload:       &p,
 		Status:        entity.JobStatusPending,
-		MaxRetryCount: uc.maxRetryCount,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {

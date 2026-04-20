@@ -7,8 +7,8 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
 
-// Handler processes a single job. Returning an error marks the job as failed
-// (subject to retry). A nil return marks it as done.
+// Handler processes a single job. Returning an error marks the job as failed.
+// A nil return marks it as done.
 type Handler interface {
 	Handle(ctx context.Context, job entity.Job) error
 }

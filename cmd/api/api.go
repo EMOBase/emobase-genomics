@@ -47,7 +47,6 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	uploadUC, err := upload.New(
 		"./public/uploads",
-		config.Jobs.MaxRetryCount,
 		config.Dev.UploadChunkDelay,
 		versionRepo,
 		jobRepo,
