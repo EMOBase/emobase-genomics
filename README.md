@@ -9,9 +9,10 @@
 1. Start the application:
 
   ```bash
-  docker compose --profile migrate run --build --rm migrate && \
-  docker compose --profile migrate run --build --rm es-migrate && \
-  docker compose up --build -d
+  docker compose --profile migrate run --rm db-migrate && \
+  docker compose --profile migrate run --rm es-migrate && \
+  docker compose --profile migrate run --rm setup-jbrowse2-web && \
+  docker compose up -d
   ```
 
 2. Configuration can be overridden using environment variables.

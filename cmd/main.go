@@ -31,18 +31,8 @@ func main() {
 				Action: api.Action,
 			},
 			{
-				Name:  "worker",
-				Usage: "Start a worker instance to process background jobs",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:  "job-types",
-						Usage: "Comma-separated allowlist of job types this worker handles. Defaults to all types when not set.",
-					},
-					&cli.StringFlag{
-						Name:  "exclude-types",
-						Usage: "Comma-separated list of job types to exclude. Applied after --job-types.",
-					},
-				},
+				Name:   "worker",
+				Usage:  "Start a worker instance to process background jobs",
 				Action: worker.Action,
 			},
 			{
