@@ -74,6 +74,12 @@ type OnCompleteHook interface {
 	OnComplete(ctx context.Context, job entity.Job) error
 }
 
+// OnFailureHook is an optional interface handlers can implement to run logic
+// after the job has been marked FAILED in the database.
+type OnFailureHook interface {
+	OnFailure(ctx context.Context, job entity.Job, err error) error
+}
+
 func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 	logger := log.With().Uint64("jobID", job.ID).Str("jobType", job.Type).Logger()
 
@@ -91,6 +97,12 @@ func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 		logger.Error().Err(err).Msg("job handler failed")
 		meta, _ := json.Marshal(map[string]string{"error": err.Error()})
 		_ = w.jobRepo.MarkFailed(ctx, job.ID, meta)
+
+		if hook, ok := handler.(OnFailureHook); ok {
+			if hookErr := hook.OnFailure(ctx, *job, err); hookErr != nil {
+				logger.Warn().Err(hookErr).Msg("post-failure hook failed")
+			}
+		}
 		return
 	}
 
