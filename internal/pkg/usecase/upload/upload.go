@@ -3,6 +3,7 @@ package upload
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -30,8 +31,8 @@ type UseCase struct {
 	tusHandler  *tusd.Handler
 	uploadDir   string
 	versionRepo IVersionRepository
-	jobRepo       IJobRepository
-	uploadRepo    IUploadFileRepository
+	jobRepo     IJobRepository
+	uploadRepo  IUploadFileRepository
 }
 
 func New(
@@ -51,8 +52,8 @@ func New(
 	uc := &UseCase{
 		uploadDir:   uploadDir,
 		versionRepo: versionRepo,
-		jobRepo:       jobRepo,
-		uploadRepo:    uploadRepo,
+		jobRepo:     jobRepo,
+		uploadRepo:  uploadRepo,
 	}
 
 	handler, err := tusd.NewHandler(tusd.Config{
@@ -331,11 +332,11 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	payload := json.RawMessage(rawPayload)
 	jobType := strings.ToUpper(fileType)
 	job := &entity.Job{
-		VersionID:     versionID,
-		Type:          jobType,
-		Description:   ucworker.JobDescriptions[jobType],
-		Payload:       &payload,
-		Status:        entity.JobStatusPending,
+		VersionID:   versionID,
+		Type:        jobType,
+		Description: ucworker.JobDescriptions[jobType],
+		Payload:     &payload,
+		Status:      entity.JobStatusPending,
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {
@@ -370,11 +371,11 @@ func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, f
 
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
-		VersionID:     versionID,
-		Type:          jobType,
-		Description:   ucworker.JobDescriptions[jobType],
-		Payload:       &p,
-		Status:        entity.JobStatusPending,
+		VersionID:   versionID,
+		Type:        jobType,
+		Description: ucworker.JobDescriptions[jobType],
+		Payload:     &p,
+		Status:      entity.JobStatusPending,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -413,11 +414,11 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
-		VersionID:     versionID,
-		Type:          ucworker.JobTypeGenomicGFFSynonym,
-		Description:   ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
-		Payload:       &p,
-		Status:        entity.JobStatusPending,
+		VersionID:   versionID,
+		Type:        ucworker.JobTypeGenomicGFFSynonym,
+		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
+		Payload:     &p,
+		Status:      entity.JobStatusPending,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -431,6 +432,41 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 		Msg("synonym job enqueued")
 
 	return j.ID, nil
+}
+
+var ErrUploadFileNotFound = errors.New("upload file not found")
+var ErrUploadFileNotDeletable = errors.New("only orthology.tsv files can be deleted")
+
+func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) error {
+	f, err := uc.uploadRepo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return ErrUploadFileNotFound
+	}
+	if f.FileType != FileTypeOrthologyTSV {
+		return ErrUploadFileNotDeletable
+	}
+
+	rawPayload, err := json.Marshal(jobpayload.DeleteFilePayload{
+		UploadFileID: id,
+		DeletedBy:    deletedBy,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal delete file payload: %w", err)
+	}
+
+	p := json.RawMessage(rawPayload)
+	job := &entity.Job{
+		VersionID:   f.VersionID,
+		Type:        ucworker.JobTypeOrthologyTSVDelete,
+		Description: ucworker.JobDescriptions[ucworker.JobTypeOrthologyTSVDelete],
+		Payload:     &p,
+		Status:      entity.JobStatusPending,
+	}
+
+	return uc.jobRepo.Create(ctx, job)
 }
 
 func (uc *UseCase) removeUploadFiles(uploadID string) {

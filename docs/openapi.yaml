@@ -104,31 +104,39 @@ components:
         - `PENDING` — queued, not yet picked up by a worker.
         - `RUNNING` — currently being processed by a worker.
         - `DONE` — completed successfully.
-        - `FAILED` — exhausted all retry attempts; see `resultMetadata` or `error` for details.
+        - `FAILED` — processing failed; see `resultMetadata` or `error` for details.
 
     JobType:
       type: string
       enum:
-        - GENOMIC.FNA
         - GENOMIC.GFF
         - RNA.FNA
         - CDS.FNA
         - PROTEIN.FAA
         - ORTHOLOGY.TSV
-        - SYNONYM
+        - ORTHOLOGY.TSV:DELETE
+        - GENOMIC.GFF:SYNONYM
+        - GENOMIC.FNA:SETUP_BLAST
+        - PROTEIN.FAA:SETUP_BLAST
+        - RNA.FNA:SETUP_BLAST
+        - GENOMIC.FNA:SETUP_JBROWSE2
       description: |
         Identifies which file type and pipeline the job processes.
-        - `GENOMIC.FNA` — genomic FASTA sequences.
-        - `GENOMIC.GFF` — genomic feature annotations (GFF3).
-        - `RNA.FNA` — RNA FASTA sequences.
-        - `CDS.FNA` — CDS FASTA sequences.
-        - `PROTEIN.FAA` — protein FASTA sequences.
-        - `ORTHOLOGY.TSV` — orthology group mappings.
-        - `SYNONYM` — gene synonyms extracted from GFF3, `fb_synonym.tsv`, and `fbgn_fbtr_fbpp.tsv`.
+        - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
+        - `RNA.FNA` — parse RNA FASTA sequences.
+        - `CDS.FNA` — parse CDS FASTA sequences.
+        - `PROTEIN.FAA` — parse protein FASTA sequences.
+        - `ORTHOLOGY.TSV` — parse orthology group mappings.
+        - `ORTHOLOGY.TSV:DELETE` — delete orthology TSV file (async).
+        - `GENOMIC.GFF:SYNONYM` — build gene synonyms from GFF3.
+        - `GENOMIC.FNA:SETUP_BLAST` — build genome BLAST database.
+        - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
+        - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
+        - `GENOMIC.FNA:SETUP_JBROWSE2` — set up JBrowse2 genome browser tracks.
 
     JobSummary:
       type: object
-      required: [id, versionId, type, status, payload]
+      required: [id, versionId, type, description, status, payload]
       properties:
         id:
           type: integer
@@ -140,6 +148,10 @@ components:
           example: 1
         type:
           $ref: '#/components/schemas/JobType'
+        description:
+          type: string
+          description: Human-readable title for display in the UI.
+          example: Parse genomic GFF file
         status:
           $ref: '#/components/schemas/JobStatus'
         payload:
@@ -615,6 +627,69 @@ paths:
                 notGzip:
                   value:
                     error: uploaded file is not a valid gzip
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /upload-files/{id}:
+    delete:
+      summary: Delete an upload file
+      description: |
+        Enqueues an `ORTHOLOGY.TSV:DELETE` job to delete the uploaded file. Only files of type `orthology.tsv` may be deleted.
+        The deletion is processed asynchronously by the worker.
+      operationId: deleteUploadFile
+      tags: [Uploads]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Upload file ID (UUID).
+      responses:
+        '200':
+          description: File soft-deleted successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    nullable: true
+                    example: null
+                  requestId:
+                    type: string
+                    example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Upload file not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: upload file not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: File type cannot be deleted (only `orthology.tsv` files are deletable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notDeletable:
+                  value:
+                    error: only orthology.tsv files can be deleted
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
 tags:

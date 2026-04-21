@@ -66,7 +66,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, jobRepo),
 		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo, jobRepo),
-		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
+		ucworker.JobTypeOrthologyTSV:       handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
+		ucworker.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(),
 		ucworker.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
 			versionRepo, synonymUC, synonymRepo,
 			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
