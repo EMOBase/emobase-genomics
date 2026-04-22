@@ -26,8 +26,8 @@ jbrowse sort-gff "$TMPDIR/${VERSION}.genomic.gff" | bgzip > "$TMPDIR/${VERSION}.
 tabix "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
 
 echo "Adding JBrowse2 assembly and tracks for version ${VERSION}..."
-jbrowse add-assembly "$TMPDIR/${VERSION}.genomic.fna" --name "$VERSION" --load copy --out /web/data
-jbrowse add-track "$TMPDIR/${VERSION}.genomic.sorted.gff.gz" --name "${VERSION} Annotations" --load copy --out /web/data
+jbrowse add-assembly "$TMPDIR/${VERSION}.genomic.fna" --name "$VERSION" --load copy --out /web/data --force
+jbrowse add-track "$TMPDIR/${VERSION}.genomic.sorted.gff.gz" --name "${VERSION} Annotations" --assemblyNames "$VERSION" --load copy --out /web/data --force
 jbrowse text-index --out /web/data
 
 echo "JBrowse2 setup complete."
