@@ -285,22 +285,28 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return tusd.HTTPResponse{}, nil
 	}
 
-	jobIDs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
+	jobs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
 	if err != nil {
 		return tusd.HTTPResponse{}, err
 	}
 
-	idStrs := make([]string, len(jobIDs))
-	for i, id := range jobIDs {
-		idStrs[i] = strconv.FormatUint(id, 10)
+	idStrs := make([]string, len(jobs))
+	for i, j := range jobs {
+		idStrs[i] = strconv.FormatUint(j.ID, 10)
+	}
+
+	body, err := json.Marshal(jobs)
+	if err != nil {
+		return tusd.HTTPResponse{}, fmt.Errorf("failed to marshal jobs response: %w", err)
 	}
 
 	return tusd.HTTPResponse{
 		Header: tusd.HTTPHeader{"X-Job-IDs": strings.Join(idStrs, ",")},
+		Body:   string(body),
 	}, nil
 }
 
-func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta tusd.MetaData, filePath string) ([]uint64, error) {
+func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta tusd.MetaData, filePath string) ([]entity.Job, error) {
 	versionID, err := strconv.ParseUint(meta["_versionID"], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse _versionID for job creation: %w", err)
@@ -310,7 +316,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	// genomic.fna has no processing step; no job is enqueued on upload.
 	if fileType == FileTypeGenomicFNA {
-		return []uint64{}, nil
+		return []entity.Job{}, nil
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
@@ -346,24 +352,24 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		Uint64("jobID", job.ID).
 		Msg("process job enqueued")
 
-	jobIDs := []uint64{job.ID}
+	jobs := []entity.Job{*job}
 
 	if fileType == FileTypeGenomicGFF {
 		// Also enqueue a SYNONYM job that combines GFF3 + versionless FB synonym files.
 		// TODO: Refactor this to process only the GFF file instead.
-		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, uploadID, filePath)
+		synonymJob, err := uc.enqueueSynonymJob(ctx, versionID, uploadID, filePath)
 		if err != nil {
 			return nil, err
 		}
-		jobIDs = append(jobIDs, synonymID)
+		jobs = append(jobs, synonymJob)
 	}
 
-	return jobIDs, nil
+	return jobs, nil
 }
 
 // enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
 // path plus any versionless FB synonym files found in the uploads root.
-func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath string) (uint64, error) {
+func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath string) (entity.Job, error) {
 	var synonymFiles []string
 	for _, name := range []string{"fb_synonym.tsv.gz", "fbgn_fbtr_fbpp.tsv.gz"} {
 		p := filepath.Join(uc.uploadDir, name)
@@ -379,7 +385,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 		SynonymFiles: synonymFiles,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to marshal synonym job payload: %w", err)
+		return entity.Job{}, fmt.Errorf("failed to marshal synonym job payload: %w", err)
 	}
 
 	p := json.RawMessage(rawPayload)
@@ -393,7 +399,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
-		return 0, fmt.Errorf("failed to create synonym job: %w", err)
+		return entity.Job{}, fmt.Errorf("failed to create synonym job: %w", err)
 	}
 
 	log.Ctx(ctx).Info().
@@ -402,7 +408,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 		Strs("synonymFiles", synonymFiles).
 		Msg("synonym job enqueued")
 
-	return j.ID, nil
+	return *j, nil
 }
 
 var ErrUploadFileNotFound = errors.New("upload file not found")
