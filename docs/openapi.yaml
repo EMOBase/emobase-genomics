@@ -146,6 +146,11 @@ components:
           type: integer
           format: int64
           example: 1
+        fileId:
+          type: string
+          nullable: true
+          description: ID of the upload file this job was created for.
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
         type:
           $ref: '#/components/schemas/JobType'
         description:
@@ -646,15 +651,14 @@ paths:
           description: Upload file ID (UUID).
       responses:
         '200':
-          description: File soft-deleted successfully.
+          description: Delete job enqueued successfully.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    nullable: true
-                    example: null
+                    $ref: '#/components/schemas/JobSummary'
                   requestId:
                     type: string
                     example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b

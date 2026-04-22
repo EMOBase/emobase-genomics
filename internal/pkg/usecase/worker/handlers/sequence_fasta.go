@@ -44,7 +44,7 @@ func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) error
 	}
 
 	aliasName := fmt.Sprintf("emobasegenomics-sequence-%s", strings.ToLower(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().UnixMilli())
+	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {

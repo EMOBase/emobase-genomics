@@ -60,6 +60,22 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client) e
 			}`,
 		},
 		{
+			name: "emobasegenomics-orthology",
+			body: `{
+				"index_patterns": ["emobasegenomics-orthology-*"],
+				"priority": 100,
+				"template": {
+					"mappings": {
+						"properties": {
+							"group":     { "type": "keyword" },
+							"orthologs": { "type": "keyword" },
+							"file_id":   { "type": "keyword" }
+						}
+					}
+				}
+			}`,
+		},
+		{
 			name: "emobasegenomics-synonym",
 			body: `{
 				"index_patterns": ["emobasegenomics-synonym-*"],

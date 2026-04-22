@@ -46,7 +46,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	jobUC := ucjob.New(jobRepo)
 
 	uploadUC, err := upload.New(
-		"./public/uploads",
+		config.Uploads.Dir,
 		config.Dev.UploadChunkDelay,
 		versionRepo,
 		jobRepo,

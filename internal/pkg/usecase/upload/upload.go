@@ -408,16 +408,16 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 var ErrUploadFileNotFound = errors.New("upload file not found")
 var ErrUploadFileNotDeletable = errors.New("only orthology.tsv files can be deleted")
 
-func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) error {
+func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error) {
 	f, err := uc.uploadRepo.FindByID(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if f == nil {
-		return ErrUploadFileNotFound
+		return nil, ErrUploadFileNotFound
 	}
 	if f.FileType != FileTypeOrthologyTSV {
-		return ErrUploadFileNotDeletable
+		return nil, ErrUploadFileNotDeletable
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.DeleteFilePayload{
@@ -425,7 +425,7 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 		DeletedBy:    deletedBy,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal delete file payload: %w", err)
+		return nil, fmt.Errorf("failed to marshal delete file payload: %w", err)
 	}
 
 	p := json.RawMessage(rawPayload)
@@ -438,7 +438,10 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 		Status:      entity.JobStatusPending,
 	}
 
-	return uc.jobRepo.Create(ctx, job)
+	if err := uc.jobRepo.Create(ctx, job); err != nil {
+		return nil, err
+	}
+	return job, nil
 }
 
 func (uc *UseCase) removeUploadFiles(uploadID string) {

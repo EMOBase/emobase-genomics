@@ -23,7 +23,7 @@ func New(repo IOrthologyRepository) *OrthologyUseCase {
 	}
 }
 
-func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, order, algorithm string) error {
+func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, fileID, order, algorithm string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -68,7 +68,8 @@ func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, or
 		}
 
 		orthology := entity.Orthology{
-			Group: orthoSource + ":" + cols[0],
+			Group:  orthoSource + ":" + cols[0],
+			FileID: fileID,
 		}
 
 		for i := 1; i < len(cols); i++ {

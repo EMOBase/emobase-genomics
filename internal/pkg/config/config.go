@@ -18,7 +18,12 @@ type Config struct {
 	Jobs          JobsConfig          `mapstructure:"jobs"`
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
 	Blast         BlastConfig         `mapstructure:"blast"`
+	Uploads       UploadsConfig       `mapstructure:"uploads"`
 	Dev           DevConfig           `mapstructure:"dev"`
+}
+
+type UploadsConfig struct {
+	Dir string `mapstructure:"dir"`
 }
 
 type BlastConfig struct {

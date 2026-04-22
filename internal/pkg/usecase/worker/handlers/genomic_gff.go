@@ -59,7 +59,7 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) error {
 	}
 
 	genomicAliasName := fmt.Sprintf("emobasegenomics-genomiclocation-%s", strings.ToLower(version.Name))
-	genomicIndexName := fmt.Sprintf("%s-%d", genomicAliasName, time.Now().UnixMilli())
+	genomicIndexName := fmt.Sprintf("%s-%d", genomicAliasName, time.Now().Unix())
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {

@@ -9,12 +9,14 @@ import (
 
 // JobSummary is the API-facing representation of a job for the list endpoint.
 type JobSummary struct {
-	ID        uint64           `json:"id"`
-	VersionID uint64           `json:"versionId"`
-	Type      string           `json:"type"`
-	Status    entity.JobStatus `json:"status"`
-	Payload   *json.RawMessage `json:"payload"`
-	Error     *string          `json:"error,omitempty"`
+	ID          uint64           `json:"id"`
+	VersionID   uint64           `json:"versionId"`
+	FileID      *string          `json:"fileId,omitempty"`
+	Type        string           `json:"type"`
+	Description string           `json:"description"`
+	Status      entity.JobStatus `json:"status"`
+	Payload     *json.RawMessage `json:"payload"`
+	Error       *string          `json:"error,omitempty"`
 }
 
 type UseCase struct {
@@ -34,11 +36,13 @@ func (uc *UseCase) ListJobsByVersion(ctx context.Context, versionName string) ([
 	summaries := make([]JobSummary, len(jobs))
 	for i, j := range jobs {
 		s := JobSummary{
-			ID:        j.ID,
-			VersionID: j.VersionID,
-			Type:      j.Type,
-			Status:    j.Status,
-			Payload:   j.Payload,
+			ID:          j.ID,
+			VersionID:   j.VersionID,
+			FileID:      j.FileID,
+			Type:        j.Type,
+			Description: j.Description,
+			Status:      j.Status,
+			Payload:     j.Payload,
 		}
 		if j.Status == entity.JobStatusFailed && j.ResultMetadata != nil {
 			var meta struct {

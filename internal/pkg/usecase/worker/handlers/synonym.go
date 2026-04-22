@@ -66,7 +66,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) error {
 	}
 
 	aliasName := fmt.Sprintf("emobasegenomics-synonym-%s", strings.ToLower(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().UnixMilli())
+	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
 	// Load synonyms from the GFF3 file.
 	if err := h.loadGzip(ctx, payload.FilePath, indexName, h.gff3Parser); err != nil {

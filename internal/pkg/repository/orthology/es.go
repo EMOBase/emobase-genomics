@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/elastic/go-elasticsearch/v8"
@@ -63,6 +64,26 @@ func (r *ElasticSearchRepository) SaveMany(
 	}
 	if result.Errors {
 		return fmt.Errorf("elasticsearch bulk index had partial failures for index %q", indexName)
+	}
+
+	return nil
+}
+
+// DeleteByFileID removes all documents in indexName where file_id equals fileID.
+func (r *ElasticSearchRepository) DeleteByFileID(ctx context.Context, indexName, fileID string) error {
+	query := `{"query":{"term":{"file_id":"` + fileID + `"}}}`
+	res, err := r.esClient.DeleteByQuery(
+		[]string{indexName},
+		strings.NewReader(query),
+		r.esClient.DeleteByQuery.WithContext(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete by file_id: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch delete_by_query failed: %s", res.String())
 	}
 
 	return nil

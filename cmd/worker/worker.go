@@ -13,6 +13,7 @@ import (
 	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
 	reposequence "github.com/EMOBase/emobase-genomics/internal/pkg/repository/sequence"
 	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
+	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
 	ucgenomic "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
 	ucorthology "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/orthology"
@@ -45,6 +46,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	versionRepo := repoversion.New(db)
 	jobRepo := repojob.New(db)
+	uploadFileRepo := repouploadfile.New(db)
 
 	genomicRepo := repogenomic.New(esClient)
 	genomicUC := ucgenomic.New(genomicRepo, config.MainSpecies)
@@ -62,12 +64,14 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	blastTitle := config.Blast.DisplayName
 
 	jobHandlers := map[string]ucworker.Handler{
-		ucworker.JobTypeGenomicGFF:         handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, jobRepo),
-		ucworker.JobTypeRNAFNA:             handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeCDSFNA:             handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeProteinFAA:         handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeOrthologyTSV:       handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
-		ucworker.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(),
+		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, jobRepo),
+		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
+		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
+		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
+		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
+		ucworker.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(
+			config.Uploads.Dir, uploadFileRepo, versionRepo, orthologyRepo,
+		),
 		ucworker.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
 			versionRepo, synonymUC, synonymRepo,
 			synonymparser.NewGFF3SynonymParser(config.MainSpecies),

@@ -8,14 +8,13 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 )
 
 type IOrthologyUseCase interface {
-	Load(ctx context.Context, f io.Reader, indexName, order, algorithm string) error
+	Load(ctx context.Context, f io.Reader, indexName, fileID, order, algorithm string) error
 }
 
 type IOrthologyRepository interface {
@@ -55,7 +54,9 @@ func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) error 
 	}
 
 	aliasName := fmt.Sprintf("emobasegenomics-orthology-%s", strings.ToLower(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().UnixMilli())
+	// Use version.CreatedAt.Unix() instead of time.Now().Unix() to fix the index name,
+	// so multiple orthology files uploaded for the same version will be indexed into the same ES index.
+	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {
@@ -69,7 +70,7 @@ func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) error 
 	}
 	defer func() { _ = gr.Close() }()
 
-	if err := h.orthologyUC.Load(ctx, gr, indexName, payload.Order, payload.Algorithm); err != nil {
+	if err := h.orthologyUC.Load(ctx, gr, indexName, payload.UploadFileID, payload.Order, payload.Algorithm); err != nil {
 		return err
 	}
 
