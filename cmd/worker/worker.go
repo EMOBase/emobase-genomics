@@ -63,9 +63,9 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	jobHandlers := map[string]ucworker.Handler{
 		ucworker.JobTypeGenomicGFF:         handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, jobRepo),
-		ucworker.JobTypeRNAFNA:             handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, jobRepo),
+		ucworker.JobTypeRNAFNA:             handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeCDSFNA:             handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeProteinFAA:         handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo, jobRepo),
+		ucworker.JobTypeProteinFAA:         handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeOrthologyTSV:       handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
 		ucworker.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(),
 		ucworker.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
@@ -76,7 +76,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		),
 		ucworker.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" Genome", blastDBPath+"/genome",
-		).WithJBrowse2Trigger(jobRepo, versionRepo),
+		),
 		ucworker.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
 			"prot", blastTitle+" Proteins", blastDBPath+"/protein",
 		),

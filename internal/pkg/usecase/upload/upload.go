@@ -308,13 +308,9 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	fileType := meta["fileType"]
 
-	// genomic.fna has no sequence-parsing step; only the BLAST setup job is needed.
+	// genomic.fna has no processing step; no job is enqueued on upload.
 	if fileType == FileTypeGenomicFNA {
-		setupID, err := uc.enqueueSetupBlastJob(ctx, versionID, uploadID, filePath, ucworker.JobTypeGenomicFNASetupBlast)
-		if err != nil {
-			return nil, err
-		}
-		return []uint64{setupID}, nil
+		return []uint64{}, nil
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
@@ -354,6 +350,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	if fileType == FileTypeGenomicGFF {
 		// Also enqueue a SYNONYM job that combines GFF3 + versionless FB synonym files.
+		// TODO: Refactor this to process only the GFF file instead.
 		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, uploadID, filePath)
 		if err != nil {
 			return nil, err
@@ -362,35 +359,6 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	return jobIDs, nil
-}
-
-func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, uploadFileID, filePath, jobType string) (uint64, error) {
-	rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: filePath})
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal setup_blast payload: %w", err)
-	}
-
-	p := json.RawMessage(rawPayload)
-	j := &entity.Job{
-		VersionID:   versionID,
-		FileID:      &uploadFileID,
-		Type:        jobType,
-		Description: ucworker.JobDescriptions[jobType],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-	}
-
-	if err := uc.jobRepo.Create(ctx, j); err != nil {
-		return 0, fmt.Errorf("failed to create %s job: %w", jobType, err)
-	}
-
-	log.Ctx(ctx).Info().
-		Str("jobType", jobType).
-		Uint64("jobID", j.ID).
-		Str("filePath", filePath).
-		Msg("setup_blast job enqueued")
-
-	return j.ID, nil
 }
 
 // enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
