@@ -1,6 +1,7 @@
 CREATE TABLE jobs (
     id              BIGINT UNSIGNED AUTO_INCREMENT                  PRIMARY KEY,
     version_id      BIGINT UNSIGNED                                 NOT NULL,
+    file_id         VARCHAR(36)                                     NULL,
     type            VARCHAR(100)                                    NOT NULL,
     description     VARCHAR(255)                                    NOT NULL DEFAULT '',
     payload         JSON,
@@ -11,7 +12,8 @@ CREATE TABLE jobs (
     started_at      DATETIME,
     completed_at    DATETIME,
 
-    CONSTRAINT fk_jobs_version FOREIGN KEY (version_id) REFERENCES versions(id),
+    CONSTRAINT fk_jobs_version      FOREIGN KEY (version_id) REFERENCES versions(id),
+    CONSTRAINT fk_jobs_upload_file  FOREIGN KEY (file_id)    REFERENCES upload_files(id),
     INDEX idx_jobs_status (status),
     INDEX idx_jobs_version (version_id)
 );

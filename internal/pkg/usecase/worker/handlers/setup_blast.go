@@ -87,6 +87,7 @@ func enqueueSetupBlastJob(ctx context.Context, jobRepo IJobRepository, sourceJob
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
 		VersionID:   sourceJob.VersionID,
+		FileID:      sourceJob.FileID,
 		Type:        jobType,
 		Description: ucworker.JobDescriptions[jobType],
 		Payload:     &p,

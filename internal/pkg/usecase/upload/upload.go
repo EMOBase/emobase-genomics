@@ -310,7 +310,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	// genomic.fna has no sequence-parsing step; only the BLAST setup job is needed.
 	if fileType == FileTypeGenomicFNA {
-		setupID, err := uc.enqueueSetupBlastJob(ctx, versionID, filePath, ucworker.JobTypeGenomicFNASetupBlast)
+		setupID, err := uc.enqueueSetupBlastJob(ctx, versionID, uploadID, filePath, ucworker.JobTypeGenomicFNASetupBlast)
 		if err != nil {
 			return nil, err
 		}
@@ -333,6 +333,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	jobType := strings.ToUpper(fileType)
 	job := &entity.Job{
 		VersionID:   versionID,
+		FileID:      &uploadID,
 		Type:        jobType,
 		Description: ucworker.JobDescriptions[jobType],
 		Payload:     &payload,
@@ -353,7 +354,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	if fileType == FileTypeGenomicGFF {
 		// Also enqueue a SYNONYM job that combines GFF3 + versionless FB synonym files.
-		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, filePath)
+		synonymID, err := uc.enqueueSynonymJob(ctx, versionID, uploadID, filePath)
 		if err != nil {
 			return nil, err
 		}
@@ -363,7 +364,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	return jobIDs, nil
 }
 
-func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, filePath, jobType string) (uint64, error) {
+func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, uploadFileID, filePath, jobType string) (uint64, error) {
 	rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: filePath})
 	if err != nil {
 		return 0, fmt.Errorf("failed to marshal setup_blast payload: %w", err)
@@ -372,6 +373,7 @@ func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, f
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
 		VersionID:   versionID,
+		FileID:      &uploadFileID,
 		Type:        jobType,
 		Description: ucworker.JobDescriptions[jobType],
 		Payload:     &p,
@@ -393,7 +395,7 @@ func (uc *UseCase) enqueueSetupBlastJob(ctx context.Context, versionID uint64, f
 
 // enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
 // path plus any versionless FB synonym files found in the uploads root.
-func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffFilePath string) (uint64, error) {
+func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath string) (uint64, error) {
 	var synonymFiles []string
 	for _, name := range []string{"fb_synonym.tsv.gz", "fbgn_fbtr_fbpp.tsv.gz"} {
 		p := filepath.Join(uc.uploadDir, name)
@@ -415,6 +417,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, gffF
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
 		VersionID:   versionID,
+		FileID:      &uploadFileID,
 		Type:        ucworker.JobTypeGenomicGFFSynonym,
 		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
 		Payload:     &p,
@@ -460,6 +463,7 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	p := json.RawMessage(rawPayload)
 	job := &entity.Job{
 		VersionID:   f.VersionID,
+		FileID:      &id,
 		Type:        ucworker.JobTypeOrthologyTSVDelete,
 		Description: ucworker.JobDescriptions[ucworker.JobTypeOrthologyTSVDelete],
 		Payload:     &p,

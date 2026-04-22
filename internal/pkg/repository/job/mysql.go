@@ -18,9 +18,9 @@ func New(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO jobs (version_id, type, description, payload, status)
-		 VALUES (?, ?, ?, ?, ?)`,
-		j.VersionID, j.Type, j.Description, j.Payload, j.Status,
+		`INSERT INTO jobs (version_id, file_id, type, description, payload, status)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		j.VersionID, j.FileID, j.Type, j.Description, j.Payload, j.Status,
 	)
 	if err != nil {
 		return err
@@ -81,13 +81,13 @@ func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []s
 
 	j := &entity.Job{}
 	err = tx.QueryRowContext(ctx,
-		`SELECT id, version_id, type, description, payload, status,
+		`SELECT id, version_id, file_id, type, description, payload, status,
 		        result_metadata, created_at, updated_at, started_at, completed_at
 		 FROM jobs WHERE status = 'PENDING' AND type IN (`+string(placeholders)+`)
 		 ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
 		args...,
 	).Scan(
-		&j.ID, &j.VersionID, &j.Type, &j.Description, &j.Payload, &j.Status,
+		&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Description, &j.Payload, &j.Status,
 		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -225,7 +225,7 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 	}
 
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, version_id, type, payload FROM jobs
+		`SELECT id, version_id, file_id, type, payload FROM jobs
 		 WHERE version_id = ? AND status = 'DONE' AND type IN (`+string(placeholders)+`)`,
 		args...,
 	)
@@ -237,7 +237,7 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 	var jobs []entity.Job
 	for rows.Next() {
 		var j entity.Job
-		if err := rows.Scan(&j.ID, &j.VersionID, &j.Type, &j.Payload); err != nil {
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Payload); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, j)

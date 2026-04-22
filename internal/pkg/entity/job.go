@@ -17,6 +17,7 @@ const (
 type Job struct {
 	ID             uint64           `db:"id"`
 	VersionID      uint64           `db:"version_id"`
+	FileID         *string          `db:"file_id"`
 	Type           string           `db:"type"`
 	Description    string           `db:"description"`
 	Payload        *json.RawMessage `db:"payload"`

@@ -17,10 +17,10 @@ var JobDescriptions = map[string]string{
 
 // Job type constants — must match the values stored in jobs.type.
 const (
-	JobTypeGenomicGFF   = "GENOMIC.GFF"
-	JobTypeRNAFNA       = "RNA.FNA"
-	JobTypeCDSFNA       = "CDS.FNA"
-	JobTypeProteinFAA   = "PROTEIN.FAA"
+	JobTypeGenomicGFF         = "GENOMIC.GFF"
+	JobTypeRNAFNA             = "RNA.FNA"
+	JobTypeCDSFNA             = "CDS.FNA"
+	JobTypeProteinFAA         = "PROTEIN.FAA"
 	JobTypeOrthologyTSV       = "ORTHOLOGY.TSV"
 	JobTypeOrthologyTSVDelete = "ORTHOLOGY.TSV:DELETE"
 

@@ -66,8 +66,9 @@ func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versio
 		return nil
 	}
 
-	// Extract file paths from the completed prerequisite jobs.
+	// Extract file paths and the FNA file ID from the completed prerequisite jobs.
 	var fnaPath, gffPath string
+	var fnaFileID *string
 	for _, j := range doneJobs {
 		switch j.Type {
 		case ucworker.JobTypeGenomicFNASetupBlast:
@@ -76,6 +77,7 @@ func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versio
 				return fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
 			}
 			fnaPath = p.FilePath
+			fnaFileID = j.FileID
 		case ucworker.JobTypeGenomicGFF:
 			var p jobpayload.ProcessPayload
 			if err := json.Unmarshal(*j.Payload, &p); err != nil {
@@ -105,6 +107,7 @@ func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versio
 	p := json.RawMessage(rawPayload)
 	j := &entity.Job{
 		VersionID:   versionID,
+		FileID:      fnaFileID,
 		Type:        ucworker.JobTypeGenomicFNASetupJBrowse2,
 		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicFNASetupJBrowse2],
 		Payload:     &p,
