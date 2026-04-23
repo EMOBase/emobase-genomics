@@ -295,14 +295,16 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		idStrs[i] = strconv.FormatUint(j.ID, 10)
 	}
 
-	body, err := json.Marshal(jobs)
+	jobsJSON, err := json.Marshal(jobs)
 	if err != nil {
 		return tusd.HTTPResponse{}, fmt.Errorf("failed to marshal jobs response: %w", err)
 	}
 
 	return tusd.HTTPResponse{
-		Header: tusd.HTTPHeader{"X-Job-IDs": strings.Join(idStrs, ",")},
-		Body:   string(body),
+		Header: tusd.HTTPHeader{
+			"X-Job-IDs": strings.Join(idStrs, ","), // deprecated: use X-Jobs instead
+			"X-Jobs":    string(jobsJSON),
+		},
 	}, nil
 }
 
@@ -323,7 +325,6 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		UploadFileID: uploadID,
 		VersionID:    versionID,
 		FilePath:     filePath,
-		FileType:     fileType,
 		Order:        meta["order"],
 		Algorithm:    meta["algorithm"],
 	})
@@ -333,6 +334,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	payload := json.RawMessage(rawPayload)
 	jobType := strings.ToUpper(fileType)
+	now := time.Now().UTC()
 	job := &entity.Job{
 		VersionID:   versionID,
 		FileID:      &uploadID,
@@ -340,6 +342,8 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		Description: ucworker.JobDescriptions[jobType],
 		Payload:     &payload,
 		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {
@@ -357,7 +361,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	if fileType == FileTypeGenomicGFF {
 		// Also enqueue a SYNONYM job that combines GFF3 + versionless FB synonym files.
 		// TODO: Refactor this to process only the GFF file instead.
-		synonymJob, err := uc.enqueueSynonymJob(ctx, versionID, uploadID, filePath)
+		synonymJob, err := uc.enqueueGenomicGFFSynonymJob(ctx, versionID, uploadID, filePath)
 		if err != nil {
 			return nil, err
 		}
@@ -367,9 +371,9 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	return jobs, nil
 }
 
-// enqueueSynonymJob creates a single SYNONYM job that carries the GFF3 file
+// enqueueGenomicGFFSynonymJob creates a single GENOMIC.GFF:SYNONYM job that carries the GFF3 file
 // path plus any versionless FB synonym files found in the uploads root.
-func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath string) (entity.Job, error) {
+func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath string) (entity.Job, error) {
 	var synonymFiles []string
 	for _, name := range []string{"fb_synonym.tsv.gz", "fbgn_fbtr_fbpp.tsv.gz"} {
 		p := filepath.Join(uc.uploadDir, name)
@@ -379,9 +383,9 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
+		UploadFileID: uploadFileID,
 		VersionID:    versionID,
 		FilePath:     gffFilePath,
-		FileType:     "synonym",
 		SynonymFiles: synonymFiles,
 	})
 	if err != nil {
@@ -389,6 +393,7 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 	}
 
 	p := json.RawMessage(rawPayload)
+	now := time.Now().UTC()
 	j := &entity.Job{
 		VersionID:   versionID,
 		FileID:      &uploadFileID,
@@ -396,6 +401,8 @@ func (uc *UseCase) enqueueSynonymJob(ctx context.Context, versionID uint64, uplo
 		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -435,6 +442,7 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	}
 
 	p := json.RawMessage(rawPayload)
+	now := time.Now().UTC()
 	job := &entity.Job{
 		VersionID:   f.VersionID,
 		FileID:      &id,
@@ -442,6 +450,8 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 		Description: ucworker.JobDescriptions[ucworker.JobTypeOrthologyTSVDelete],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {

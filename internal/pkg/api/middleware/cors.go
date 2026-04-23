@@ -39,6 +39,7 @@ func NewCORSMiddleware() gin.HandlerFunc {
 	corsConfig.AddExposeHeaders("Tus-Extension")
 	corsConfig.AddExposeHeaders("Tus-Max-Size")
 	corsConfig.AddExposeHeaders("X-Job-IDs")
+	corsConfig.AddExposeHeaders("X-Jobs")
 
 	return cors.New(corsConfig)
 }
