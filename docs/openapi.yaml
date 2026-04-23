@@ -684,6 +684,17 @@ paths:
                   value:
                     error: upload file not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '409':
+          description: A delete job for this file is already pending or running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                deletePending:
+                  value:
+                    error: a delete job for this file is already pending or running
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '422':
           description: File type cannot be deleted (only `orthology.tsv` files are deletable).
           content:

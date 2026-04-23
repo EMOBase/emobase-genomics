@@ -14,7 +14,7 @@ type Handler interface {
 }
 
 type IJobRepository interface {
-	ClaimNextPendingOfTypes(ctx context.Context, types []string) (*entity.Job, error)
+	ClaimNextPending(ctx context.Context) (*entity.Job, error)
 	MarkDone(ctx context.Context, id uint64, resultMetadata []byte) error
 	MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error
 	RequeueStuckJobs(ctx context.Context, stuckBefore time.Time) (int64, error)

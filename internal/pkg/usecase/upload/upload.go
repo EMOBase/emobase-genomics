@@ -420,6 +420,7 @@ func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID ui
 
 var ErrUploadFileNotFound = errors.New("upload file not found")
 var ErrUploadFileNotDeletable = errors.New("only orthology.tsv files can be deleted")
+var ErrUploadFileDeletePending = errors.New("a delete job for this file is already pending or running")
 
 func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error) {
 	f, err := uc.uploadRepo.FindByID(ctx, id)
@@ -431,6 +432,14 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	}
 	if f.FileType != FileTypeOrthologyTSV {
 		return nil, ErrUploadFileNotDeletable
+	}
+
+	hasActive, err := uc.jobRepo.HasActiveJobOfTypeForFile(ctx, id, ucworker.JobTypeOrthologyTSVDelete)
+	if err != nil {
+		return nil, err
+	}
+	if hasActive {
+		return nil, ErrUploadFileDeletePending
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.DeleteFilePayload{

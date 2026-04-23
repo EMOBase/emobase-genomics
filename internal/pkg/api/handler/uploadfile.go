@@ -36,6 +36,8 @@ func (h *UploadFileHandler) Delete(c *gin.Context) {
 			apires.Fail(c, http.StatusNotFound, "upload file not found")
 		case errors.Is(err, upload.ErrUploadFileNotDeletable):
 			apires.Fail(c, http.StatusUnprocessableEntity, err.Error())
+		case errors.Is(err, upload.ErrUploadFileDeletePending):
+			apires.Fail(c, http.StatusConflict, err.Error())
 		default:
 			panic(err)
 		}

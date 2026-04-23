@@ -59,20 +59,10 @@ func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName str
 	return jobs, rows.Err()
 }
 
-// ClaimNextPendingOfTypes atomically selects the oldest PENDING job whose type
-// is in the provided list and marks it RUNNING, using FOR UPDATE SKIP LOCKED so
-// concurrent workers never claim the same job.
-func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []string) (*entity.Job, error) {
-	placeholders := make([]byte, 0, len(types)*2-1)
-	args := make([]any, len(types))
-	for i, t := range types {
-		if i > 0 {
-			placeholders = append(placeholders, ',')
-		}
-		placeholders = append(placeholders, '?')
-		args[i] = t
-	}
-
+// ClaimNextPending atomically selects the oldest PENDING job and marks it
+// RUNNING, using FOR UPDATE SKIP LOCKED so concurrent workers never claim the
+// same job.
+func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -83,9 +73,9 @@ func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []s
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, version_id, file_id, type, description, payload, status,
 		        result_metadata, created_at, updated_at, started_at, completed_at
-		 FROM jobs WHERE status = 'PENDING' AND type IN (`+string(placeholders)+`)
+		 FROM jobs WHERE status = ?
 		 ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
-		args...,
+		entity.JobStatusPending,
 	).Scan(
 		&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Description, &j.Payload, &j.Status,
 		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
@@ -99,8 +89,8 @@ func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []s
 
 	now := time.Now().UTC()
 	if _, err = tx.ExecContext(ctx,
-		`UPDATE jobs SET status = 'RUNNING', started_at = ?, updated_at = ? WHERE id = ?`,
-		now, now, j.ID,
+		`UPDATE jobs SET status = ?, started_at = ?, updated_at = ? WHERE id = ?`,
+		entity.JobStatusRunning, now, now, j.ID,
 	); err != nil {
 		return nil, err
 	}
@@ -119,9 +109,9 @@ func (r *MySQLRepository) ClaimNextPendingOfTypes(ctx context.Context, types []s
 // back to PENDING, so they can be picked up again.
 func (r *MySQLRepository) RequeueStuckJobs(ctx context.Context, stuckBefore time.Time) (int64, error) {
 	result, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = 'PENDING', started_at = NULL, updated_at = NOW()
-		 WHERE status = 'RUNNING' AND started_at < ?`,
-		stuckBefore,
+		`UPDATE jobs SET status = ?, started_at = NULL, updated_at = NOW()
+		 WHERE status = ? AND started_at < ?`,
+		entity.JobStatusPending, entity.JobStatusRunning, stuckBefore,
 	)
 	if err != nil {
 		return 0, err
@@ -132,8 +122,8 @@ func (r *MySQLRepository) RequeueStuckJobs(ctx context.Context, stuckBefore time
 func (r *MySQLRepository) MarkRunning(ctx context.Context, id uint64) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = 'RUNNING', started_at = ? WHERE id = ? AND status = 'PENDING'`,
-		now, id,
+		`UPDATE jobs SET status = ?, started_at = ? WHERE id = ? AND status = ?`,
+		entity.JobStatusRunning, now, id, entity.JobStatusPending,
 	)
 	return err
 }
@@ -141,8 +131,17 @@ func (r *MySQLRepository) MarkRunning(ctx context.Context, id uint64) error {
 func (r *MySQLRepository) MarkDone(ctx context.Context, id uint64, resultMetadata []byte) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = 'DONE', completed_at = ?, result_metadata = ? WHERE id = ?`,
-		now, resultMetadata, id,
+		`UPDATE jobs SET status = ?, completed_at = ?, result_metadata = ? WHERE id = ?`,
+		entity.JobStatusDone, now, resultMetadata, id,
+	)
+	return err
+}
+
+func (r *MySQLRepository) MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error {
+	now := time.Now().UTC()
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE jobs SET status = ?, completed_at = ?, result_metadata = ? WHERE id = ?`,
+		entity.JobStatusFailed, now, resultMetadata, id,
 	)
 	return err
 }
@@ -151,8 +150,21 @@ func (r *MySQLRepository) HasActiveJobOfType(ctx context.Context, versionID uint
 	var count int
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM jobs
-		 WHERE version_id = ? AND type = ? AND status IN ('PENDING', 'RUNNING')`,
-		versionID, jobType,
+		 WHERE version_id = ? AND type = ? AND status IN (?, ?)`,
+		versionID, jobType, entity.JobStatusPending, entity.JobStatusRunning,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs
+		 WHERE file_id = ? AND type = ? AND status IN (?, ?)`,
+		fileID, jobType, entity.JobStatusPending, entity.JobStatusRunning,
 	).Scan(&count)
 	if err != nil {
 		return false, err
@@ -168,25 +180,25 @@ func (r *MySQLRepository) StatusCountsByVersionIDs(ctx context.Context, versionI
 		return map[uint64]entity.JobStatusCounts{}, nil
 	}
 
-	// Build the IN clause placeholders.
 	placeholders := make([]byte, 0, len(versionIDs)*2-1)
-	args := make([]any, len(versionIDs))
+	args := make([]any, 0, len(versionIDs)+4)
+	args = append(args, entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone)
 	for i, id := range versionIDs {
 		if i > 0 {
 			placeholders = append(placeholders, ',')
 		}
 		placeholders = append(placeholders, '?')
-		args[i] = id
+		args = append(args, id)
 	}
 
 	query := `SELECT version_id,
-	                 SUM(status = 'RUNNING') AS running_count,
-	                 SUM(status = 'FAILED')  AS failed_count,
-	                 SUM(status = 'DONE')    AS done_count,
-	                 COUNT(*)                AS total_count
-	          FROM jobs
-	          WHERE version_id IN (` + string(placeholders) + `)
-	          GROUP BY version_id`
+	            SUM(status = ?) AS running_count,
+	            SUM(status = ?) AS failed_count,
+	            SUM(status = ?) AS done_count,
+	            COUNT(*)        AS total_count
+	        FROM jobs
+	        WHERE version_id IN (` + string(placeholders) + `)
+	        GROUP BY version_id`
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -214,8 +226,8 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 	}
 
 	placeholders := make([]byte, 0, len(jobTypes)*2-1)
-	args := make([]any, 0, len(jobTypes)+1)
-	args = append(args, versionID)
+	args := make([]any, 0, len(jobTypes)+2)
+	args = append(args, versionID, entity.JobStatusDone)
 	for i, t := range jobTypes {
 		if i > 0 {
 			placeholders = append(placeholders, ',')
@@ -226,7 +238,7 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, version_id, file_id, type, payload FROM jobs
-		 WHERE version_id = ? AND status = 'DONE' AND type IN (`+string(placeholders)+`)`,
+		 WHERE version_id = ? AND status = ? AND type IN (`+string(placeholders)+`)`,
 		args...,
 	)
 	if err != nil {
@@ -251,20 +263,11 @@ func (r *MySQLRepository) HasNonFailedJobOfType(ctx context.Context, versionID u
 	var count int
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM jobs
-		 WHERE version_id = ? AND type = ? AND status IN ('PENDING', 'RUNNING', 'DONE')`,
-		versionID, jobType,
+		 WHERE version_id = ? AND type = ? AND status IN (?, ?, ?)`,
+		versionID, jobType, entity.JobStatusPending, entity.JobStatusRunning, entity.JobStatusDone,
 	).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
-}
-
-func (r *MySQLRepository) MarkFailed(ctx context.Context, id uint64, resultMetadata []byte) error {
-	now := time.Now().UTC()
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = 'FAILED', completed_at = ?, result_metadata = ? WHERE id = ?`,
-		now, resultMetadata, id,
-	)
-	return err
 }
