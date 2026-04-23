@@ -43,7 +43,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	uploadFileRepo := repouploadfile.New(db)
 	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo, uploadFileRepo)
 
-	jobUC := ucjob.New(jobRepo)
+	jobUC := ucjob.New(jobRepo, versionRepo)
 
 	uploadUC, err := upload.New(
 		config.Uploads.Dir,

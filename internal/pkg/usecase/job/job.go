@@ -3,9 +3,12 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
+
+var ErrVersionNotFound = errors.New("version not found")
 
 // JobSummary is the API-facing representation of a job for the list endpoint.
 type JobSummary struct {
@@ -20,15 +23,24 @@ type JobSummary struct {
 }
 
 type UseCase struct {
-	repo IJobRepository
+	repo        IJobRepository
+	versionRepo IVersionRepository
 }
 
-func New(repo IJobRepository) *UseCase {
-	return &UseCase{repo: repo}
+func New(repo IJobRepository, versionRepo IVersionRepository) *UseCase {
+	return &UseCase{repo: repo, versionRepo: versionRepo}
 }
 
 func (uc *UseCase) ListJobsByVersion(ctx context.Context, versionName string) ([]JobSummary, error) {
-	jobs, err := uc.repo.FindByVersionName(ctx, versionName)
+	v, err := uc.versionRepo.FindByName(ctx, versionName)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, ErrVersionNotFound
+	}
+
+	jobs, err := uc.repo.FindByVersionID(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}

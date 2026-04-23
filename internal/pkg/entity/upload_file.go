@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+const (
+	FileTypeGenomicFNA      = "genomic.fna"
+	FileTypeGenomicGFF      = "genomic.gff"
+	FileTypeRNAFNA          = "rna.fna"
+	FileTypeCDSFNA          = "cds.fna"
+	FileTypeProteinFAA      = "protein.faa"
+	FileTypeOrthologyTSV    = "orthology.tsv"
+	FileTypeFBSynonymTSV    = "fb_synonym.tsv"
+	FileTypeFBGNFBTRFBPPTSV = "fbgn_fbtr_fbpp.tsv"
+)
+
 type UploadStatus string
 
 const (

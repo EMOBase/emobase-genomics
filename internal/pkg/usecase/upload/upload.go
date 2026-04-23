@@ -135,7 +135,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 4. Validate orthology-specific metadata fields.
-	if fileType == FileTypeOrthologyTSV {
+	if fileType == entity.FileTypeOrthologyTSV {
 		if strings.TrimSpace(meta["order"]) == "" {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 				"orthology.tsv uploads require an \"order\" metadata field")
@@ -317,7 +317,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	fileType := meta["fileType"]
 
 	// genomic.fna has no parsing step; enqueue only the JBrowse2 assembly setup.
-	if fileType == FileTypeGenomicFNA {
+	if fileType == entity.FileTypeGenomicFNA {
 		job, err := uc.enqueueFNASetupJBrowse2Job(ctx, versionID, uploadID, meta["version"], filePath)
 		if err != nil {
 			return nil, err
@@ -362,7 +362,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	jobs := []entity.Job{*job}
 
-	if fileType == FileTypeGenomicGFF {
+	if fileType == entity.FileTypeGenomicGFF {
 		// Also enqueue a GENOMIC.GFF:SYNONYM job that combines GFF3 + versionless FB synonym files.
 		// TODO: Refactor this to process only the GFF file instead.
 		synonymJob, err := uc.enqueueGenomicGFFSynonymJob(ctx, versionID, uploadID, filePath)
@@ -527,7 +527,7 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	if f == nil {
 		return nil, ErrUploadFileNotFound
 	}
-	if f.FileType != FileTypeOrthologyTSV {
+	if f.FileType != entity.FileTypeOrthologyTSV {
 		return nil, ErrUploadFileNotDeletable
 	}
 

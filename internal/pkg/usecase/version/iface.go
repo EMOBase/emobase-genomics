@@ -20,8 +20,10 @@ type IAppSettingsRepository interface {
 
 type IJobRepository interface {
 	StatusCountsByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]entity.JobStatusCounts, error)
+	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
 }
 
 type IUploadFileRepository interface {
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
+	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 }

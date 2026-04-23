@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
@@ -30,6 +31,10 @@ func (h *JobHandler) ListByVersion(c *gin.Context) {
 
 	summaries, err := h.uc.ListJobsByVersion(c.Request.Context(), version)
 	if err != nil {
+		if errors.Is(err, ucjob.ErrVersionNotFound) {
+			apires.Fail(c, http.StatusNotFound, "version not found")
+			return
+		}
 		panic(err)
 	}
 

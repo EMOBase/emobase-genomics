@@ -120,6 +120,7 @@ components:
         - PROTEIN.FAA:SETUP_BLAST
         - RNA.FNA:SETUP_BLAST
         - GENOMIC.FNA:SETUP_JBROWSE2
+        - GENOMIC.GFF:SETUP_JBROWSE2
       description: |
         Identifies which file type and pipeline the job processes.
         - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
@@ -132,7 +133,8 @@ components:
         - `GENOMIC.FNA:SETUP_BLAST` — build genome BLAST database.
         - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
-        - `GENOMIC.FNA:SETUP_JBROWSE2` — set up JBrowse2 genome browser tracks.
+        - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
+        - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track and rebuild the JBrowse2 text index.
 
     JobSummary:
       type: object
@@ -166,6 +168,122 @@ components:
           type: string
           description: Error message from the worker. Present only when `status` is `FAILED`.
           example: failed to open file "/uploads/dmel/genomic.gff.gz"
+
+    FileDetail:
+      type: object
+      description: An uploaded file together with all its associated jobs.
+      required: [id, filePath, fileSize, uploadStatus, createdAt, createdBy, jobs]
+      properties:
+        id:
+          type: string
+          description: TUS upload ID (UUID).
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        filePath:
+          type: string
+          example: dmel_r6.59/genomic.gff.gz
+        fileSize:
+          type: integer
+          format: int64
+          example: 104857600
+        uploadStatus:
+          type: string
+          enum: [UPLOADING, COMPLETED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          example: admin
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileJobSummary'
+
+    FileJobSummary:
+      type: object
+      description: A job summary as returned inside a FileDetail (excludes versionId/fileId).
+      required: [id, type, description, status, payload]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        type:
+          $ref: '#/components/schemas/JobType'
+        description:
+          type: string
+          example: Parse genomic GFF file
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        payload:
+          description: Job-specific input parameters stored at enqueue time.
+          nullable: true
+        error:
+          type: string
+          nullable: true
+          description: Error message from the worker. Present only when `status` is `FAILED`.
+
+    VersionDetailFiles:
+      type: object
+      description: |
+        Uploaded files grouped by type. For all types except `orthology.tsv`, only the
+        latest non-deleted file is returned (or `null` if none exists). For `orthology.tsv`,
+        all non-deleted files are returned.
+      properties:
+        genomic.fna:
+          $ref: '#/components/schemas/FileDetail'
+          nullable: true
+        genomic.gff:
+          $ref: '#/components/schemas/FileDetail'
+          nullable: true
+        rna.fna:
+          $ref: '#/components/schemas/FileDetail'
+          nullable: true
+        cds.fna:
+          $ref: '#/components/schemas/FileDetail'
+          nullable: true
+        protein.faa:
+          $ref: '#/components/schemas/FileDetail'
+          nullable: true
+        orthology.tsv:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileDetail'
+
+    VersionDetail:
+      type: object
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, files]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: dmel_r6.59
+        isDefault:
+          type: boolean
+        status:
+          type: string
+          enum: [DRAFT, PROCESSING, READY, ERROR]
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          example: admin
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          example: admin
+        files:
+          $ref: '#/components/schemas/VersionDetailFiles'
 
 paths:
   /health:
@@ -288,6 +406,53 @@ paths:
                 forbidden:
                   value:
                     error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}/detail:
+    get:
+      summary: Get version detail
+      operationId: getVersionDetail
+      tags: [Versions]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.59`).
+      responses:
+        '200':
+          description: Full detail for the requested version.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/VersionDetail'
+                  requestId:
+                    type: string
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /versions/default:
@@ -559,7 +724,10 @@ paths:
 
     patch:
       summary: Upload a chunk (TUS)
-      description: Appends bytes to an in-progress upload. When the final chunk is received and the file is valid, the server enqueues background processing jobs.
+      description: |
+        Appends bytes to an in-progress upload. When the final chunk is received and the file is valid,
+        the server enqueues background processing jobs and returns them in the `X-Jobs` response header
+        as a JSON array of `JobSummary` objects.
       operationId: uploadChunk
       tags: [Uploads]
       parameters:
@@ -595,7 +763,7 @@ paths:
               format: binary
       responses:
         '204':
-          description: Chunk accepted. On the final chunk, `X-Job-IDs` is included with the IDs of enqueued processing jobs.
+          description: Chunk accepted. On the final chunk, `X-Jobs` and `X-Job-IDs` are included with the enqueued processing jobs.
           headers:
             Upload-Offset:
               schema:
@@ -605,10 +773,19 @@ paths:
               schema:
                 type: string
                 enum: ['1.0.0']
-            X-Job-IDs:
+            X-Jobs:
               schema:
                 type: string
-              description: Comma-separated list of enqueued job IDs. Present only on the final chunk of versioned file uploads (e.g. `"42"` or `"42,43"` when a job is also created).
+              description: |
+                JSON array of `JobSummary` objects for all enqueued processing jobs.
+                Present only on the final chunk of versioned file uploads.
+            X-Job-IDs:
+              deprecated: true
+              schema:
+                type: string
+              description: |
+                Deprecated. Comma-separated list of enqueued job IDs. Use `X-Jobs` instead.
+                Present only on the final chunk of versioned file uploads.
         '403':
           description: Missing or invalid token.
           content:
