@@ -271,3 +271,34 @@ func (r *MySQLRepository) HasNonFailedJobOfType(ctx context.Context, versionID u
 	}
 	return count > 0, nil
 }
+
+// HasNonFailedJobOfTypeForFile returns true if a PENDING, RUNNING, or DONE job
+// of the given type exists for the specific file. Used to prevent duplicate
+// per-file job enqueuing.
+func (r *MySQLRepository) HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs
+		 WHERE file_id = ? AND type = ? AND status IN (?, ?, ?)`,
+		fileID, jobType, entity.JobStatusPending, entity.JobStatusRunning, entity.JobStatusDone,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// HasDoneJobOfType returns true if at least one DONE job of the given type
+// exists for the version.
+func (r *MySQLRepository) HasDoneJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs
+		 WHERE version_id = ? AND type = ? AND status = ?`,
+		versionID, jobType, entity.JobStatusDone,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}

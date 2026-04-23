@@ -12,7 +12,8 @@ var JobDescriptions = map[string]string{
 	JobTypeGenomicFNASetupBlast:    "Setup genome BLAST database",
 	JobTypeProteinFAASetupBlast:    "Setup protein BLAST database",
 	JobTypeRNAFNASetupBlast:        "Setup RNA BLAST database",
-	JobTypeGenomicFNASetupJBrowse2: "Setup JBrowse2 genome browser",
+	JobTypeGenomicFNASetupJBrowse2: "Setup JBrowse2 assembly",
+	JobTypeGenomicGFFSetupJBrowse2: "Setup JBrowse2 annotation track",
 }
 
 // Job type constants — must match the values stored in jobs.type.
@@ -32,7 +33,8 @@ const (
 	JobTypeProteinFAASetupBlast = "PROTEIN.FAA:SETUP_BLAST"
 	JobTypeRNAFNASetupBlast     = "RNA.FNA:SETUP_BLAST"
 
-	// SETUP_JBROWSE2 builds the JBrowse2 genome browser tracks.
-	// Requires both GENOMIC.GFF and GENOMIC.FNA:SETUP_BLAST to be done first.
+	// SETUP_JBROWSE2 jobs build JBrowse2 genome browser tracks.
+	// FNA job runs first (add-assembly). GFF job runs after FNA:SETUP_JBROWSE2 is done.
 	JobTypeGenomicFNASetupJBrowse2 = "GENOMIC.FNA:SETUP_JBROWSE2"
+	JobTypeGenomicGFFSetupJBrowse2 = "GENOMIC.GFF:SETUP_JBROWSE2"
 )

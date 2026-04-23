@@ -64,7 +64,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	blastTitle := config.Blast.DisplayName
 
 	jobHandlers := map[string]ucworker.Handler{
-		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, jobRepo),
+		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
 		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
 		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
@@ -87,7 +87,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		ucworker.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" RNAs", blastDBPath+"/rna",
 		),
-		ucworker.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupJBrowse2Handler(),
+		ucworker.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
+		ucworker.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(),
 	}
 
 	w := ucworker.New(

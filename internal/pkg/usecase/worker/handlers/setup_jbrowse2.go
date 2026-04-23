@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
@@ -12,117 +13,149 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const setupJBrowse2Script = "/app/scripts/setup_jbrowse2.sh"
+const (
+	setupJBrowse2FNAScript = "/app/scripts/setup_jbrowse2_fna.sh"
+	setupJBrowse2GFFScript = "/app/scripts/setup_jbrowse2_gff.sh"
+)
 
-// SetupJBrowse2Handler runs the JBrowse2 setup script to build genome browser
-// tracks from the genomic FNA and GFF files.
-type SetupJBrowse2Handler struct{}
-
-func NewSetupJBrowse2Handler() *SetupJBrowse2Handler {
-	return &SetupJBrowse2Handler{}
+// SetupFNAJBrowse2Handler runs the FNA JBrowse2 setup script to register the
+// genome assembly. On success it tries to enqueue the GFF setup job.
+type SetupFNAJBrowse2Handler struct {
+	jobRepo IJobRepository
 }
 
-func (h *SetupJBrowse2Handler) Handle(ctx context.Context, job entity.Job) error {
-	var payload jobpayload.SetupJBrowse2Payload
+func NewSetupFNAJBrowse2Handler(jobRepo IJobRepository) *SetupFNAJBrowse2Handler {
+	return &SetupFNAJBrowse2Handler{jobRepo: jobRepo}
+}
+
+func (h *SetupFNAJBrowse2Handler) Handle(ctx context.Context, job entity.Job) error {
+	var payload jobpayload.SetupJBrowse2FNAPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal setup_jbrowse2 payload: %w", err)
+		return fmt.Errorf("failed to unmarshal %s payload: %w", ucworker.JobTypeGenomicFNASetupJBrowse2, err)
 	}
 
-	cmd := exec.CommandContext(ctx, setupJBrowse2Script, payload.GenomicFNAPath, payload.GenomicGFFPath, payload.VersionName)
+	cmd := exec.CommandContext(ctx, setupJBrowse2FNAScript, payload.GenomicFNAPath, payload.VersionName)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("setup_jbrowse2 script failed: %w\noutput: %s", err, out)
+		return fmt.Errorf("%s script failed: %w\noutput: %s", ucworker.JobTypeGenomicFNASetupJBrowse2, err, out)
 	}
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
 		Str("version", payload.VersionName).
-		Msg("JBrowse2 setup completed successfully")
+		Msgf("%s completed successfully", ucworker.JobTypeGenomicFNASetupJBrowse2)
 
 	return nil
 }
 
-// tryEnqueueSetupJBrowse2 checks whether all prerequisite jobs (GENOMIC.GFF and
-// GENOMIC.FNA:SETUP_BLAST) are done for the version, and if so enqueues a
-// GENOMIC.FNA:SETUP_JBROWSE2 job. Safe to call from either prerequisite handler
-// — it is a no-op when prerequisites are incomplete or the job already exists.
-func tryEnqueueSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versionRepo IVersionRepository, versionID uint64) error {
-	prereqs := []string{ucworker.JobTypeGenomicGFF, ucworker.JobTypeGenomicFNASetupBlast}
-
-	doneJobs, err := jobRepo.FindDoneByVersionAndTypes(ctx, versionID, prereqs)
-	if err != nil {
-		return fmt.Errorf("failed to check prerequisite jobs: %w", err)
-	}
-	if len(doneJobs) < len(prereqs) {
-		return nil // not all prerequisites done yet
+// OnComplete checks whether a done GENOMIC.GFF job exists and, if so, enqueues
+// a GENOMIC.GFF:SETUP_JBROWSE2 job for that file.
+func (h *SetupFNAJBrowse2Handler) OnComplete(ctx context.Context, job entity.Job) error {
+	var payload jobpayload.SetupJBrowse2FNAPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msgf("failed to unmarshal %s payload in OnComplete", ucworker.JobTypeGenomicFNASetupJBrowse2)
+		return nil
 	}
 
-	// Guard against duplicate enqueuing (race condition or re-upload).
-	exists, err := jobRepo.HasNonFailedJobOfType(ctx, versionID, ucworker.JobTypeGenomicFNASetupJBrowse2)
+	if err := tryEnqueueGFFSetupJBrowse2(ctx, h.jobRepo, job.VersionID, payload.VersionName); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msgf("failed to enqueue %s after %s", ucworker.JobTypeGenomicGFFSetupJBrowse2, ucworker.JobTypeGenomicFNASetupJBrowse2)
+	}
+	return nil
+}
+
+// SetupGFFJBrowse2Handler runs the GFF JBrowse2 setup script to add the
+// annotation track and rebuild the text index.
+type SetupGFFJBrowse2Handler struct{}
+
+func NewSetupGFFJBrowse2Handler() *SetupGFFJBrowse2Handler {
+	return &SetupGFFJBrowse2Handler{}
+}
+
+func (h *SetupGFFJBrowse2Handler) Handle(ctx context.Context, job entity.Job) error {
+	var payload jobpayload.SetupJBrowse2GFFPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal %s payload: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
+	}
+
+	cmd := exec.CommandContext(ctx, setupJBrowse2GFFScript, payload.GenomicGFFPath, payload.VersionName)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to check existing jbrowse2 job: %w", err)
+		return fmt.Errorf("%s script failed: %w\noutput: %s", ucworker.JobTypeGenomicGFFSetupJBrowse2, err, out)
+	}
+
+	log.Ctx(ctx).Info().
+		Uint64("jobID", job.ID).
+		Str("version", payload.VersionName).
+		Msgf("%s completed successfully", ucworker.JobTypeGenomicGFFSetupJBrowse2)
+
+	return nil
+}
+
+// tryEnqueueGFFSetupJBrowse2 looks up the latest done GENOMIC.GFF job for the
+// version and, if found and not already queued, enqueues GENOMIC.GFF:SETUP_JBROWSE2.
+func tryEnqueueGFFSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, versionID uint64, versionName string) error {
+	doneGFFJobs, err := jobRepo.FindDoneByVersionAndTypes(ctx, versionID, []string{ucworker.JobTypeGenomicGFF})
+	if err != nil {
+		return fmt.Errorf("failed to find done %s jobs: %w", ucworker.JobTypeGenomicGFF, err)
+	}
+	if len(doneGFFJobs) == 0 {
+		return nil // no GFF uploaded yet
+	}
+
+	// Pick the latest done GFF job (highest ID = most recent upload).
+	latest := doneGFFJobs[0]
+	for _, j := range doneGFFJobs[1:] {
+		if j.ID > latest.ID {
+			latest = j
+		}
+	}
+
+	if latest.FileID == nil {
+		return nil
+	}
+
+	exists, err := jobRepo.HasNonFailedJobOfTypeForFile(ctx, *latest.FileID, ucworker.JobTypeGenomicGFFSetupJBrowse2)
+	if err != nil {
+		return fmt.Errorf("failed to check existing %s job: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 	if exists {
 		return nil
 	}
 
-	// Extract file paths and the FNA file ID from the completed prerequisite jobs.
-	var fnaPath, gffPath string
-	var fnaFileID *string
-	for _, j := range doneJobs {
-		switch j.Type {
-		case ucworker.JobTypeGenomicFNASetupBlast:
-			var p jobpayload.SetupBlastPayload
-			if err := json.Unmarshal(*j.Payload, &p); err != nil {
-				return fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
-			}
-			fnaPath = p.FilePath
-			fnaFileID = j.FileID
-		case ucworker.JobTypeGenomicGFF:
-			var p jobpayload.ProcessPayload
-			if err := json.Unmarshal(*j.Payload, &p); err != nil {
-				return fmt.Errorf("failed to unmarshal genomic_gff payload: %w", err)
-			}
-			gffPath = p.FilePath
-		}
+	var p jobpayload.ProcessPayload
+	if err := json.Unmarshal(*latest.Payload, &p); err != nil {
+		return fmt.Errorf("failed to unmarshal %s job payload: %w", ucworker.JobTypeGenomicGFF, err)
 	}
 
-	version, err := versionRepo.FindByID(ctx, versionID)
-	if err != nil {
-		return fmt.Errorf("failed to look up version: %w", err)
-	}
-	if version == nil {
-		return fmt.Errorf("version %d not found", versionID)
-	}
-
-	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2Payload{
-		VersionName:    version.Name,
-		GenomicFNAPath: fnaPath,
-		GenomicGFFPath: gffPath,
+	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
+		VersionName:    versionName,
+		GenomicGFFPath: p.FilePath,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal setup_jbrowse2 payload: %w", err)
+		return fmt.Errorf("failed to marshal %s payload: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 
-	p := json.RawMessage(rawPayload)
+	rp := json.RawMessage(rawPayload)
+	now := time.Now().UTC()
 	j := &entity.Job{
 		VersionID:   versionID,
-		FileID:      fnaFileID,
-		Type:        ucworker.JobTypeGenomicFNASetupJBrowse2,
-		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicFNASetupJBrowse2],
-		Payload:     &p,
+		FileID:      latest.FileID,
+		Type:        ucworker.JobTypeGenomicGFFSetupJBrowse2,
+		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSetupJBrowse2],
+		Payload:     &rp,
 		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := jobRepo.Create(ctx, j); err != nil {
-		return fmt.Errorf("failed to create setup_jbrowse2 job: %w", err)
+		return fmt.Errorf("failed to create %s job: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", j.ID).
-		Str("fnaPath", fnaPath).
-		Str("gffPath", gffPath).
-		Msg("setup_jbrowse2 job enqueued")
+		Str("gffFileID", *latest.FileID).
+		Msgf("%s job enqueued", ucworker.JobTypeGenomicGFFSetupJBrowse2)
 
 	return nil
 }

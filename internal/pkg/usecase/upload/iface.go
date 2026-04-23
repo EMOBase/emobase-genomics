@@ -14,6 +14,8 @@ type IJobRepository interface {
 	Create(ctx context.Context, j *entity.Job) error
 	HasActiveJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
 	HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
+	HasDoneJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
+	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 }
 
 type IUploadFileRepository interface {
