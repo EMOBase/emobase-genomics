@@ -8,6 +8,7 @@ import (
 
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
@@ -64,31 +65,31 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	blastTitle := config.Blast.DisplayName
 
 	jobHandlers := map[string]ucworker.Handler{
-		ucworker.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
-		ucworker.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
-		ucworker.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
-		ucworker.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(
+		entity.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
+		entity.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
+		entity.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
+		entity.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
+		entity.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
+		entity.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(
 			config.Uploads.Dir, uploadFileRepo, versionRepo, orthologyRepo,
 		),
-		ucworker.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
+		entity.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
 			versionRepo, synonymUC, synonymRepo,
 			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
 			synonymparser.NewFlyBaseSynonymParser(config.MainSpecies),
 			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
 		),
-		ucworker.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
+		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" Genome", blastDBPath+"/genome",
 		),
-		ucworker.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
+		entity.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
 			"prot", blastTitle+" Proteins", blastDBPath+"/protein",
 		),
-		ucworker.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
+		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" RNAs", blastDBPath+"/rna",
 		),
-		ucworker.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
-		ucworker.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(),
+		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
+		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(),
 	}
 
 	w := ucworker.New(

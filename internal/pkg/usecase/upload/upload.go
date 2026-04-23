@@ -17,7 +17,6 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
-	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/rs/zerolog/log"
 	"github.com/tus/tusd/v2/pkg/filelocker"
 	"github.com/tus/tusd/v2/pkg/filestore"
@@ -343,7 +342,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		VersionID:   versionID,
 		FileID:      &uploadID,
 		Type:        jobType,
-		Description: ucworker.JobDescriptions[jobType],
+		Description: entity.JobDescriptions[jobType],
 		Payload:     &payload,
 		Status:      entity.JobStatusPending,
 		CreatedAt:   now,
@@ -373,7 +372,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
 		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", ucworker.JobTypeGenomicGFFSetupJBrowse2, ucworker.JobTypeGenomicGFF)
+			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
 		} else if gffSetupJob != nil {
 			jobs = append(jobs, *gffSetupJob)
 		}
@@ -388,7 +387,7 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 		GenomicFNAPath: filePath,
 	})
 	if err != nil {
-		return entity.Job{}, fmt.Errorf("failed to marshal %s payload: %w", ucworker.JobTypeGenomicFNASetupJBrowse2, err)
+		return entity.Job{}, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicFNASetupJBrowse2, err)
 	}
 
 	p := json.RawMessage(rawPayload)
@@ -396,8 +395,8 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 	j := &entity.Job{
 		VersionID:   versionID,
 		FileID:      &uploadID,
-		Type:        ucworker.JobTypeGenomicFNASetupJBrowse2,
-		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicFNASetupJBrowse2],
+		Type:        entity.JobTypeGenomicFNASetupJBrowse2,
+		Description: entity.JobDescriptions[entity.JobTypeGenomicFNASetupJBrowse2],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
 		CreatedAt:   now,
@@ -405,13 +404,13 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
-		return entity.Job{}, fmt.Errorf("failed to create %s job: %w", ucworker.JobTypeGenomicFNASetupJBrowse2, err)
+		return entity.Job{}, fmt.Errorf("failed to create %s job: %w", entity.JobTypeGenomicFNASetupJBrowse2, err)
 	}
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", j.ID).
 		Str("version", versionName).
-		Msgf("%s job enqueued", ucworker.JobTypeGenomicFNASetupJBrowse2)
+		Msgf("%s job enqueued", entity.JobTypeGenomicFNASetupJBrowse2)
 
 	return *j, nil
 }
@@ -419,17 +418,17 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 // tryEnqueueGFFSetupJBrowse2 creates a GENOMIC.GFF:SETUP_JBROWSE2 job if
 // GENOMIC.FNA:SETUP_JBROWSE2 is done and no non-failed job exists for this GFF file.
 func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath string) (*entity.Job, error) {
-	done, err := uc.jobRepo.HasDoneJobOfType(ctx, versionID, ucworker.JobTypeGenomicFNASetupJBrowse2)
+	done, err := uc.jobRepo.HasDoneJobOfType(ctx, versionID, entity.JobTypeGenomicFNASetupJBrowse2)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check %s status: %w", ucworker.JobTypeGenomicFNASetupJBrowse2, err)
+		return nil, fmt.Errorf("failed to check %s status: %w", entity.JobTypeGenomicFNASetupJBrowse2, err)
 	}
 	if !done {
 		return nil, nil
 	}
 
-	exists, err := uc.jobRepo.HasNonFailedJobOfTypeForFile(ctx, gffFileID, ucworker.JobTypeGenomicGFFSetupJBrowse2)
+	exists, err := uc.jobRepo.HasNonFailedJobOfTypeForFile(ctx, gffFileID, entity.JobTypeGenomicGFFSetupJBrowse2)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check existing %s job: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
+		return nil, fmt.Errorf("failed to check existing %s job: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 	if exists {
 		return nil, nil
@@ -440,7 +439,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 		GenomicGFFPath: gffFilePath,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal %s payload: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
+		return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 
 	p := json.RawMessage(rawPayload)
@@ -448,8 +447,8 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	j := &entity.Job{
 		VersionID:   versionID,
 		FileID:      &gffFileID,
-		Type:        ucworker.JobTypeGenomicGFFSetupJBrowse2,
-		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSetupJBrowse2],
+		Type:        entity.JobTypeGenomicGFFSetupJBrowse2,
+		Description: entity.JobDescriptions[entity.JobTypeGenomicGFFSetupJBrowse2],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
 		CreatedAt:   now,
@@ -457,13 +456,13 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
-		return nil, fmt.Errorf("failed to create %s job: %w", ucworker.JobTypeGenomicGFFSetupJBrowse2, err)
+		return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", j.ID).
 		Str("gffFileID", gffFileID).
-		Msgf("%s job enqueued", ucworker.JobTypeGenomicGFFSetupJBrowse2)
+		Msgf("%s job enqueued", entity.JobTypeGenomicGFFSetupJBrowse2)
 
 	return j, nil
 }
@@ -494,8 +493,8 @@ func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID ui
 	j := &entity.Job{
 		VersionID:   versionID,
 		FileID:      &uploadFileID,
-		Type:        ucworker.JobTypeGenomicGFFSynonym,
-		Description: ucworker.JobDescriptions[ucworker.JobTypeGenomicGFFSynonym],
+		Type:        entity.JobTypeGenomicGFFSynonym,
+		Description: entity.JobDescriptions[entity.JobTypeGenomicGFFSynonym],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
 		CreatedAt:   now,
@@ -531,7 +530,7 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 		return nil, ErrUploadFileNotDeletable
 	}
 
-	hasActive, err := uc.jobRepo.HasActiveJobOfTypeForFile(ctx, id, ucworker.JobTypeOrthologyTSVDelete)
+	hasActive, err := uc.jobRepo.HasActiveJobOfTypeForFile(ctx, id, entity.JobTypeOrthologyTSVDelete)
 	if err != nil {
 		return nil, err
 	}
@@ -552,8 +551,8 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	job := &entity.Job{
 		VersionID:   f.VersionID,
 		FileID:      &id,
-		Type:        ucworker.JobTypeOrthologyTSVDelete,
-		Description: ucworker.JobDescriptions[ucworker.JobTypeOrthologyTSVDelete],
+		Type:        entity.JobTypeOrthologyTSVDelete,
+		Description: entity.JobDescriptions[entity.JobTypeOrthologyTSVDelete],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
 		CreatedAt:   now,
