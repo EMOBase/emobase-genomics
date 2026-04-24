@@ -16,15 +16,23 @@ const setupBlastScript = "/app/scripts/setup_blast.sh"
 // SetupBlastHandler runs makeblastdb to build a SequenceServer-compatible
 // BLAST database from an uploaded file.
 type SetupBlastHandler struct {
-	dbType      string         // "nucl" or "prot"
-	title       string         // full title passed to makeblastdb -title
-	out         string         // output database path (e.g. "/db/genome")
-	jobRepo     IJobRepository // non-nil only when triggerJBrowse2 is true
-	versionRepo IVersionRepository
+	dbType          string
+	title           string
+	out             string
+	containerName   string
+	jobRepo         IJobRepository
+	appSettingsRepo IAppSettingsRepository
 }
 
-func NewSetupBlastHandler(dbType, title, out string) *SetupBlastHandler {
-	return &SetupBlastHandler{dbType: dbType, title: title, out: out}
+func NewSetupBlastHandler(dbType, title, out, containerName string, jobRepo IJobRepository, appSettingsRepo IAppSettingsRepository) *SetupBlastHandler {
+	return &SetupBlastHandler{
+		dbType:          dbType,
+		title:           title,
+		out:             out,
+		containerName:   containerName,
+		jobRepo:         jobRepo,
+		appSettingsRepo: appSettingsRepo,
+	}
 }
 
 func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
@@ -47,5 +55,55 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 		Str("out", h.out).
 		Msg("makeblastdb completed successfully")
 
+	return nil
+}
+
+// OnComplete checks whether all three blast job types are done for this version.
+// If so, it sets the default version and restarts the blast container.
+func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job) error {
+	blastTypes := []string{
+		entity.JobTypeGenomicFNASetupBlast,
+		entity.JobTypeProteinFAASetupBlast,
+		entity.JobTypeRNAFNASetupBlast,
+	}
+
+	for _, t := range blastTypes {
+		done, err := h.jobRepo.IsLatestJobDoneByType(ctx, job.VersionID, t)
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(err).Str("jobType", t).Msg("failed to check blast job status")
+			return nil
+		}
+		if !done {
+			return nil
+		}
+	}
+
+	// All three blast databases are built — promote this version as default.
+	if err := h.appSettingsRepo.SetDefaultVersion(ctx, job.VersionID); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Uint64("versionID", job.VersionID).Msg("failed to set default version after blast setup")
+		return nil
+	}
+
+	if h.containerName != "" {
+		if err := restartDockerContainer(ctx, h.containerName); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Str("container", h.containerName).Msg("failed to restart blast container")
+			return nil
+		}
+	}
+
+	log.Ctx(ctx).Info().
+		Uint64("versionID", job.VersionID).
+		Str("container", h.containerName).
+		Msg("all blast databases ready: default version set and blast container restarted")
+
+	return nil
+}
+
+func restartDockerContainer(ctx context.Context, containerName string) error {
+	cmd := exec.CommandContext(ctx, "docker", "restart", containerName)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker restart %s: %w\n%s", containerName, err, out)
+	}
 	return nil
 }

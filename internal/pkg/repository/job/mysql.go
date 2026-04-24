@@ -33,32 +33,6 @@ func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	return nil
 }
 
-// FindByVersionName returns all jobs for the version with the given name, ordered by creation time.
-func (r *MySQLRepository) FindByVersionName(ctx context.Context, versionName string) ([]entity.Job, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT j.id, j.version_id, j.file_id, j.type, j.description, j.status, j.payload, j.result_metadata
-		 FROM jobs j
-		 JOIN versions v ON v.id = j.version_id
-		 WHERE v.name = ?
-		 ORDER BY j.created_at ASC`,
-		versionName,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	var jobs []entity.Job
-	for rows.Next() {
-		var j entity.Job
-		if err := rows.Scan(&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Description, &j.Status, &j.Payload, &j.ResultMetadata); err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, j)
-	}
-	return jobs, rows.Err()
-}
-
 // FindByVersionID returns all jobs for the given version ID, ordered by creation time.
 func (r *MySQLRepository) FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -141,15 +115,6 @@ func (r *MySQLRepository) RequeueStuckJobs(ctx context.Context, stuckBefore time
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-func (r *MySQLRepository) MarkRunning(ctx context.Context, id uint64) error {
-	now := time.Now().UTC()
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = ?, started_at = ? WHERE id = ? AND status = ?`,
-		entity.JobStatusRunning, now, id, entity.JobStatusPending,
-	)
-	return err
 }
 
 func (r *MySQLRepository) MarkDone(ctx context.Context, id uint64, resultMetadata []byte) error {
@@ -312,17 +277,22 @@ func (r *MySQLRepository) HasNonFailedJobOfTypeForFile(ctx context.Context, file
 	return count > 0, nil
 }
 
-// HasDoneJobOfType returns true if at least one DONE job of the given type
-// exists for the version.
-func (r *MySQLRepository) HasDoneJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
-	var count int
+// IsLatestJobDoneByType returns true if the most recently created job of the
+// given type for the version has status DONE. Unlike HasDoneJobOfType this
+// ignores older jobs, so a new upload that created a fresh blast job won't be
+// considered complete until that specific job finishes.
+func (r *MySQLRepository) IsLatestJobDoneByType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
+	var status entity.JobStatus
 	err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM jobs
-		 WHERE version_id = ? AND type = ? AND status = ?`,
-		versionID, jobType, entity.JobStatusDone,
-	).Scan(&count)
+		`SELECT status FROM jobs WHERE version_id = ? AND type = ?
+		 ORDER BY created_at DESC LIMIT 1`,
+		versionID, jobType,
+	).Scan(&status)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	return count > 0, nil
+	return status == entity.JobStatusDone, nil
 }

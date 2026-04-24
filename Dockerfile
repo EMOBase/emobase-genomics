@@ -42,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       bash \
     && rm -rf /var/lib/apt/lists/*
 
-# Install JBrowse CLI (no Node.js required — unpkg serves the standalone bundle)
+# Install JBrowse CLI (unpkg serves the standalone bundle)
 RUN wget -q https://unpkg.com/@jbrowse/cli/bundle/index.js -O /usr/local/bin/jbrowse \
     && chmod +x /usr/local/bin/jbrowse
 

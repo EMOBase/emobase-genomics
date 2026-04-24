@@ -418,7 +418,7 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 // tryEnqueueGFFSetupJBrowse2 creates a GENOMIC.GFF:SETUP_JBROWSE2 job if
 // GENOMIC.FNA:SETUP_JBROWSE2 is done and no non-failed job exists for this GFF file.
 func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath string) (*entity.Job, error) {
-	done, err := uc.jobRepo.HasDoneJobOfType(ctx, versionID, entity.JobTypeGenomicFNASetupJBrowse2)
+	done, err := uc.jobRepo.IsLatestJobDoneByType(ctx, versionID, entity.JobTypeGenomicFNASetupJBrowse2)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check %s status: %w", entity.JobTypeGenomicFNASetupJBrowse2, err)
 	}

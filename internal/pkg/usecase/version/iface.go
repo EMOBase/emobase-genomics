@@ -21,6 +21,8 @@ type IAppSettingsRepository interface {
 type IJobRepository interface {
 	StatusCountsByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]entity.JobStatusCounts, error)
 	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
+	Create(ctx context.Context, j *entity.Job) error
+	HasNonFailedJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
 }
 
 type IUploadFileRepository interface {

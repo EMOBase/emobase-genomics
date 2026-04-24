@@ -8,6 +8,7 @@ import (
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 )
 
 var (
@@ -255,7 +256,11 @@ func computeVersionStatus(c entity.JobStatusCounts) string {
 	return "DRAFT"
 }
 
-func (uc *UseCase) SetDefaultVersion(ctx context.Context, name string) (*entity.Version, error) {
+// ReleaseVersion enqueues SETUP_BLAST jobs for genomic.fna, protein.faa, and
+// rna.fna using the latest completed upload file of each type. Once all three
+// blast jobs succeed the worker sets the default version and restarts the blast
+// container.
+func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*entity.Version, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -264,8 +269,61 @@ func (uc *UseCase) SetDefaultVersion(ctx context.Context, name string) (*entity.
 		return nil, ErrVersionNotFound
 	}
 
-	if err := uc.appSettingsRepo.SetDefaultVersion(ctx, v.ID); err != nil {
+	files, err := uc.uploadFileRepo.ListByVersionID(ctx, v.ID)
+	if err != nil {
 		return nil, err
+	}
+
+	// files is ordered by created_at DESC — first COMPLETED match per type is the latest.
+	type blastSpec struct {
+		fileType string
+		jobType  string
+	}
+	specs := []blastSpec{
+		{entity.FileTypeGenomicFNA, entity.JobTypeGenomicFNASetupBlast},
+		{entity.FileTypeProteinFAA, entity.JobTypeProteinFAASetupBlast},
+		{entity.FileTypeRNAFNA, entity.JobTypeRNAFNASetupBlast},
+	}
+
+	for _, spec := range specs {
+		var latestFile *entity.UploadFile
+		for i := range files {
+			if files[i].FileType == spec.fileType && files[i].UploadStatus == entity.UploadStatusCompleted {
+				latestFile = &files[i]
+				break
+			}
+		}
+		if latestFile == nil {
+			continue
+		}
+
+		exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, v.ID, spec.jobType)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			continue
+		}
+
+		rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath})
+		if err != nil {
+			return nil, err
+		}
+		rp := json.RawMessage(rawPayload)
+		now := time.Now().UTC()
+		j := &entity.Job{
+			VersionID:   v.ID,
+			FileID:      &latestFile.ID,
+			Type:        spec.jobType,
+			Description: entity.JobDescriptions[spec.jobType],
+			Payload:     &rp,
+			Status:      entity.JobStatusPending,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := uc.jobRepo.Create(ctx, j); err != nil {
+			return nil, err
+		}
 	}
 
 	return v, nil

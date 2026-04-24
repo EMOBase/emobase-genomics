@@ -32,6 +32,9 @@ type BlastConfig struct {
 	DisplayName string `mapstructure:"display_name"`
 	// DBPath is the directory where makeblastdb writes its output databases.
 	DBPath string `mapstructure:"db_path"`
+	// ContainerName is the Docker container name of the blast service to restart
+	// after all blast databases are rebuilt.
+	ContainerName string `mapstructure:"container_name"`
 }
 
 type DevConfig struct {

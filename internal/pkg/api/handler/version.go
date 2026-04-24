@@ -14,7 +14,7 @@ import (
 
 type versionUseCase interface {
 	CreateVersion(ctx context.Context, name string) (*entity.Version, error)
-	SetDefaultVersion(ctx context.Context, name string) (*entity.Version, error)
+	ReleaseVersion(ctx context.Context, name string) (*entity.Version, error)
 	ListVersions(ctx context.Context, page, pageSize int) (*ucversion.VersionList, error)
 	GetVersionDetail(ctx context.Context, name string) (*ucversion.VersionDetail, error)
 }
@@ -50,10 +50,10 @@ func (h *VersionHandler) List(c *gin.Context) {
 	apires.OK(c, result)
 }
 
-func (h *VersionHandler) SetDefault(c *gin.Context) {
+func (h *VersionHandler) Release(c *gin.Context) {
 	name := c.Param("name")
 
-	v, err := h.uc.SetDefaultVersion(c.Request.Context(), name)
+	v, err := h.uc.ReleaseVersion(c.Request.Context(), name)
 	if err != nil {
 		if errors.Is(err, ucversion.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")

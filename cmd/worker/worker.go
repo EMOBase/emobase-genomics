@@ -9,6 +9,7 @@ import (
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
@@ -63,6 +64,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	blastDBPath := config.Blast.DBPath
 	blastTitle := config.Blast.DisplayName
+	blastContainerName := config.Blast.ContainerName
+	appSettingsRepo := repoappsettings.New(db)
 
 	jobHandlers := map[string]ucworker.Handler{
 		entity.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
@@ -80,13 +83,13 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" Genome", blastDBPath+"/genome",
+			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, appSettingsRepo,
 		),
 		entity.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
-			"prot", blastTitle+" Proteins", blastDBPath+"/protein",
+			"prot", blastTitle+" Proteins", blastDBPath+"/protein", blastContainerName, jobRepo, appSettingsRepo,
 		),
 		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" RNAs", blastDBPath+"/rna",
+			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, appSettingsRepo,
 		),
 		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
 		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(),
