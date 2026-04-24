@@ -123,6 +123,30 @@ func (r *MySQLRepository) UpdateStatus(ctx context.Context, id string, status en
 	return err
 }
 
+// FindLatestCompletedByVersionAndType returns the most recently created
+// COMPLETED file of the given type for the version, or nil if none exists.
+func (r *MySQLRepository) FindLatestCompletedByVersionAndType(ctx context.Context, versionID uint64, fileType string) (*entity.UploadFile, error) {
+	f := &entity.UploadFile{}
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		        created_at, created_by, completed_at, deleted_at, deleted_by
+		 FROM upload_files
+		 WHERE version_id = ? AND file_type = ? AND upload_status = ? AND deleted_at IS NULL
+		 ORDER BY created_at DESC LIMIT 1`,
+		versionID, fileType, entity.UploadStatusCompleted,
+	).Scan(
+		&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.Metadata, &f.UploadStatus,
+		&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 func (r *MySQLRepository) SoftDelete(ctx context.Context, id string, deletedBy string) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,

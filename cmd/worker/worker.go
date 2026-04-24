@@ -83,13 +83,13 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, appSettingsRepo,
+			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
 		),
 		entity.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
-			"prot", blastTitle+" Proteins", blastDBPath+"/protein", blastContainerName, jobRepo, appSettingsRepo,
+			"prot", blastTitle+" Proteins", blastDBPath+"/protein", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
 		),
 		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, appSettingsRepo,
+			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
 		),
 		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
 		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(),

@@ -277,22 +277,17 @@ func (r *MySQLRepository) HasNonFailedJobOfTypeForFile(ctx context.Context, file
 	return count > 0, nil
 }
 
-// IsLatestJobDoneByType returns true if the most recently created job of the
-// given type for the version has status DONE. Unlike HasDoneJobOfType this
-// ignores older jobs, so a new upload that created a fresh blast job won't be
-// considered complete until that specific job finishes.
-func (r *MySQLRepository) IsLatestJobDoneByType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
-	var status entity.JobStatus
+// HasDoneJobOfTypeForFile returns true if a DONE job of the given type exists for
+// the specific file. Used to confirm that the current version of a file has
+// been fully processed, independent of jobs for other files of the same type.
+func (r *MySQLRepository) HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error) {
+	var count int
 	err := r.db.QueryRowContext(ctx,
-		`SELECT status FROM jobs WHERE version_id = ? AND type = ?
-		 ORDER BY created_at DESC LIMIT 1`,
-		versionID, jobType,
-	).Scan(&status)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+		`SELECT COUNT(*) FROM jobs WHERE file_id = ? AND type = ? AND status = ?`,
+		fileID, jobType, entity.JobStatusDone,
+	).Scan(&count)
 	if err != nil {
 		return false, err
 	}
-	return status == entity.JobStatusDone, nil
+	return count > 0, nil
 }

@@ -14,7 +14,7 @@ type IJobRepository interface {
 	Create(ctx context.Context, j *entity.Job) error
 	HasActiveJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
 	HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
-	IsLatestJobDoneByType(ctx context.Context, versionID uint64, jobType string) (bool, error)
+	HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 }
 
@@ -24,4 +24,5 @@ type IUploadFileRepository interface {
 	UpdateStatus(ctx context.Context, id string, status entity.UploadStatus) error
 	SoftDelete(ctx context.Context, id string, deletedBy string) error
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
+	FindLatestCompletedByVersionAndType(ctx context.Context, versionID uint64, fileType string) (*entity.UploadFile, error)
 }
