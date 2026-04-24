@@ -455,25 +455,28 @@ paths:
                     error: version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
-  /versions/default:
+  /versions/{name}/release:
     post:
-      summary: Set the default version
-      operationId: setDefaultVersion
+      summary: Release a version
+      operationId: releaseVersion
       tags: [Versions]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  example: dmel_r6.54
+      description: |
+        Enqueues `GENOMIC.FNA:SETUP_BLAST`, `PROTEIN.FAA:SETUP_BLAST`, and `RNA.FNA:SETUP_BLAST`
+        jobs for the latest completed file of each type. Once all three jobs succeed, the version
+        is automatically promoted to the default and the BLAST container is restarted.
+
+        Jobs are only created for file types that have a completed upload. If a non-failed blast
+        job already exists for a given type it is skipped (idempotent per type).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.54`).
       responses:
         '200':
-          description: Default version updated. Returns the version that was set as default.
+          description: Blast jobs enqueued. Returns the version.
           content:
             application/json:
               schema:
@@ -483,17 +486,6 @@ paths:
                     $ref: '#/components/schemas/Version'
                   requestId:
                     type: string
-        '400':
-          description: Missing name.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                missingName:
-                  value:
-                    error: "Key: 'Name' Error:Field validation for 'Name' failed on the 'required' tag"
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
           content:
