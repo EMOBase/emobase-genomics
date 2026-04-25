@@ -85,10 +85,12 @@ services:
       MYSQL__PASSWORD: ${MYSQL__PASSWORD}
       MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
       ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+      BLAST__CONTAINER_NAME: ${BLAST__CONTAINER_NAME:-emobase_genomics_blast}
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - ./data/jbrowse2:/web/
       - blast_data:/db/
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       mysql:
         condition: service_healthy
@@ -109,10 +111,12 @@ services:
       MYSQL__PASSWORD: ${MYSQL__PASSWORD}
       MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
       ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+      BLAST__CONTAINER_NAME: ${BLAST__CONTAINER_NAME:-emobase_genomics_blast}
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - ./data/jbrowse2:/web/
       - blast_data:/db/
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       mysql:
         condition: service_healthy

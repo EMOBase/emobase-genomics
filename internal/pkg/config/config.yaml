@@ -21,8 +21,9 @@ elasticsearch:
     - http://localhost:9200
 
 blast:
-  display_name: OGS3  # used as the title prefix in makeblastdb (e.g. "OGS3 Genome")
-  db_path: /db        # directory where makeblastdb writes its output databases
+  display_name: OGS3 # used as the title prefix in makeblastdb (e.g. "OGS3 Genome")
+  db_path: /db # directory where makeblastdb writes its output databases
+  container_name: emobase_genomics_blast # name of blast container to restart after new databases are created
 
 uploads:
   dir: ./public/uploads

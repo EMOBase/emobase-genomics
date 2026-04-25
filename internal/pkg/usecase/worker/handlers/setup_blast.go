@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os/exec"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -116,10 +119,28 @@ func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job) erro
 }
 
 func restartDockerContainer(ctx context.Context, containerName string) error {
-	cmd := exec.CommandContext(ctx, "docker", "restart", containerName)
-	out, err := cmd.CombinedOutput()
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", "/var/run/docker.sock")
+		},
+	}
+	client := &http.Client{Transport: transport}
+
+	url := fmt.Sprintf("http://localhost/containers/%s/restart", containerName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
-		return fmt.Errorf("docker restart %s: %w\n%s", containerName, err, out)
+		return fmt.Errorf("docker restart %s: %w", containerName, err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("docker restart %s: %w", containerName, err)
+	}
+	defer func() { _, _ = io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("docker restart %s: unexpected status %d: %s", containerName, resp.StatusCode, body)
 	}
 	return nil
 }
