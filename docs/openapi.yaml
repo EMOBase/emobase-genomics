@@ -465,8 +465,11 @@ paths:
         jobs for the latest completed file of each type. Once all three jobs succeed, the version
         is automatically promoted to the default and the BLAST container is restarted.
 
-        Jobs are only created for file types that have a completed upload. If a non-failed blast
-        job already exists for a given type it is skipped (idempotent per type).
+        **Preconditions** (returns 422 if not met):
+        - `genomic.fna` and `genomic.gff` must have at least one completed upload.
+        - All jobs generated from the latest completed file of every uploaded type must be in `DONE` state.
+
+        If a non-failed blast job already exists for a given type it is skipped (idempotent per type).
       parameters:
         - name: name
           in: path
@@ -516,6 +519,23 @@ paths:
                 notFound:
                   value:
                     error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: Precondition not met.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                requiredFileNotUploaded:
+                  summary: A required file has not been uploaded yet
+                  value:
+                    error: "required file not uploaded: genomic.fna"
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                fileJobsNotComplete:
+                  summary: Jobs for the latest uploaded file of some type are not all done
+                  value:
+                    error: "file jobs not complete: rna.fna"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /jobs:

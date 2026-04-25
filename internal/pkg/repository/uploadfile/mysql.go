@@ -123,6 +123,41 @@ func (r *MySQLRepository) UpdateStatus(ctx context.Context, id string, status en
 	return err
 }
 
+// FindLatestCompletedPerTypeByVersionID returns the most recently created
+// COMPLETED file for each file_type in a single query, using a window function.
+func (r *MySQLRepository) FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		        created_at, created_by, completed_at, deleted_at, deleted_by
+		 FROM (
+		   SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		          created_at, created_by, completed_at, deleted_at, deleted_by,
+		          ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
+		   FROM upload_files
+		   WHERE version_id = ? AND upload_status = ? AND deleted_at IS NULL
+		 ) ranked
+		 WHERE rn = 1`,
+		versionID, entity.UploadStatusCompleted,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var files []entity.UploadFile
+	for rows.Next() {
+		var f entity.UploadFile
+		if err := rows.Scan(
+			&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.Metadata, &f.UploadStatus,
+			&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
 // FindLatestCompletedByVersionAndType returns the most recently created
 // COMPLETED file of the given type for the version, or nil if none exists.
 func (r *MySQLRepository) FindLatestCompletedByVersionAndType(ctx context.Context, versionID uint64, fileType string) (*entity.UploadFile, error) {

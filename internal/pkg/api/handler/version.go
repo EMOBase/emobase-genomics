@@ -59,6 +59,10 @@ func (h *VersionHandler) Release(c *gin.Context) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return
 		}
+		if errors.Is(err, ucversion.ErrRequiredFileNotUploaded) || errors.Is(err, ucversion.ErrFileJobsNotComplete) {
+			apires.Fail(c, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 		panic(err)
 	}
 

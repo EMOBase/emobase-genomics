@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
@@ -12,8 +13,10 @@ import (
 )
 
 var (
-	ErrVersionAlreadyExists = errors.New("version already exists")
-	ErrVersionNotFound      = errors.New("version not found")
+	ErrVersionAlreadyExists    = errors.New("version already exists")
+	ErrVersionNotFound         = errors.New("version not found")
+	ErrRequiredFileNotUploaded = errors.New("required file not uploaded")
+	ErrFileJobsNotComplete     = errors.New("file jobs not complete")
 )
 
 type VersionItem struct {
@@ -275,12 +278,35 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		return nil, ErrVersionNotFound
 	}
 
-	files, err := uc.uploadFileRepo.ListByVersionID(ctx, v.ID)
+	latestFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByVersionID(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// files is ordered by created_at DESC — first COMPLETED match per type is the latest.
+	latestByType := make(map[string]*entity.UploadFile, len(latestFiles))
+	for i := range latestFiles {
+		latestByType[latestFiles[i].FileType] = &latestFiles[i]
+	}
+
+	// genomic.fna and genomic.gff are required before a release.
+	for _, ft := range []string{entity.FileTypeGenomicFNA, entity.FileTypeGenomicGFF} {
+		if latestByType[ft] == nil {
+			return nil, fmt.Errorf("%w: %s", ErrRequiredFileNotUploaded, ft)
+		}
+	}
+
+	// All jobs for the latest completed file of each uploaded type must be DONE.
+	for ft, f := range latestByType {
+		// TODO: seems like a N+1 query problem. Can we batch this?
+		hasNonDone, err := uc.jobRepo.HasNonDoneJobsForFile(ctx, f.ID)
+		if err != nil {
+			return nil, err
+		}
+		if hasNonDone {
+			return nil, fmt.Errorf("%w: %s", ErrFileJobsNotComplete, ft)
+		}
+	}
+
 	type blastSpec struct {
 		fileType string
 		jobType  string
@@ -293,17 +319,12 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 
 	var createdJobs []JobSummary
 	for _, spec := range specs {
-		var latestFile *entity.UploadFile
-		for i := range files {
-			if files[i].FileType == spec.fileType && files[i].UploadStatus == entity.UploadStatusCompleted {
-				latestFile = &files[i]
-				break
-			}
-		}
+		latestFile := latestByType[spec.fileType]
 		if latestFile == nil {
 			continue
 		}
 
+		// TODO: seems like a N+1 query problem. Can we batch this?
 		exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, v.ID, spec.jobType)
 		if err != nil {
 			return nil, err

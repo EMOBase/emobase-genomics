@@ -23,9 +23,11 @@ type IJobRepository interface {
 	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
 	Create(ctx context.Context, j *entity.Job) error
 	HasNonFailedJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
+	HasNonDoneJobsForFile(ctx context.Context, fileID string) (bool, error)
 }
 
 type IUploadFileRepository interface {
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
+	FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 }

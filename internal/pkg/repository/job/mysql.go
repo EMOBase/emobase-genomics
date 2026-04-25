@@ -277,6 +277,20 @@ func (r *MySQLRepository) HasNonFailedJobOfTypeForFile(ctx context.Context, file
 	return count > 0, nil
 }
 
+// HasNonDoneJobsForFile returns true if any job for the given file is not yet
+// in the DONE state (i.e. PENDING, RUNNING, or FAILED).
+func (r *MySQLRepository) HasNonDoneJobsForFile(ctx context.Context, fileID string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs WHERE file_id = ? AND status != ?`,
+		fileID, entity.JobStatusDone,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // HasDoneJobOfTypeForFile returns true if a DONE job of the given type exists for
 // the specific file. Used to confirm that the current version of a file has
 // been fully processed, independent of jobs for other files of the same type.
