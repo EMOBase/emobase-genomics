@@ -14,7 +14,7 @@ import (
 
 type versionUseCase interface {
 	CreateVersion(ctx context.Context, name string) (*entity.Version, error)
-	ReleaseVersion(ctx context.Context, name string) (*entity.Version, error)
+	ReleaseVersion(ctx context.Context, name string) (*ucversion.ReleaseResult, error)
 	ListVersions(ctx context.Context, page, pageSize int) (*ucversion.VersionList, error)
 	GetVersionDetail(ctx context.Context, name string) (*ucversion.VersionDetail, error)
 }

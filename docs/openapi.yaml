@@ -476,14 +476,23 @@ paths:
           description: Version name (e.g. `dmel_r6.54`).
       responses:
         '200':
-          description: Blast jobs enqueued. Returns the version.
+          description: Blast jobs enqueued. Returns the version and the newly created jobs.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    $ref: '#/components/schemas/Version'
+                    allOf:
+                      - $ref: '#/components/schemas/Version'
+                      - type: object
+                        required: [jobs]
+                        properties:
+                          jobs:
+                            type: array
+                            description: Blast jobs created by this release call. Empty if all blast jobs already existed.
+                            items:
+                              $ref: '#/components/schemas/JobSummary'
                   requestId:
                     type: string
         '403':

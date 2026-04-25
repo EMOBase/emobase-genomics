@@ -256,11 +256,17 @@ func computeVersionStatus(c entity.JobStatusCounts) string {
 	return "DRAFT"
 }
 
+// ReleaseResult is the response for POST /versions/{name}/release.
+type ReleaseResult struct {
+	entity.Version
+	Jobs []JobSummary `json:"jobs"`
+}
+
 // ReleaseVersion enqueues SETUP_BLAST jobs for genomic.fna, protein.faa, and
 // rna.fna using the latest completed upload file of each type. Once all three
 // blast jobs succeed the worker sets the default version and restarts the blast
 // container.
-func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*entity.Version, error) {
+func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseResult, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -285,6 +291,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*entity.Ver
 		{entity.FileTypeRNAFNA, entity.JobTypeRNAFNASetupBlast},
 	}
 
+	var createdJobs []JobSummary
 	for _, spec := range specs {
 		var latestFile *entity.UploadFile
 		for i := range files {
@@ -324,9 +331,10 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*entity.Ver
 		if err := uc.jobRepo.Create(ctx, j); err != nil {
 			return nil, err
 		}
+		createdJobs = append(createdJobs, toJobSummary(*j))
 	}
 
-	return v, nil
+	return &ReleaseResult{Version: *v, Jobs: createdJobs}, nil
 }
 
 func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Version, error) {

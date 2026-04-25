@@ -206,7 +206,7 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 	f := &entity.UploadFile{
 		ID:           upload.ID,
 		VersionID:    versionID,
-		FilePath:     filepath.Join(upload.MetaData["version"], filepath.Base(upload.MetaData["fileName"])),
+		FilePath:     filepath.Join(uc.uploadDir, upload.MetaData["version"], filepath.Base(upload.MetaData["fileName"])),
 		FileType:     upload.MetaData["fileType"],
 		FileSize:     upload.Size,
 		UploadStatus: entity.UploadStatusUploading,
@@ -287,6 +287,10 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	jobs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
 	if err != nil {
 		return tusd.HTTPResponse{}, err
+	}
+
+	if err := uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusCompleted); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("uploadID", upload.ID).Msg("failed to mark upload file as completed")
 	}
 
 	idStrs := make([]string, len(jobs))
