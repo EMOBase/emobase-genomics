@@ -29,18 +29,18 @@ type sequenceFASTAHandler struct {
 	sequenceType string
 }
 
-func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) error {
+func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
 	var payload jobpayload.ProcessPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal job payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
 	}
 
 	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
 	if err != nil {
-		return fmt.Errorf("failed to look up version: %w", err)
+		return nil, fmt.Errorf("failed to look up version: %w", err)
 	}
 	if version == nil {
-		return fmt.Errorf("version %d not found", payload.VersionID)
+		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
 	aliasName := fmt.Sprintf("emobasegenomics-sequence-%s", strings.ToLower(version.Name))
@@ -48,19 +48,19 @@ func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) error
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file %q: %w", payload.FilePath, err)
+		return nil, fmt.Errorf("failed to open file %q: %w", payload.FilePath, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
-		return fmt.Errorf("failed to create gzip reader: %w", err)
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer func() { _ = gr.Close() }()
 
 	if err := h.sequenceUC.Load(ctx, gr, indexName, h.sequenceType); err != nil {
-		return err
+		return nil, err
 	}
 
-	return h.sequenceRepo.SetAlias(ctx, indexName, aliasName)
+	return nil, h.sequenceRepo.SetAlias(ctx, indexName, aliasName)
 }

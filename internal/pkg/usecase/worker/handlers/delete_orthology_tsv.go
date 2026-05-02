@@ -43,37 +43,37 @@ func NewDeleteOrthologyTSVHandler(
 	}
 }
 
-func (h *DeleteOrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) error {
+func (h *DeleteOrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
 	var payload jobpayload.DeleteFilePayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal job payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
 	}
 
 	f, err := h.uploadFileRepo.FindByID(ctx, payload.UploadFileID)
 	if err != nil {
-		return fmt.Errorf("failed to look up upload file: %w", err)
+		return nil, fmt.Errorf("failed to look up upload file: %w", err)
 	}
 	if f == nil {
-		return fmt.Errorf("upload file %q not found", payload.UploadFileID)
+		return nil, fmt.Errorf("upload file %q not found", payload.UploadFileID)
 	}
 
 	version, err := h.versionRepo.FindByID(ctx, f.VersionID)
 	if err != nil {
-		return fmt.Errorf("failed to look up version: %w", err)
+		return nil, fmt.Errorf("failed to look up version: %w", err)
 	}
 	if version == nil {
-		return fmt.Errorf("version %d not found", f.VersionID)
+		return nil, fmt.Errorf("version %d not found", f.VersionID)
 	}
 
 	indexName := fmt.Sprintf("emobasegenomics-orthology-%s-%d",
 		strings.ToLower(version.Name), version.CreatedAt.Unix())
 
 	if err := h.orthologyRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
-		return fmt.Errorf("failed to delete orthology records: %w", err)
+		return nil, fmt.Errorf("failed to delete orthology records: %w", err)
 	}
 
 	if err := h.uploadFileRepo.SoftDelete(ctx, payload.UploadFileID, payload.DeletedBy); err != nil {
-		return fmt.Errorf("failed to soft-delete upload file record: %w", err)
+		return nil, fmt.Errorf("failed to soft-delete upload file record: %w", err)
 	}
 
 	filePath := filepath.Join(h.uploadDir, f.FilePath)
@@ -81,5 +81,5 @@ func (h *DeleteOrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) 
 		log.Ctx(ctx).Warn().Err(err).Str("path", filePath).Msg("failed to remove orthology file from disk")
 	}
 
-	return nil
+	return nil, nil
 }

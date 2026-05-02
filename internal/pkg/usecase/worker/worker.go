@@ -67,7 +67,7 @@ func (w *Worker) Run(ctx context.Context) error {
 // OnCompleteHook is an optional interface handlers can implement to run logic
 // after the job has been marked DONE in the database.
 type OnCompleteHook interface {
-	OnComplete(ctx context.Context, job entity.Job) error
+	OnComplete(ctx context.Context, job entity.Job, result json.RawMessage) error
 }
 
 // OnFailureHook is an optional interface handlers can implement to run logic
@@ -89,7 +89,8 @@ func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 
 	logger.Info().Msg("processing job")
 
-	if err := handler.Handle(ctx, *job); err != nil {
+	result, err := handler.Handle(ctx, *job)
+	if err != nil {
 		logger.Error().Err(err).Msg("job handler failed")
 		meta, _ := json.Marshal(map[string]string{"error": err.Error()})
 		_ = w.jobRepo.MarkFailed(ctx, job.ID, meta)
@@ -102,7 +103,7 @@ func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 		return
 	}
 
-	if err := w.jobRepo.MarkDone(ctx, job.ID, nil); err != nil {
+	if err := w.jobRepo.MarkDone(ctx, job.ID, result); err != nil {
 		logger.Error().Err(err).Msg("failed to mark job done")
 		return
 	}
@@ -110,7 +111,7 @@ func (w *Worker) processJob(ctx context.Context, job *entity.Job) {
 	logger.Info().Msg("job completed")
 
 	if hook, ok := handler.(OnCompleteHook); ok {
-		if err := hook.OnComplete(ctx, *job); err != nil {
+		if err := hook.OnComplete(ctx, *job, result); err != nil {
 			logger.Warn().Err(err).Msg("post-completion hook failed")
 		}
 	}

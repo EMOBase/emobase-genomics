@@ -51,18 +51,18 @@ func NewSynonymHandler(
 	}
 }
 
-func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) error {
+func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
 	var payload jobpayload.ProcessPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal job payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
 	}
 
 	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
 	if err != nil {
-		return fmt.Errorf("failed to look up version: %w", err)
+		return nil, fmt.Errorf("failed to look up version: %w", err)
 	}
 	if version == nil {
-		return fmt.Errorf("version %d not found", payload.VersionID)
+		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
 	aliasName := fmt.Sprintf("emobasegenomics-synonym-%s", strings.ToLower(version.Name))
@@ -70,7 +70,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) error {
 
 	// Load synonyms from the GFF3 file.
 	if err := h.loadGzip(ctx, payload.FilePath, indexName, h.gff3Parser); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Load synonyms from each versionless synonym file using the appropriate parser.
@@ -80,11 +80,11 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) error {
 			continue
 		}
 		if err := h.loadGzip(ctx, path, indexName, parser); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return h.synonymRepo.SetAlias(ctx, indexName, aliasName)
+	return nil, h.synonymRepo.SetAlias(ctx, indexName, aliasName)
 }
 
 func (h *SynonymHandler) parserForFile(path string) synonymparser.ISynonymParser {

@@ -2,15 +2,17 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
 
 // Handler processes a single job. Returning an error marks the job as failed.
-// A nil return marks it as done.
+// A nil return marks it as done. The returned json.RawMessage is persisted as
+// ResultMetadata and forwarded to OnCompleteHook if the handler implements it.
 type Handler interface {
-	Handle(ctx context.Context, job entity.Job) error
+	Handle(ctx context.Context, job entity.Job) (json.RawMessage, error)
 }
 
 type IJobRepository interface {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	ucsequence "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
@@ -26,6 +27,6 @@ func NewRNAFNAHandler(
 	}
 }
 
-func (h *RNAFNAHandler) Handle(ctx context.Context, job entity.Job) error {
+func (h *RNAFNAHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
 	return h.handle(ctx, job)
 }

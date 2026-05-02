@@ -40,10 +40,10 @@ func NewSetupBlastHandler(dbType, title, out, containerName string, jobRepo IJob
 	}
 }
 
-func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
+func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
 	var payload jobpayload.SetupBlastPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
 	}
 
 	cmd := exec.CommandContext(ctx, setupBlastScript,
@@ -52,7 +52,7 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("setup_blast script failed: %w\noutput: %s", err, out)
+		return nil, fmt.Errorf("setup_blast script failed: %w\noutput: %s", err, out)
 	}
 
 	log.Ctx(ctx).Info().
@@ -60,14 +60,14 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) error {
 		Str("out", h.out).
 		Msg("makeblastdb completed successfully")
 
-	return nil
+	return nil, nil
 }
 
 // OnComplete checks whether all three blast databases are ready for this version
 // by finding the latest completed file of each type and confirming its blast job
 // is DONE. If all three are ready, it sets the default version and restarts the
 // blast container.
-func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job) error {
+func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job, _ json.RawMessage) error {
 	type blastSpec struct {
 		fileType string
 		jobType  string

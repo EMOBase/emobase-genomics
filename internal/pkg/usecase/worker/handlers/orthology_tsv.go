@@ -41,18 +41,18 @@ func NewOrthologyTSVHandler(
 	}
 }
 
-func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) error {
+func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
 	var payload jobpayload.ProcessPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal job payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
 	}
 
 	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
 	if err != nil {
-		return fmt.Errorf("failed to look up version: %w", err)
+		return nil, fmt.Errorf("failed to look up version: %w", err)
 	}
 	if version == nil {
-		return fmt.Errorf("version %d not found", payload.VersionID)
+		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
 	aliasName := fmt.Sprintf("emobasegenomics-orthology-%s", strings.ToLower(version.Name))
@@ -62,21 +62,21 @@ func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) error 
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file %q: %w", payload.FilePath, err)
+		return nil, fmt.Errorf("failed to open file %q: %w", payload.FilePath, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
-		return fmt.Errorf("failed to create gzip reader: %w", err)
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer func() { _ = gr.Close() }()
 
 	if err := h.orthologyUC.Load(ctx, gr, indexName, payload.UploadFileID, payload.Order, payload.Algorithm); err != nil {
-		return err
+		return nil, err
 	}
 
-	return h.orthologyRepo.SetAlias(ctx, indexName, aliasName)
+	return nil, h.orthologyRepo.SetAlias(ctx, indexName, aliasName)
 }
 
 // OnFailure removes any partially-inserted ES records for the file so the
