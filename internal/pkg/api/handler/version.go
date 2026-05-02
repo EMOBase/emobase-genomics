@@ -14,6 +14,7 @@ import (
 
 type versionUseCase interface {
 	CreateVersion(ctx context.Context, name string) (*entity.Version, error)
+	DeleteVersion(ctx context.Context, name string) error
 	ReleaseVersion(ctx context.Context, name string) (*ucversion.ReleaseResult, error)
 	ListVersions(ctx context.Context, page, pageSize int) (*ucversion.VersionList, error)
 	GetVersionDetail(ctx context.Context, name string) (*ucversion.VersionDetail, error)
@@ -82,6 +83,29 @@ func (h *VersionHandler) Detail(c *gin.Context) {
 	}
 
 	apires.OK(c, detail)
+}
+
+func (h *VersionHandler) Delete(c *gin.Context) {
+	name := c.Param("name")
+
+	err := h.uc.DeleteVersion(c.Request.Context(), name)
+	if err != nil {
+		if errors.Is(err, ucversion.ErrVersionNotFound) {
+			apires.Fail(c, http.StatusNotFound, "version not found")
+			return
+		}
+		if errors.Is(err, ucversion.ErrCannotDeleteDefaultVersion) {
+			apires.Fail(c, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if errors.Is(err, ucversion.ErrVersionHasActiveJobs) {
+			apires.Fail(c, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		panic(err)
+	}
+
+	apires.NoContent(c)
 }
 
 func (h *VersionHandler) Create(c *gin.Context) {

@@ -305,3 +305,20 @@ func (r *MySQLRepository) HasDoneJobOfTypeForFile(ctx context.Context, fileID st
 	}
 	return count > 0, nil
 }
+
+func (r *MySQLRepository) HasActiveJobsByVersionID(ctx context.Context, versionID uint64) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs WHERE version_id = ? AND status IN (?, ?)`,
+		versionID, entity.JobStatusPending, entity.JobStatusRunning,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *MySQLRepository) DeleteByVersionID(ctx context.Context, versionID uint64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM jobs WHERE version_id = ?`, versionID)
+	return err
+}

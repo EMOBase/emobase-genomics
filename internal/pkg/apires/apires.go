@@ -22,3 +22,7 @@ func Fail(c *gin.Context, status int, message string) {
 func AbortFail(c *gin.Context, status int, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"error": message, "requestId": requestid.Get(c)})
 }
+
+func NoContent(c *gin.Context) {
+	c.Status(http.StatusNoContent)
+}

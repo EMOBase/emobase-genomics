@@ -5,18 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
+	"github.com/rs/zerolog/log"
 )
 
 var (
-	ErrVersionAlreadyExists    = errors.New("version already exists")
-	ErrVersionNotFound         = errors.New("version not found")
-	ErrRequiredFileNotUploaded = errors.New("required file not uploaded")
-	ErrFileJobsNotComplete     = errors.New("file jobs not complete")
+	ErrVersionAlreadyExists       = errors.New("version already exists")
+	ErrVersionNotFound            = errors.New("version not found")
+	ErrRequiredFileNotUploaded    = errors.New("required file not uploaded")
+	ErrFileJobsNotComplete        = errors.New("file jobs not complete")
+	ErrCannotDeleteDefaultVersion = errors.New("cannot delete the default version")
+	ErrVersionHasActiveJobs       = errors.New("version has active jobs")
 )
 
 type VersionItem struct {
@@ -79,10 +83,11 @@ type UseCase struct {
 	appSettingsRepo IAppSettingsRepository
 	jobRepo         IJobRepository
 	uploadFileRepo  IUploadFileRepository
+	esRepo          IVersionESRepository
 }
 
-func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository) *UseCase {
-	return &UseCase{versionRepo: versionRepo, appSettingsRepo: appSettingsRepo, jobRepo: jobRepo, uploadFileRepo: uploadFileRepo}
+func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IVersionESRepository) *UseCase {
+	return &UseCase{versionRepo: versionRepo, appSettingsRepo: appSettingsRepo, jobRepo: jobRepo, uploadFileRepo: uploadFileRepo, esRepo: esRepo}
 }
 
 func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*VersionList, error) {
@@ -378,4 +383,56 @@ func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Vers
 	}
 
 	return v, nil
+}
+
+func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
+	v, err := uc.versionRepo.FindByName(ctx, name)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return ErrVersionNotFound
+	}
+
+	defaultVersionID, err := uc.appSettingsRepo.GetDefaultVersionID(ctx)
+	if err != nil {
+		return err
+	}
+	if defaultVersionID != nil && *defaultVersionID == v.ID {
+		return ErrCannotDeleteDefaultVersion
+	}
+
+	hasActive, err := uc.jobRepo.HasActiveJobsByVersionID(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	if hasActive {
+		return ErrVersionHasActiveJobs
+	}
+
+	// Collect file paths before deleting records so we can remove them from disk.
+	files, err := uc.uploadFileRepo.ListByVersionID(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+
+	if err := uc.uploadFileRepo.HardDeleteByVersionID(ctx, v.ID); err != nil {
+		return err
+	}
+
+	for _, f := range files {
+		if err := os.Remove(f.FilePath); err != nil && !os.IsNotExist(err) {
+			log.Ctx(ctx).Warn().Err(err).Str("path", f.FilePath).Msg("failed to remove upload file from disk during version delete")
+		}
+	}
+
+	if err := uc.jobRepo.DeleteByVersionID(ctx, v.ID); err != nil {
+		return err
+	}
+
+	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to delete ES indexes during version delete")
+	}
+
+	return uc.versionRepo.Delete(ctx, v.ID)
 }

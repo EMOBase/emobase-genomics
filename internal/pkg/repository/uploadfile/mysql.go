@@ -190,3 +190,8 @@ func (r *MySQLRepository) SoftDelete(ctx context.Context, id string, deletedBy s
 	)
 	return err
 }
+
+func (r *MySQLRepository) HardDeleteByVersionID(ctx context.Context, versionID uint64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM upload_files WHERE version_id = ?`, versionID)
+	return err
+}

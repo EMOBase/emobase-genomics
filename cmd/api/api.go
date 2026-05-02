@@ -13,6 +13,7 @@ import (
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esindex"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
@@ -37,11 +38,16 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	}
 	defer func() { _ = db.Close() }()
 
+	esClient, err := database.NewElasticsearch(config.Elasticsearch)
+	if err != nil {
+		return err
+	}
+
 	jobRepo := repojob.New(db)
 
 	versionRepo := repoversion.New(db)
 	uploadFileRepo := repouploadfile.New(db)
-	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo, uploadFileRepo)
+	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo, uploadFileRepo, esindex.New(esClient))
 
 	jobUC := ucjob.New(jobRepo, versionRepo)
 

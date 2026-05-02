@@ -11,6 +11,7 @@ type IVersionRepository interface {
 	FindByName(ctx context.Context, name string) (*entity.Version, error)
 	List(ctx context.Context, offset, limit int) ([]entity.Version, error)
 	Count(ctx context.Context) (int, error)
+	Delete(ctx context.Context, id uint64) error
 }
 
 type IAppSettingsRepository interface {
@@ -24,10 +25,17 @@ type IJobRepository interface {
 	Create(ctx context.Context, j *entity.Job) error
 	HasNonFailedJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
 	HasNonDoneJobsForFile(ctx context.Context, fileID string) (bool, error)
+	HasActiveJobsByVersionID(ctx context.Context, versionID uint64) (bool, error)
+	DeleteByVersionID(ctx context.Context, versionID uint64) error
 }
 
 type IUploadFileRepository interface {
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 	FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
+	HardDeleteByVersionID(ctx context.Context, versionID uint64) error
+}
+
+type IVersionESRepository interface {
+	DeleteIndexesByVersion(ctx context.Context, versionName string) error
 }

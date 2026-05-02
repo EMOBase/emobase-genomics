@@ -53,6 +53,7 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		authenticated.GET("/versions", versionHandler.List)
 		authenticated.GET("/versions/:name/detail", versionHandler.Detail)
 		authenticated.POST("/versions", versionHandler.Create)
+		authenticated.DELETE("/versions/:name", versionHandler.Delete)
 		authenticated.POST("/versions/:name/release", versionHandler.Release)
 
 		jobHandler := handler.NewJobHandler(jobUC)
