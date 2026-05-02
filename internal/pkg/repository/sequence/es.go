@@ -68,6 +68,57 @@ func (r *ElasticSearchRepository) SaveMany(
 	return nil
 }
 
+// DeleteStaleIndexes deletes all indexes matching the pattern aliasName-* except
+// liveIndexName, cleaning up old timestamped indexes after a re-upload.
+func (r *ElasticSearchRepository) DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName string) error {
+	pattern := aliasName + "-*"
+
+	getRes, err := r.esClient.Indices.Get(
+		[]string{pattern},
+		r.esClient.Indices.Get.WithContext(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to list indexes for pattern %q: %w", pattern, err)
+	}
+	defer func() { _ = getRes.Body.Close() }()
+
+	if getRes.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if getRes.IsError() {
+		return fmt.Errorf("elasticsearch list indexes failed: %s", getRes.String())
+	}
+
+	var indices map[string]json.RawMessage
+	if err := json.NewDecoder(getRes.Body).Decode(&indices); err != nil {
+		return fmt.Errorf("failed to decode index list: %w", err)
+	}
+
+	var toDelete []string
+	for name := range indices {
+		if name != liveIndexName {
+			toDelete = append(toDelete, name)
+		}
+	}
+	if len(toDelete) == 0 {
+		return nil
+	}
+
+	delRes, err := r.esClient.Indices.Delete(
+		toDelete,
+		r.esClient.Indices.Delete.WithContext(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete stale indexes: %w", err)
+	}
+	defer func() { _ = delRes.Body.Close() }()
+
+	if delRes.IsError() {
+		return fmt.Errorf("elasticsearch delete indexes failed: %s", delRes.String())
+	}
+	return nil
+}
+
 // SetAlias atomically points aliasName to indexName,
 // removing it from any previous index it may have pointed to.
 func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName string) error {
