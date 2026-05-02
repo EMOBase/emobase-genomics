@@ -14,6 +14,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
+	"github.com/rs/zerolog/log"
 )
 
 type ISynonymUseCase interface {
@@ -22,6 +23,7 @@ type ISynonymUseCase interface {
 
 type ISynonymRepository interface {
 	SetAlias(ctx context.Context, indexName, aliasName string) error
+	DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName string) error
 }
 
 type SynonymHandler struct {
@@ -49,6 +51,11 @@ func NewSynonymHandler(
 		fbSynParser: fbSynParser,
 		fbGRPParser: fbGRPParser,
 	}
+}
+
+type synonymResult struct {
+	IndexName string `json:"indexName"`
+	AliasName string `json:"aliasName"`
 }
 
 func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
@@ -84,7 +91,31 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		}
 	}
 
-	return nil, h.synonymRepo.SetAlias(ctx, indexName, aliasName)
+	if err := h.synonymRepo.SetAlias(ctx, indexName, aliasName); err != nil {
+		return nil, err
+	}
+
+	raw, err := json.Marshal(synonymResult{IndexName: indexName, AliasName: aliasName})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	}
+	return raw, nil
+}
+
+func (h *SynonymHandler) OnComplete(ctx context.Context, _ entity.Job, result json.RawMessage) error {
+	var res synonymResult
+	if err := json.Unmarshal(result, &res); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal synonym result in OnComplete; skipping stale index cleanup")
+		return nil
+	}
+
+	if err := h.synonymRepo.DeleteStaleIndexes(ctx, res.AliasName, res.IndexName); err != nil {
+		log.Ctx(ctx).Warn().Err(err).
+			Str("aliasName", res.AliasName).
+			Str("liveIndex", res.IndexName).
+			Msg("failed to delete stale synonym indexes")
+	}
+	return nil
 }
 
 func (h *SynonymHandler) parserForFile(path string) synonymparser.ISynonymParser {
