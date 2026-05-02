@@ -254,6 +254,41 @@ components:
           items:
             $ref: '#/components/schemas/FileDetail'
 
+    UploadFileSummary:
+      type: object
+      required: [id, versionId, fileType, fileSize, uploadStatus, createdAt, createdBy]
+      properties:
+        id:
+          type: string
+          description: TUS upload ID (UUID).
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        versionId:
+          type: integer
+          format: int64
+          example: 1
+        fileType:
+          type: string
+          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, fb_synonym.tsv, fbgn_fbtr_fbpp.tsv]
+          example: genomic.gff
+        fileSize:
+          type: integer
+          format: int64
+          description: File size in bytes.
+          example: 104857600
+        uploadStatus:
+          type: string
+          enum: [UPLOADING, COMPLETED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          example: admin
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
     VersionDetail:
       type: object
       required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, files]
@@ -453,6 +488,70 @@ paths:
                 notFound:
                   value:
                     error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}:
+    delete:
+      summary: Delete a version
+      operationId: deleteVersion
+      tags: [Versions]
+      description: |
+        Permanently deletes a version and all of its associated data:
+        - Upload file records are hard-deleted from the database and their files are removed from disk.
+        - All jobs for the version are deleted.
+        - All Elasticsearch indexes for the version are deleted (`genomiclocation`, `sequence`, `orthology`, `synonym`).
+
+        **Preconditions** (returns 422 if not met):
+        - The version must not be the current default version.
+        - The version must have no active (PENDING or RUNNING) jobs.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.54`).
+      responses:
+        '204':
+          description: Version and all related data deleted successfully.
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: Precondition not met.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                isDefault:
+                  summary: Version is the current default
+                  value:
+                    error: cannot delete the default version
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                hasActiveJobs:
+                  summary: Version has active jobs
+                  value:
+                    error: version has active jobs
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /versions/{name}/release:
@@ -830,6 +929,66 @@ paths:
                 notGzip:
                   value:
                     error: uploaded file is not a valid gzip
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /upload-files:
+    get:
+      summary: List upload files for a version
+      operationId: listUploadFiles
+      tags: [Uploads]
+      parameters:
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.54`).
+      responses:
+        '200':
+          description: All non-deleted upload files for the given version, ordered by creation time descending.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UploadFileSummary'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing `version` query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingVersion:
+                  value:
+                    error: version query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /upload-files/{id}:

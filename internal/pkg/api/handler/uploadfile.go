@@ -15,6 +15,7 @@ import (
 
 type uploadFileUseCase interface {
 	DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error)
+	ListByVersion(ctx context.Context, versionName string) ([]upload.UploadFileSummary, error)
 }
 
 type UploadFileHandler struct {
@@ -23,6 +24,25 @@ type UploadFileHandler struct {
 
 func NewUploadFileHandler(uc uploadFileUseCase) *UploadFileHandler {
 	return &UploadFileHandler{uc: uc}
+}
+
+func (h *UploadFileHandler) List(c *gin.Context) {
+	version := c.Query("version")
+	if version == "" {
+		apires.Fail(c, http.StatusBadRequest, "version query parameter is required")
+		return
+	}
+
+	files, err := h.uc.ListByVersion(c.Request.Context(), version)
+	if err != nil {
+		if errors.Is(err, upload.ErrVersionNotFound) {
+			apires.Fail(c, http.StatusNotFound, "version not found")
+			return
+		}
+		panic(err)
+	}
+
+	apires.OK(c, files)
 }
 
 func (h *UploadFileHandler) Delete(c *gin.Context) {

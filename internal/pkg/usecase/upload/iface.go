@@ -21,6 +21,7 @@ type IJobRepository interface {
 type IUploadFileRepository interface {
 	Create(ctx context.Context, f *entity.UploadFile) error
 	FindByID(ctx context.Context, id string) (*entity.UploadFile, error)
+	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 	UpdateStatus(ctx context.Context, id string, status entity.UploadStatus) error
 	SoftDelete(ctx context.Context, id string, deletedBy string) error
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)

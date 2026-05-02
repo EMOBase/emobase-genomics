@@ -528,6 +528,49 @@ func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID ui
 var ErrUploadFileNotFound = errors.New("upload file not found")
 var ErrUploadFileNotDeletable = errors.New("only orthology.tsv files can be deleted")
 var ErrUploadFileDeletePending = errors.New("a delete job for this file is already pending or running")
+var ErrVersionNotFound = errors.New("version not found")
+
+// UploadFileSummary is the API-facing representation of an upload file.
+type UploadFileSummary struct {
+	ID           string              `json:"id"`
+	VersionID    uint64              `json:"versionId"`
+	FileType     string              `json:"fileType"`
+	FileSize     int64               `json:"fileSize"`
+	UploadStatus entity.UploadStatus `json:"uploadStatus"`
+	CreatedAt    time.Time           `json:"createdAt"`
+	CreatedBy    string              `json:"createdBy"`
+	CompletedAt  *time.Time          `json:"completedAt,omitempty"`
+}
+
+func (uc *UseCase) ListByVersion(ctx context.Context, versionName string) ([]UploadFileSummary, error) {
+	v, err := uc.versionRepo.FindByName(ctx, versionName)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, ErrVersionNotFound
+	}
+
+	files, err := uc.uploadRepo.ListByVersionID(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]UploadFileSummary, len(files))
+	for i, f := range files {
+		summaries[i] = UploadFileSummary{
+			ID:           f.ID,
+			VersionID:    f.VersionID,
+			FileType:     f.FileType,
+			FileSize:     f.FileSize,
+			UploadStatus: f.UploadStatus,
+			CreatedAt:    f.CreatedAt,
+			CreatedBy:    f.CreatedBy,
+			CompletedAt:  f.CompletedAt,
+		}
+	}
+	return summaries, nil
+}
 
 func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error) {
 	f, err := uc.uploadRepo.FindByID(ctx, id)
