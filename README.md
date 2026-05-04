@@ -6,14 +6,17 @@
 
 ## How to Run
 
-1. Start the application:
+1. Copy the example environment file and update it if needed:
 
-  ```bash
-  docker compose --profile migrate run --rm --build db-migrate && \
-  docker compose --profile migrate run --rm --build es-migrate && \
-  docker compose --profile migrate run --rm --build setup-jbrowse2-web && \
-  docker compose up --build -d
-  ```
+```bash
+cp .env.example .env
+```
 
-2. Configuration can be overridden using environment variables.
-For example, to override `http.mode`, set the environment variable `HTTP__MODE=`.
+2. Start the application:
+
+```bash
+docker compose --profile migrate run --rm --build db-migrate && \
+docker compose --profile migrate run --rm --build es-migrate && \
+docker compose --profile migrate run --rm --build setup-jbrowse2-web && \
+docker compose up --build -d
+```

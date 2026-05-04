@@ -1,4 +1,4 @@
-name: emobase-genomics
+name: emobase_genomics
 
 services:
   db-migrate:
@@ -6,12 +6,7 @@ services:
     container_name: emobase_genomics_db_migrate
     restart: no
     command: ["db:migrate", "-c", "/app/config.yaml"]
-    environment:
-      MYSQL__HOST: mysql
-      MYSQL__PORT: 3306
-      MYSQL__USER: ${MYSQL__USER:-emobase}
-      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
-      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
+    env_file: .env
     depends_on:
       mysql:
         condition: service_healthy
@@ -25,8 +20,7 @@ services:
     container_name: emobase_genomics_es_migrate
     restart: no
     command: ["es:migrate", "-c", "/app/config.yaml"]
-    environment:
-      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+    env_file: .env
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -51,14 +45,7 @@ services:
     container_name: emobase_genomics_api
     restart: unless-stopped
     command: ["api", "-c", "/app/config.yaml"]
-    environment:
-      HTTP__MODE: ${HTTP__MODE:-release}
-      MYSQL__HOST: mysql
-      MYSQL__PORT: 3306
-      MYSQL__USER: ${MYSQL__USER:-emobase}
-      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
-      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
-      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
+    env_file: .env
     expose:
       - "8080" # internal only, not bound to host
     volumes:
@@ -78,14 +65,7 @@ services:
     container_name: emobase_genomics_worker_1
     restart: unless-stopped
     command: ["worker", "-c", "/app/config.yaml"]
-    environment:
-      MYSQL__HOST: mysql
-      MYSQL__PORT: 3306
-      MYSQL__USER: ${MYSQL__USER:-emobase}
-      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
-      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
-      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
-      BLAST__CONTAINER_NAME: ${BLAST__CONTAINER_NAME:-emobase_genomics_blast}
+    env_file: .env
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - ./data/jbrowse2:/web/
@@ -104,14 +84,7 @@ services:
     container_name: emobase_genomics_worker_2
     restart: unless-stopped
     command: ["worker", "-c", "/app/config.yaml"]
-    environment:
-      MYSQL__HOST: mysql
-      MYSQL__PORT: 3306
-      MYSQL__USER: ${MYSQL__USER:-emobase}
-      MYSQL__PASSWORD: ${MYSQL__PASSWORD}
-      MYSQL__DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
-      ELASTICSEARCH__ADDRESSES: http://elasticsearch:9200
-      BLAST__CONTAINER_NAME: ${BLAST__CONTAINER_NAME:-emobase_genomics_blast}
+    env_file: .env
     volumes:
       - ./data/public/uploads:/app/public/uploads
       - ./data/jbrowse2:/web/
@@ -129,11 +102,7 @@ services:
     image: mysql:8.0
     container_name: emobase_genomics_mysql
     restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL__ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL__DATABASE:-emobase_genomics}
-      MYSQL_USER: ${MYSQL__USER:-emobase}
-      MYSQL_PASSWORD: ${MYSQL__PASSWORD}
+    env_file: .env
     ports:
       - "3306:3306"
     volumes:
@@ -142,7 +111,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "mysqladmin ping -h localhost -u root --password=${MYSQL__ROOT_PASSWORD}",
+          "mysqladmin ping -h localhost -u root --password=${MYSQL_ROOT_PASSWORD}",
         ]
       interval: 10s
       timeout: 5s
