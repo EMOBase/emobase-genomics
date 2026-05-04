@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -77,6 +78,12 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	envPrefix := "emobase_genomics"
+	if v, ok := os.LookupEnv("EMOBASE_GENOMICS_ENV_PREFIX"); ok {
+		envPrefix = v
+	}
+
+	viper.SetEnvPrefix(envPrefix)
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "__", "-", "_"))
 	viper.AutomaticEnv()
 
