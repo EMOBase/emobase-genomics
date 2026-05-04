@@ -1,4 +1,4 @@
-main_species: Ptep
+main_species: # required configured to be able to run the server
 
 http:
   port: 8080

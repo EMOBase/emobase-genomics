@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -93,6 +94,10 @@ func LoadConfig(path string) (*Config, error) {
 			Msg("failed to unmarshal configuration")
 
 		panic(err)
+	}
+
+	if config.MainSpecies == "" {
+		return nil, errors.New("main_species is required but not set")
 	}
 
 	log.Info().Any("config", config).Msg("configuration loaded successfully")
