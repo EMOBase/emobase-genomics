@@ -24,8 +24,6 @@ import (
 )
 
 type UseCase struct {
-	// Handler is the HTTP handler to mount in the router. It wraps tusHandler
-	// and may inject an artificial chunk delay in development.
 	Handler     http.Handler
 	tusHandler  *tusd.Handler
 	uploadDir   string
@@ -36,7 +34,6 @@ type UseCase struct {
 
 func New(
 	uploadDir string,
-	chunkDelay time.Duration,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
@@ -69,30 +66,11 @@ func New(
 	}
 
 	uc.tusHandler = handler
-	if chunkDelay > 0 {
-		log.Warn().Dur("chunk_delay", chunkDelay).Msg("[dev] upload chunk delay enabled")
-		uc.Handler = &chunkDelayMiddleware{handler: handler, delay: chunkDelay}
-	} else {
-		uc.Handler = handler
-	}
+	uc.Handler = handler
 
 	go uc.processEvents()
 
 	return uc, nil
-}
-
-// chunkDelayMiddleware wraps a handler and sleeps before each PATCH request
-// (TUS chunk upload) to simulate slow network conditions during development.
-type chunkDelayMiddleware struct {
-	handler http.Handler
-	delay   time.Duration
-}
-
-func (m *chunkDelayMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPatch {
-		time.Sleep(m.delay)
-	}
-	m.handler.ServeHTTP(w, r)
 }
 
 func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.FileInfoChanges, error) {

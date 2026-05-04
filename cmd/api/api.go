@@ -53,7 +53,6 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	uploadUC, err := upload.New(
 		config.Uploads.Dir,
-		config.Dev.UploadChunkDelay,
 		versionRepo,
 		jobRepo,
 		uploadFileRepo,

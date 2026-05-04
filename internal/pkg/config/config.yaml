@@ -27,6 +27,3 @@ blast:
 
 uploads:
   dir: ./public/uploads
-
-dev:
-  upload_chunk_delay: 500ms # set to e.g. "500ms" to simulate slow uploads

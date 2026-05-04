@@ -19,7 +19,6 @@ type Config struct {
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
 	Blast         BlastConfig         `mapstructure:"blast"`
 	Uploads       UploadsConfig       `mapstructure:"uploads"`
-	Dev           DevConfig           `mapstructure:"dev"`
 }
 
 type UploadsConfig struct {
@@ -35,12 +34,6 @@ type BlastConfig struct {
 	// ContainerName is the Docker container name of the blast service to restart
 	// after all blast databases are rebuilt.
 	ContainerName string `mapstructure:"container_name"`
-}
-
-type DevConfig struct {
-	// UploadChunkDelay adds an artificial delay after each uploaded chunk.
-	// Set to a non-zero value (e.g. "500ms") to simulate slow uploads during development.
-	UploadChunkDelay time.Duration `mapstructure:"upload_chunk_delay"`
 }
 
 type ElasticsearchConfig struct {
