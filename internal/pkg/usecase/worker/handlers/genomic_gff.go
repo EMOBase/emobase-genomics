@@ -28,17 +28,20 @@ type GenomicGFFHandler struct {
 	versionRepo IVersionRepository
 	genomicUC   IGenomicUseCase
 	genomicRepo IGenomicRepository
+	indexPrefix string
 }
 
 func NewGenomicGFFHandler(
 	versionRepo IVersionRepository,
 	genomicUC IGenomicUseCase,
 	genomicRepo IGenomicRepository,
+	indexPrefix string,
 ) *GenomicGFFHandler {
 	return &GenomicGFFHandler{
 		versionRepo: versionRepo,
 		genomicUC:   genomicUC,
 		genomicRepo: genomicRepo,
+		indexPrefix: indexPrefix,
 	}
 }
 
@@ -61,7 +64,7 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) (json.Ra
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("emobasegenomics-genomiclocation-%s", strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-genomiclocation-%s", h.indexPrefix, strings.ToLower(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
 	f, err := os.Open(payload.FilePath)

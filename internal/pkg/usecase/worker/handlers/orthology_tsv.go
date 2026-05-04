@@ -27,17 +27,20 @@ type OrthologyTSVHandler struct {
 	versionRepo   IVersionRepository
 	orthologyUC   IOrthologyUseCase
 	orthologyRepo IOrthologyRepository
+	indexPrefix   string
 }
 
 func NewOrthologyTSVHandler(
 	versionRepo IVersionRepository,
 	orthologyUC IOrthologyUseCase,
 	orthologyRepo IOrthologyRepository,
+	indexPrefix string,
 ) *OrthologyTSVHandler {
 	return &OrthologyTSVHandler{
 		versionRepo:   versionRepo,
 		orthologyUC:   orthologyUC,
 		orthologyRepo: orthologyRepo,
+		indexPrefix:   indexPrefix,
 	}
 }
 
@@ -55,7 +58,7 @@ func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) (json.
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("emobasegenomics-orthology-%s", strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-orthology-%s", h.indexPrefix, strings.ToLower(version.Name))
 	// Use version.CreatedAt.Unix() instead of time.Now().Unix() to fix the index name,
 	// so multiple orthology files uploaded for the same version will be indexed into the same ES index.
 	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
@@ -94,7 +97,7 @@ func (h *OrthologyTSVHandler) OnFailure(ctx context.Context, job entity.Job, _ e
 		return nil
 	}
 
-	aliasName := fmt.Sprintf("emobasegenomics-orthology-%s", strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-orthology-%s", h.indexPrefix, strings.ToLower(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
 
 	if err := h.orthologyRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {

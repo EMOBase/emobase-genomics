@@ -10,10 +10,11 @@ import (
 
 type Repository struct {
 	esClient *elasticsearch.Client
+	prefix   string
 }
 
-func New(esClient *elasticsearch.Client) *Repository {
-	return &Repository{esClient: esClient}
+func New(esClient *elasticsearch.Client, prefix string) *Repository {
+	return &Repository{esClient: esClient, prefix: prefix}
 }
 
 // DeleteIndexesByVersion deletes all Elasticsearch indexes associated with the
@@ -21,11 +22,12 @@ func New(esClient *elasticsearch.Client) *Repository {
 // Missing indexes are ignored (ignore_unavailable=true).
 func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName string) error {
 	vn := strings.ToLower(versionName)
+	p := r.prefix + "-"
 	patterns := []string{
-		"emobasegenomics-genomiclocation-" + vn + "-*",
-		"emobasegenomics-sequence-" + vn + "-*",
-		"emobasegenomics-orthology-" + vn + "-*",
-		"emobasegenomics-synonym-" + vn + "-*",
+		p + "genomiclocation-" + vn + "-*",
+		p + "sequence-" + vn + "-*",
+		p + "orthology-" + vn + "-*",
+		p + "synonym-" + vn + "-*",
 	}
 
 	res, err := r.esClient.Indices.Delete(

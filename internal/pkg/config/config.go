@@ -38,7 +38,8 @@ type BlastConfig struct {
 }
 
 type ElasticsearchConfig struct {
-	Addresses []string `mapstructure:"addresses"`
+	Addresses   []string `mapstructure:"addresses"`
+	IndexPrefix string   `mapstructure:"index_prefix"`
 }
 
 type JobsConfig struct {

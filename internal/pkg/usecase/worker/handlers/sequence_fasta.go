@@ -29,6 +29,7 @@ type sequenceFASTAHandler struct {
 	sequenceUC   ISequenceUseCase
 	sequenceRepo ISequenceRepository
 	sequenceType string
+	indexPrefix  string
 }
 
 type sequenceFASTAResult struct {
@@ -50,7 +51,7 @@ func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("emobasegenomics-sequence-%s", strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-sequence-%s", h.indexPrefix, strings.ToLower(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
 	f, err := os.Open(payload.FilePath)

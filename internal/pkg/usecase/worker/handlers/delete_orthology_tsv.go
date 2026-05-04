@@ -27,6 +27,7 @@ type DeleteOrthologyTSVHandler struct {
 	uploadFileRepo IDeleteUploadFileRepository
 	versionRepo    IVersionRepository
 	orthologyRepo  IDeleteOrthologyRepository
+	indexPrefix    string
 }
 
 func NewDeleteOrthologyTSVHandler(
@@ -34,12 +35,14 @@ func NewDeleteOrthologyTSVHandler(
 	uploadFileRepo IDeleteUploadFileRepository,
 	versionRepo IVersionRepository,
 	orthologyRepo IDeleteOrthologyRepository,
+	indexPrefix string,
 ) *DeleteOrthologyTSVHandler {
 	return &DeleteOrthologyTSVHandler{
 		uploadDir:      uploadDir,
 		uploadFileRepo: uploadFileRepo,
 		versionRepo:    versionRepo,
 		orthologyRepo:  orthologyRepo,
+		indexPrefix:    indexPrefix,
 	}
 }
 
@@ -65,8 +68,8 @@ func (h *DeleteOrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) 
 		return nil, fmt.Errorf("version %d not found", f.VersionID)
 	}
 
-	indexName := fmt.Sprintf("emobasegenomics-orthology-%s-%d",
-		strings.ToLower(version.Name), version.CreatedAt.Unix())
+	indexName := fmt.Sprintf("%s-orthology-%s-%d",
+		h.indexPrefix, strings.ToLower(version.Name), version.CreatedAt.Unix())
 
 	if err := h.orthologyRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		return nil, fmt.Errorf("failed to delete orthology records: %w", err)

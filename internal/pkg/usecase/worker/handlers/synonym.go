@@ -33,6 +33,7 @@ type SynonymHandler struct {
 	gff3Parser  synonymparser.ISynonymParser
 	fbSynParser synonymparser.ISynonymParser
 	fbGRPParser synonymparser.ISynonymParser
+	indexPrefix string
 }
 
 func NewSynonymHandler(
@@ -42,6 +43,7 @@ func NewSynonymHandler(
 	gff3Parser synonymparser.ISynonymParser,
 	fbSynParser synonymparser.ISynonymParser,
 	fbGRPParser synonymparser.ISynonymParser,
+	indexPrefix string,
 ) *SynonymHandler {
 	return &SynonymHandler{
 		versionRepo: versionRepo,
@@ -50,6 +52,7 @@ func NewSynonymHandler(
 		gff3Parser:  gff3Parser,
 		fbSynParser: fbSynParser,
 		fbGRPParser: fbGRPParser,
+		indexPrefix: indexPrefix,
 	}
 }
 
@@ -72,7 +75,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("emobasegenomics-synonym-%s", strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
 	// Load synonyms from the GFF3 file.

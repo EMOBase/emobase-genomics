@@ -23,7 +23,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	if err := run(ctx, esClient); err != nil {
+	if err := run(ctx, esClient, config.Elasticsearch.IndexPrefix); err != nil {
 		return err
 	}
 
@@ -31,21 +31,22 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func run(ctx context.Context, esClient *elasticsearch.Client) error {
-	return createIndexTemplates(ctx, esClient)
+func run(ctx context.Context, esClient *elasticsearch.Client, indexPrefix string) error {
+	return createIndexTemplates(ctx, esClient, indexPrefix)
 }
 
 // createIndexTemplates registers composable index templates so any dynamically
 // created index matching the pattern inherits the correct mappings automatically.
-func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client) error {
+func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client, indexPrefix string) error {
+	p := indexPrefix + "-"
 	templates := []struct {
 		name string
 		body string
 	}{
 		{
-			name: "emobasegenomics-sequence",
+			name: p + "sequence",
 			body: `{
-				"index_patterns": ["emobasegenomics-sequence-*"],
+				"index_patterns": ["` + p + `sequence-*"],
 				"priority": 100,
 				"template": {
 					"mappings": {
@@ -60,9 +61,9 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client) e
 			}`,
 		},
 		{
-			name: "emobasegenomics-orthology",
+			name: p + "orthology",
 			body: `{
-				"index_patterns": ["emobasegenomics-orthology-*"],
+				"index_patterns": ["` + p + `orthology-*"],
 				"priority": 100,
 				"template": {
 					"mappings": {
@@ -76,9 +77,9 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client) e
 			}`,
 		},
 		{
-			name: "emobasegenomics-synonym",
+			name: p + "synonym",
 			body: `{
-				"index_patterns": ["emobasegenomics-synonym-*"],
+				"index_patterns": ["` + p + `synonym-*"],
 				"priority": 100,
 				"template": {
 					"settings": {

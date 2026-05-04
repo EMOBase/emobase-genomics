@@ -19,6 +19,7 @@ jobs:
 elasticsearch:
   addresses:
     - http://localhost:9200
+  index_prefix: emobasegenomics
 
 blast:
   display_name: OGS3 # used as the title prefix in makeblastdb (e.g. "OGS3 Genome")

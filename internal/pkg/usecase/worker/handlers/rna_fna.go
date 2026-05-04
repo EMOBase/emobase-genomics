@@ -16,6 +16,7 @@ func NewRNAFNAHandler(
 	versionRepo IVersionRepository,
 	sequenceUC ISequenceUseCase,
 	sequenceRepo ISequenceRepository,
+	indexPrefix string,
 ) *RNAFNAHandler {
 	return &RNAFNAHandler{
 		sequenceFASTAHandler: sequenceFASTAHandler{
@@ -23,6 +24,7 @@ func NewRNAFNAHandler(
 			sequenceUC:   sequenceUC,
 			sequenceRepo: sequenceRepo,
 			sequenceType: ucsequence.SEQUENCE_TYPE_TRANSCRIPT,
+			indexPrefix:  indexPrefix,
 		},
 	}
 }

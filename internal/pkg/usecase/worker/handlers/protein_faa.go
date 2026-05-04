@@ -16,6 +16,7 @@ func NewProteinFAAHandler(
 	versionRepo IVersionRepository,
 	sequenceUC ISequenceUseCase,
 	sequenceRepo ISequenceRepository,
+	indexPrefix string,
 ) *ProteinFAAHandler {
 	return &ProteinFAAHandler{
 		sequenceFASTAHandler: sequenceFASTAHandler{
@@ -23,6 +24,7 @@ func NewProteinFAAHandler(
 			sequenceUC:   sequenceUC,
 			sequenceRepo: sequenceRepo,
 			sequenceType: ucsequence.SEQUENCE_TYPE_PROTEIN,
+			indexPrefix:  indexPrefix,
 		},
 	}
 }

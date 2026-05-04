@@ -65,22 +65,24 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	blastDBPath := config.Blast.DBPath
 	blastTitle := config.Blast.DisplayName
 	blastContainerName := config.Blast.ContainerName
+	indexPrefix := config.Elasticsearch.IndexPrefix
 	appSettingsRepo := repoappsettings.New(db)
 
 	jobHandlers := map[string]ucworker.Handler{
-		entity.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo),
-		entity.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		entity.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo),
-		entity.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo),
-		entity.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo),
+		entity.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, indexPrefix),
+		entity.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
+		entity.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
+		entity.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
+		entity.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo, indexPrefix),
 		entity.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(
-			config.Uploads.Dir, uploadFileRepo, versionRepo, orthologyRepo,
+			config.Uploads.Dir, uploadFileRepo, versionRepo, orthologyRepo, indexPrefix,
 		),
 		entity.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
 			versionRepo, synonymUC, synonymRepo,
 			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
 			synonymparser.NewFlyBaseSynonymParser(config.MainSpecies),
 			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
+			indexPrefix,
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
