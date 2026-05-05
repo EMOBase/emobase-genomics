@@ -6,6 +6,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/handler"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/middleware"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
@@ -18,7 +19,7 @@ var skipLogPaths = map[string]struct{}{
 	"/uploads": {},
 }
 
-func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase) *gin.Engine {
+func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, validator *auth.Validator) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		requestid.New(),
@@ -27,12 +28,12 @@ func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *uc
 		middleware.NewCORSMiddleware(),
 	)
 
-	registerRoutes(router, uploadUC, versionUC, jobUC)
+	registerRoutes(router, uploadUC, versionUC, jobUC, validator)
 
 	return router
 }
 
-func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase) {
+func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, validator *auth.Validator) {
 	router.GET("/health", func(c *gin.Context) {
 		apires.OK(c, "OK")
 		c.Abort()
@@ -44,7 +45,7 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		c.Abort()
 	}
 
-	authenticated := router.Group("/", middleware.RequireAdmin())
+	authenticated := router.Group("/", middleware.RequireAdmin(validator))
 	{
 		authenticated.POST("/uploads", uploadHandler)
 		authenticated.Any("/uploads/*any", uploadHandler)

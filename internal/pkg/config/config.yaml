@@ -16,6 +16,10 @@ jobs:
   stuck_interval: 5m
   stuck_timeout: 30m
 
+keycloak:
+  url: http://localhost:3000
+  realm: master
+
 elasticsearch:
   addresses:
     - http://localhost:9200

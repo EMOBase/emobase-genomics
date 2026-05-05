@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pkgapi "github.com/EMOBase/emobase-genomics/internal/pkg/api"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
@@ -61,9 +62,14 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
+	validator, err := auth.NewValidator(ctx, config.Keycloak.URL, config.Keycloak.Realm)
+	if err != nil {
+		return err
+	}
+
 	gin.SetMode(config.HTTP.Mode)
 
-	router := pkgapi.NewRouter(uploadUC, versionUC, jobUC)
+	router := pkgapi.NewRouter(uploadUC, versionUC, jobUC, validator)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),

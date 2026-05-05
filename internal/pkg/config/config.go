@@ -18,8 +18,14 @@ type Config struct {
 	MySQL         MySQLConfig         `mapstructure:"mysql"`
 	Jobs          JobsConfig          `mapstructure:"jobs"`
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
+	Keycloak      KeycloakConfig      `mapstructure:"keycloak"`
 	Blast         BlastConfig         `mapstructure:"blast"`
 	Uploads       UploadsConfig       `mapstructure:"uploads"`
+}
+
+type KeycloakConfig struct {
+	URL   string `mapstructure:"url"`
+	Realm string `mapstructure:"realm"`
 }
 
 type UploadsConfig struct {
@@ -60,7 +66,6 @@ type MySQLConfig struct {
 	Password string `mapstructure:"password" json:"-"`
 	Database string `mapstructure:"database"`
 }
-
 
 func LoadConfig(path string) (*Config, error) {
 	if path != "" {

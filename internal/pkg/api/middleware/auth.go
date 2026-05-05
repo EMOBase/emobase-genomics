@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RequireAdmin() gin.HandlerFunc {
+func RequireAdmin(validator *auth.Validator) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if !strings.HasPrefix(authHeader, "Bearer ") {
@@ -17,13 +17,13 @@ func RequireAdmin() gin.HandlerFunc {
 			return
 		}
 
-		username, err := auth.DecodeUsername(authHeader)
+		email, err := validator.Validate(c.Request.Context(), authHeader)
 		if err != nil {
 			apires.AbortFail(c, http.StatusForbidden, "permission denied")
 			return
 		}
 
-		ctx := auth.WithUsername(c.Request.Context(), username)
+		ctx := auth.WithUsername(c.Request.Context(), email)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
