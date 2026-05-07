@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,13 +14,14 @@ import (
 )
 
 type Validator struct {
-	jwksURL      string
-	jwksCache    *jwk.Cache
-	issuer       string
-	requiredRole string
+	jwksURL       string
+	jwksCache     *jwk.Cache
+	issuer        string
+	requiredRole  string
+	devBypassAuth bool
 }
 
-func NewValidator(ctx context.Context, keycloakURL, realm, requiredRole string) (*Validator, error) {
+func NewValidator(ctx context.Context, keycloakURL, realm, requiredRole string, devBypassAuth bool) (*Validator, error) {
 	base := fmt.Sprintf("%s/realms/%s", keycloakURL, realm)
 	jwksURL := base + "/protocol/openid-connect/certs"
 
@@ -26,22 +30,25 @@ func NewValidator(ctx context.Context, keycloakURL, realm, requiredRole string) 
 		return nil, fmt.Errorf("failed to register JWKS URL: %w", err)
 	}
 
-	if _, err := cache.Refresh(ctx, jwksURL); err != nil {
-		return nil, fmt.Errorf("failed to fetch Keycloak JWKS: %w", err)
-	}
-
 	return &Validator{
-		jwksURL:      jwksURL,
-		jwksCache:    cache,
-		issuer:       base,
-		requiredRole: requiredRole,
+		jwksURL:       jwksURL,
+		jwksCache:     cache,
+		issuer:        base,
+		requiredRole:  requiredRole,
+		devBypassAuth: devBypassAuth,
 	}, nil
 }
 
 // Validate verifies the token's signature, expiry, issuer, and required role,
 // then returns the email claim.
+// When devBypassAuth is true, signature verification is skipped and only the
+// email claim is decoded — intended for local development only.
 func (v *Validator) Validate(ctx context.Context, bearerToken string) (string, error) {
 	rawToken := strings.TrimPrefix(bearerToken, "Bearer ")
+
+	if v.devBypassAuth {
+		return decodeEmailFromRawToken(rawToken)
+	}
 
 	keySet, err := v.jwksCache.Get(ctx, v.jwksURL)
 	if err != nil {
@@ -106,4 +113,30 @@ func emailFromToken(token jwt.Token) (string, error) {
 	}
 
 	return email, nil
+}
+
+// decodeEmailFromRawToken extracts the email claim from a JWT without verifying
+// its signature. Only used when devBypassAuth is enabled.
+func decodeEmailFromRawToken(rawToken string) (string, error) {
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 {
+		return "", errors.New("malformed JWT")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", errors.New("failed to decode JWT payload")
+	}
+
+	var claims struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", errors.New("failed to parse JWT claims")
+	}
+	if claims.Email == "" {
+		return "", errors.New("email claim missing or empty")
+	}
+
+	return claims.Email, nil
 }

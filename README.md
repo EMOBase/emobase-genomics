@@ -12,6 +12,8 @@
 cp .env.example .env
 ```
 
+NOTE: For development, recommend to set `KEYCLOAK__DEV_BYPASS_AUTH=true`, since the current `docker-compose.yml` doesn't setup a Keycloak service.
+
 2. Start the application:
 
 ```bash

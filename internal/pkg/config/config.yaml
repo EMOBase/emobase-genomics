@@ -20,6 +20,7 @@ keycloak:
   url: http://localhost:3000
   realm: master
   required_role: default-roles-ibb
+  dev_bypass_auth: false
 
 elasticsearch:
   addresses:
