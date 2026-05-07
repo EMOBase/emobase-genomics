@@ -62,7 +62,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	validator, err := auth.NewValidator(ctx, config.Keycloak.URL, config.Keycloak.Realm)
+	validator, err := auth.NewValidator(ctx, config.Keycloak.URL, config.Keycloak.Realm, config.Keycloak.RequiredRole)
 	if err != nil {
 		return err
 	}

@@ -24,8 +24,9 @@ type Config struct {
 }
 
 type KeycloakConfig struct {
-	URL   string `mapstructure:"url"`
-	Realm string `mapstructure:"realm"`
+	URL          string `mapstructure:"url"`
+	Realm        string `mapstructure:"realm"`
+	RequiredRole string `mapstructure:"required_role"`
 }
 
 type UploadsConfig struct {

@@ -19,6 +19,7 @@ jobs:
 keycloak:
   url: http://localhost:3000
   realm: master
+  required_role: default-roles-ibb
 
 elasticsearch:
   addresses:

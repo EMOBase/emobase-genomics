@@ -2,9 +2,7 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -13,14 +11,13 @@ import (
 )
 
 type Validator struct {
-	jwksURL     string
-	jwksCache   *jwk.Cache
-	issuer      string
-	userInfoURL string
-	httpClient  *http.Client
+	jwksURL      string
+	jwksCache    *jwk.Cache
+	issuer       string
+	requiredRole string
 }
 
-func NewValidator(ctx context.Context, keycloakURL, realm string) (*Validator, error) {
+func NewValidator(ctx context.Context, keycloakURL, realm, requiredRole string) (*Validator, error) {
 	base := fmt.Sprintf("%s/realms/%s", keycloakURL, realm)
 	jwksURL := base + "/protocol/openid-connect/certs"
 
@@ -34,14 +31,15 @@ func NewValidator(ctx context.Context, keycloakURL, realm string) (*Validator, e
 	}
 
 	return &Validator{
-		jwksURL:     jwksURL,
-		jwksCache:   cache,
-		issuer:      base,
-		userInfoURL: base + "/protocol/openid-connect/userinfo",
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		jwksURL:      jwksURL,
+		jwksCache:    cache,
+		issuer:       base,
+		requiredRole: requiredRole,
 	}, nil
 }
 
+// Validate verifies the token's signature, expiry, issuer, and required role,
+// then returns the email claim.
 func (v *Validator) Validate(ctx context.Context, bearerToken string) (string, error) {
 	rawToken := strings.TrimPrefix(bearerToken, "Bearer ")
 
@@ -50,43 +48,62 @@ func (v *Validator) Validate(ctx context.Context, bearerToken string) (string, e
 		return "", fmt.Errorf("failed to retrieve JWKS: %w", err)
 	}
 
-	if _, err = jwt.Parse([]byte(rawToken),
+	token, err := jwt.Parse([]byte(rawToken),
 		jwt.WithKeySet(keySet),
 		jwt.WithValidate(true),
 		jwt.WithIssuer(v.issuer),
-	); err != nil {
+	)
+	if err != nil {
 		return "", fmt.Errorf("invalid token: %w", err)
 	}
 
-	return v.fetchEmail(ctx, rawToken)
+	if err := v.checkRole(token); err != nil {
+		return "", err
+	}
+
+	return emailFromToken(token)
 }
 
-func (v *Validator) fetchEmail(ctx context.Context, rawToken string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.userInfoURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to build userinfo request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+rawToken)
-
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("userinfo request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("userinfo returned status %d", resp.StatusCode)
+func (v *Validator) checkRole(token jwt.Token) error {
+	raw, ok := token.Get("realm_access")
+	if !ok {
+		return fmt.Errorf("realm_access claim missing")
 	}
 
-	var info struct {
-		Email string `json:"email"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", fmt.Errorf("failed to decode userinfo response: %w", err)
-	}
-	if info.Email == "" {
-		return "", fmt.Errorf("email not present in userinfo response")
+	realmAccess, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("realm_access claim has unexpected type")
 	}
 
-	return info.Email, nil
+	rolesRaw, ok := realmAccess["roles"]
+	if !ok {
+		return fmt.Errorf("realm_access.roles claim missing")
+	}
+
+	roles, ok := rolesRaw.([]any)
+	if !ok {
+		return fmt.Errorf("realm_access.roles claim has unexpected type")
+	}
+
+	for _, r := range roles {
+		if s, ok := r.(string); ok && s == v.requiredRole {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("required role %q not present in token", v.requiredRole)
+}
+
+func emailFromToken(token jwt.Token) (string, error) {
+	raw, ok := token.Get("email")
+	if !ok {
+		return "", fmt.Errorf("email claim missing from token")
+	}
+
+	email, ok := raw.(string)
+	if !ok || email == "" {
+		return "", fmt.Errorf("email claim is empty or has unexpected type")
+	}
+
+	return email, nil
 }
