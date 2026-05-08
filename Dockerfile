@@ -29,6 +29,7 @@ FROM debian:bookworm-slim
 #   - wget                     : download JBrowse CLI
 #   - gzip                     : file compression/decompression
 #   - bash                     : interactive shell for local development
+#   - curl                     : other HTTP requests for local development
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       tzdata \
@@ -40,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       wget \
       gzip \
       bash \
+      curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install JBrowse CLI (unpkg serves the standalone bundle)

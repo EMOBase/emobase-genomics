@@ -21,9 +21,13 @@ type Validator struct {
 	devBypassAuth bool
 }
 
-func NewValidator(ctx context.Context, keycloakURL, realm, requiredRole string, devBypassAuth bool) (*Validator, error) {
+func NewValidator(ctx context.Context, keycloakURL, realm, issuer, requiredRole string, devBypassAuth bool) (*Validator, error) {
 	base := fmt.Sprintf("%s/realms/%s", keycloakURL, realm)
 	jwksURL := base + "/protocol/openid-connect/certs"
+
+	if issuer == "" {
+		issuer = base
+	}
 
 	cache := jwk.NewCache(ctx)
 	if err := cache.Register(jwksURL, jwk.WithMinRefreshInterval(15*time.Minute)); err != nil {
@@ -33,7 +37,7 @@ func NewValidator(ctx context.Context, keycloakURL, realm, requiredRole string, 
 	return &Validator{
 		jwksURL:       jwksURL,
 		jwksCache:     cache,
-		issuer:        base,
+		issuer:        issuer,
 		requiredRole:  requiredRole,
 		devBypassAuth: devBypassAuth,
 	}, nil

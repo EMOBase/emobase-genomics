@@ -7,6 +7,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 )
 
 func RequireAdmin(validator *auth.Validator) gin.HandlerFunc {
@@ -19,6 +20,7 @@ func RequireAdmin(validator *auth.Validator) gin.HandlerFunc {
 
 		email, err := validator.Validate(c.Request.Context(), authHeader)
 		if err != nil {
+			log.Ctx(c.Request.Context()).Error().Err(err).Msg("access token validation failed")
 			apires.AbortFail(c, http.StatusForbidden, "permission denied")
 			return
 		}

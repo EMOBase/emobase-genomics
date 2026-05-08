@@ -19,6 +19,7 @@ jobs:
 keycloak:
   url: http://localhost:3000
   realm: master
+  issuer: "" # defaults to {url}/realms/{realm} if empty
   required_role: default-roles-ibb
   dev_bypass_auth: false
 
