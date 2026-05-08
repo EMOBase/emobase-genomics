@@ -18,9 +18,10 @@ type GenomicLocationUseCase struct {
 func New(
 	repo IGenomicLocationRepository,
 	mainSpecies string,
+	batchSize int,
 ) *GenomicLocationUseCase {
 	return &GenomicLocationUseCase{
-		config: Config{MainSpecies: mainSpecies, BatchSize: 5000},
+		config: Config{MainSpecies: mainSpecies, BatchSize: batchSize},
 		repo:   repo,
 	}
 }

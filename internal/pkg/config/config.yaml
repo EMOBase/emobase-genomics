@@ -27,6 +27,7 @@ elasticsearch:
   addresses:
     - http://localhost:9200
   index_prefix: emobasegenomics
+  bulk_batch_size: 500
 
 blast:
   display_name: OGS3 # used as the title prefix in makeblastdb (e.g. "OGS3 Genome")

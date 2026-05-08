@@ -14,9 +14,9 @@ type SynonymUseCase struct {
 	repo   ISynonymRepository
 }
 
-func New(repo ISynonymRepository) *SynonymUseCase {
+func New(repo ISynonymRepository, batchSize int) *SynonymUseCase {
 	return &SynonymUseCase{
-		config: Config{BatchSize: 5000},
+		config: Config{BatchSize: batchSize},
 		repo:   repo,
 	}
 }

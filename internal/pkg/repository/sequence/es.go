@@ -12,14 +12,29 @@ import (
 )
 
 type ElasticSearchRepository struct {
-	esClient *elasticsearch.Client
+	esClient  *elasticsearch.Client
+	batchSize int
 }
 
-func New(esClient *elasticsearch.Client) *ElasticSearchRepository {
-	return &ElasticSearchRepository{esClient: esClient}
+func New(esClient *elasticsearch.Client, batchSize int) *ElasticSearchRepository {
+	return &ElasticSearchRepository{esClient: esClient, batchSize: batchSize}
 }
 
 func (r *ElasticSearchRepository) SaveMany(
+	ctx context.Context,
+	indexName string,
+	sequences []entity.Sequence,
+) error {
+	for i := 0; i < len(sequences); i += r.batchSize {
+		end := min(i+r.batchSize, len(sequences))
+		if err := r.bulkIndex(ctx, indexName, sequences[i:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ElasticSearchRepository) bulkIndex(
 	ctx context.Context,
 	indexName string,
 	sequences []entity.Sequence,
@@ -29,10 +44,7 @@ func (r *ElasticSearchRepository) SaveMany(
 
 	for _, sequence := range sequences {
 		meta := map[string]map[string]string{
-			"index": {
-				"_id":    sequence.GetID(),
-				"_index": indexName,
-			},
+			"index": {"_id": sequence.GetID(), "_index": indexName},
 		}
 		if err := enc.Encode(meta); err != nil {
 			return err

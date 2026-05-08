@@ -50,17 +50,19 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	jobRepo := repojob.New(db)
 	uploadFileRepo := repouploadfile.New(db)
 
-	genomicRepo := repogenomic.New(esClient)
-	genomicUC := ucgenomic.New(genomicRepo, config.MainSpecies)
+	batchSize := config.Elasticsearch.BulkBatchSize
 
-	sequenceRepo := reposequence.New(esClient)
-	sequenceUC := ucsequence.New(sequenceRepo, config.MainSpecies)
+	genomicRepo := repogenomic.New(esClient, batchSize)
+	genomicUC := ucgenomic.New(genomicRepo, config.MainSpecies, batchSize)
 
-	orthologyRepo := repoorthology.New(esClient)
-	orthologyUC := ucorthology.New(orthologyRepo)
+	sequenceRepo := reposequence.New(esClient, batchSize)
+	sequenceUC := ucsequence.New(sequenceRepo, config.MainSpecies, batchSize)
 
-	synonymRepo := reposynonym.New(esClient)
-	synonymUC := ucsynonym.New(synonymRepo)
+	orthologyRepo := repoorthology.New(esClient, batchSize)
+	orthologyUC := ucorthology.New(orthologyRepo, batchSize)
+
+	synonymRepo := reposynonym.New(esClient, batchSize)
+	synonymUC := ucsynonym.New(synonymRepo, batchSize)
 
 	blastDBPath := config.Blast.DBPath
 	blastTitle := config.Blast.DisplayName
