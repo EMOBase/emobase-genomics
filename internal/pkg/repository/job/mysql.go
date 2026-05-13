@@ -161,50 +161,34 @@ func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID 
 	return count > 0, nil
 }
 
-// StatusCountsByVersionIDs returns job status counts for each of the given
-// version IDs in a single query. Versions with no jobs are not present in the
-// returned map.
-func (r *MySQLRepository) StatusCountsByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]entity.JobStatusCounts, error) {
-	if len(versionIDs) == 0 {
-		return map[uint64]entity.JobStatusCounts{}, nil
-	}
-
-	placeholders := make([]byte, 0, len(versionIDs)*2-1)
-	args := make([]any, 0, len(versionIDs)+4)
-	args = append(args, entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone)
-	for i, id := range versionIDs {
-		if i > 0 {
-			placeholders = append(placeholders, ',')
-		}
-		placeholders = append(placeholders, '?')
-		args = append(args, id)
-	}
-
-	query := `SELECT version_id,
-	            SUM(status = ?) AS running_count,
-	            SUM(status = ?) AS failed_count,
-	            SUM(status = ?) AS done_count,
-	            COUNT(*)        AS total_count
-	        FROM jobs
-	        WHERE version_id IN (` + string(placeholders) + `)
-	        GROUP BY version_id`
-
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	result := make(map[uint64]entity.JobStatusCounts, len(versionIDs))
-	for rows.Next() {
-		var versionID uint64
-		var counts entity.JobStatusCounts
-		if err := rows.Scan(&versionID, &counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount); err != nil {
-			return nil, err
-		}
-		result[versionID] = counts
-	}
-	return result, rows.Err()
+// StatusCountsByVersionID returns job status counts for a single version,
+// counting only jobs tied to active files: the latest upload per single-file
+// type, and all non-deleted uploads for orthology.tsv.
+func (r *MySQLRepository) StatusCountsByVersionID(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error) {
+	var counts entity.JobStatusCounts
+	err := r.db.QueryRowContext(ctx, `
+		SELECT SUM(j.status = ?) AS running_count,
+		       SUM(j.status = ?) AS failed_count,
+		       SUM(j.status = ?) AS done_count,
+		       COUNT(*)          AS total_count
+		FROM jobs j
+		WHERE j.version_id = ?
+		  AND (
+		    j.file_id IS NULL
+		    OR j.file_id IN (
+		      SELECT id FROM (
+		        SELECT id, file_type,
+		               ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
+		        FROM upload_files
+		        WHERE version_id = ? AND deleted_at IS NULL
+		      ) ranked
+		      WHERE rn = 1 OR file_type = ?
+		    )
+		  )`,
+		entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone,
+		versionID, versionID, entity.FileTypeOrthologyTSV,
+	).Scan(&counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount)
+	return counts, err
 }
 
 // FindDoneByVersionAndTypes returns DONE jobs matching any of the given types
