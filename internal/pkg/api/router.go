@@ -15,8 +15,9 @@ import (
 )
 
 var skipLogPaths = map[string]struct{}{
-	"/health":  {},
-	"/uploads": {},
+	"/health":     {},
+	"/uploads":    {},
+	"/v1/uploads": {},
 }
 
 func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, validator *auth.Validator) *gin.Engine {
@@ -39,29 +40,33 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		c.Abort()
 	})
 
-	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
-	uploadHandler := func(c *gin.Context) {
-		tusHandler.ServeHTTP(c.Writer, c.Request)
-		c.Abort()
+	makeUploadHandler := func(prefix string) gin.HandlerFunc {
+		h := http.StripPrefix(prefix+"/uploads", uploadUC.Handler)
+		return func(c *gin.Context) {
+			h.ServeHTTP(c.Writer, c.Request)
+			c.Abort()
+		}
 	}
 
-	authenticated := router.Group("/", middleware.RequireAdmin(validator))
-	{
-		authenticated.POST("/uploads", uploadHandler)
-		authenticated.Any("/uploads/*any", uploadHandler)
+	registerAPIRoutes(router.Group("/", middleware.RequireAdmin(validator)), makeUploadHandler(""), versionUC, jobUC, uploadUC)
+	registerAPIRoutes(router.Group("/v1", middleware.RequireAdmin(validator)), makeUploadHandler("/v1"), versionUC, jobUC, uploadUC)
+}
 
-		versionHandler := handler.NewVersionHandler(versionUC)
-		authenticated.GET("/versions", versionHandler.List)
-		authenticated.GET("/versions/:name/detail", versionHandler.Detail)
-		authenticated.POST("/versions", versionHandler.Create)
-		authenticated.DELETE("/versions/:name", versionHandler.Delete)
-		authenticated.POST("/versions/:name/release", versionHandler.Release)
+func registerAPIRoutes(rg *gin.RouterGroup, uploadHandler gin.HandlerFunc, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, uploadUC *upload.UseCase) {
+	rg.POST("/uploads", uploadHandler)
+	rg.Any("/uploads/*any", uploadHandler)
 
-		jobHandler := handler.NewJobHandler(jobUC)
-		authenticated.GET("/jobs", jobHandler.ListByVersion)
+	versionHandler := handler.NewVersionHandler(versionUC)
+	rg.GET("/versions", versionHandler.List)
+	rg.GET("/versions/:name/detail", versionHandler.Detail)
+	rg.POST("/versions", versionHandler.Create)
+	rg.DELETE("/versions/:name", versionHandler.Delete)
+	rg.POST("/versions/:name/release", versionHandler.Release)
 
-		uploadFileHandler := handler.NewUploadFileHandler(uploadUC)
-		authenticated.GET("/upload-files", uploadFileHandler.List)
-		authenticated.DELETE("/upload-files/:id", uploadFileHandler.Delete)
-	}
+	jobHandler := handler.NewJobHandler(jobUC)
+	rg.GET("/jobs", jobHandler.ListByVersion)
+
+	uploadFileHandler := handler.NewUploadFileHandler(uploadUC)
+	rg.GET("/upload-files", uploadFileHandler.List)
+	rg.DELETE("/upload-files/:id", uploadFileHandler.Delete)
 }
