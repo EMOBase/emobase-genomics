@@ -67,12 +67,12 @@ func (r *MySQLRepository) TotalFileSizeByVersionIDs(ctx context.Context, version
 func (r *MySQLRepository) FindByID(ctx context.Context, id string) (*entity.UploadFile, error) {
 	f := &entity.UploadFile{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
 		 FROM upload_files WHERE id = ? AND deleted_at IS NULL`,
 		id,
 	).Scan(
-		&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.Metadata, &f.UploadStatus,
+		&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
 		&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
 	)
 	if err == sql.ErrNoRows {
@@ -86,7 +86,7 @@ func (r *MySQLRepository) FindByID(ctx context.Context, id string) (*entity.Uplo
 
 func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
 		 FROM upload_files WHERE version_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`,
 		versionID,
@@ -100,7 +100,7 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	for rows.Next() {
 		var f entity.UploadFile
 		if err := rows.Scan(
-			&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.Metadata, &f.UploadStatus,
+			&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
 			&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
 		); err != nil {
 			return nil, err
@@ -127,10 +127,10 @@ func (r *MySQLRepository) UpdateStatus(ctx context.Context, id string, status en
 // COMPLETED file for each file_type in a single query, using a window function.
 func (r *MySQLRepository) FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
 		 FROM (
-		   SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		   SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		          created_at, created_by, completed_at, deleted_at, deleted_by,
 		          ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
 		   FROM upload_files
@@ -148,7 +148,7 @@ func (r *MySQLRepository) FindLatestCompletedPerTypeByVersionID(ctx context.Cont
 	for rows.Next() {
 		var f entity.UploadFile
 		if err := rows.Scan(
-			&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.Metadata, &f.UploadStatus,
+			&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
 			&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
 		); err != nil {
 			return nil, err
@@ -163,14 +163,14 @@ func (r *MySQLRepository) FindLatestCompletedPerTypeByVersionID(ctx context.Cont
 func (r *MySQLRepository) FindLatestCompletedByVersionAndType(ctx context.Context, versionID uint64, fileType string) (*entity.UploadFile, error) {
 	f := &entity.UploadFile{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, version_id, file_path, file_type, metadata, upload_status,
+		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
 		 FROM upload_files
 		 WHERE version_id = ? AND file_type = ? AND upload_status = ? AND deleted_at IS NULL
 		 ORDER BY created_at DESC LIMIT 1`,
 		versionID, fileType, entity.UploadStatusCompleted,
 	).Scan(
-		&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.Metadata, &f.UploadStatus,
+		&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
 		&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
 	)
 	if err == sql.ErrNoRows {

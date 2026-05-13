@@ -73,9 +73,10 @@ type VersionDetailFiles struct {
 // VersionDetail is the response for GET /versions/{name}/detail.
 type VersionDetail struct {
 	entity.Version
-	IsDefault bool               `json:"isDefault"`
-	Status    string             `json:"status"`
-	Files     VersionDetailFiles `json:"files"`
+	IsDefault     bool               `json:"isDefault"`
+	Status        string             `json:"status"`
+	TotalFileSize int64              `json:"totalFileSize"`
+	Files         VersionDetailFiles `json:"files"`
 }
 
 type UseCase struct {
@@ -229,6 +230,12 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	}
 	detail.Status = computeVersionStatus(statusCounts[v.ID])
 
+	fileSizes, err := uc.uploadFileRepo.TotalFileSizeByVersionIDs(ctx, []uint64{v.ID})
+	if err != nil {
+		return nil, err
+	}
+	detail.TotalFileSize = fileSizes[v.ID]
+
 	return &detail, nil
 }
 
@@ -252,11 +259,11 @@ func toJobSummary(j entity.Job) JobSummary {
 }
 
 func computeVersionStatus(c entity.JobStatusCounts) string {
-	if c.FailedCount > 0 {
-		return "ERROR"
-	}
 	if c.RunningCount > 0 {
 		return "PROCESSING"
+	}
+	if c.FailedCount > 0 {
+		return "ERROR"
 	}
 	if c.TotalCount > 0 && c.DoneCount == c.TotalCount {
 		return "READY"
