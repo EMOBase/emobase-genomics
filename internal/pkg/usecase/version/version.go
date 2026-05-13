@@ -25,9 +25,8 @@ var (
 
 type VersionItem struct {
 	entity.Version
-	IsDefault     bool   `json:"isDefault"`
-	Status        string `json:"status"`
-	TotalFileSize int64  `json:"totalFileSize"`
+	IsDefault     bool  `json:"isDefault"`
+	TotalFileSize int64 `json:"totalFileSize"`
 }
 
 type VersionList struct {
@@ -114,11 +113,6 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 		versionIDs[i] = v.ID
 	}
 
-	statusCounts, err := uc.jobRepo.StatusCountsByVersionIDs(ctx, versionIDs)
-	if err != nil {
-		return nil, err
-	}
-
 	fileSizes, err := uc.uploadFileRepo.TotalFileSizeByVersionIDs(ctx, versionIDs)
 	if err != nil {
 		return nil, err
@@ -129,7 +123,6 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 		items[i] = VersionItem{
 			Version:       v,
 			IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
-			Status:        computeVersionStatus(statusCounts[v.ID]),
 			TotalFileSize: fileSizes[v.ID],
 		}
 	}
@@ -224,11 +217,12 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 		}
 	}
 
-	statusCounts, err := uc.jobRepo.StatusCountsByVersionIDs(ctx, []uint64{v.ID})
+	statusCounts, err := uc.jobRepo.StatusCountsByVersionID(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
-	detail.Status = computeVersionStatus(statusCounts[v.ID])
+	hasRequiredFiles := seen[entity.FileTypeGenomicGFF] && seen[entity.FileTypeGenomicFNA]
+	detail.Status = computeVersionStatus(statusCounts, hasRequiredFiles)
 
 	fileSizes, err := uc.uploadFileRepo.TotalFileSizeByVersionIDs(ctx, []uint64{v.ID})
 	if err != nil {
@@ -258,12 +252,15 @@ func toJobSummary(j entity.Job) JobSummary {
 	return s
 }
 
-func computeVersionStatus(c entity.JobStatusCounts) string {
+func computeVersionStatus(c entity.JobStatusCounts, hasRequiredFiles bool) string {
 	if c.RunningCount > 0 {
 		return "PROCESSING"
 	}
 	if c.FailedCount > 0 {
 		return "ERROR"
+	}
+	if !hasRequiredFiles {
+		return "MISSING_REQUIRED_FILE"
 	}
 	if c.TotalCount > 0 && c.DoneCount == c.TotalCount {
 		return "READY"
