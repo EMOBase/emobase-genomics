@@ -117,6 +117,10 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 				"orthology.tsv uploads require an \"order\" metadata field")
 		}
+		if _, err := strconv.Atoi(meta["order"]); err != nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"orthology.tsv \"order\" metadata field must be an integer")
+		}
 		if strings.TrimSpace(meta["algorithm"]) == "" {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 				"orthology.tsv uploads require an \"algorithm\" metadata field")
@@ -306,12 +310,13 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		return []entity.Job{job}, nil
 	}
 
+	order, _ := strconv.Atoi(meta["order"])
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
 		UploadFileID: uploadID,
 		VersionID:    versionID,
 		FilePath:     filePath,
-		Order:        meta["order"],
-		Algorithm:    meta["algorithm"],
+		Order:        order,
+		Algorithm:    strings.TrimSpace(meta["algorithm"]),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal job payload: %w", err)

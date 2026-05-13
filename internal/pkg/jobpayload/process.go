@@ -8,7 +8,7 @@ type ProcessPayload struct {
 	VersionID    uint64 `json:"version_id"`
 	FilePath     string `json:"file_path"`
 	// Order and Algorithm are set for orthology.tsv jobs.
-	Order     string `json:"order,omitempty"`
+	Order     int    `json:"order,omitempty"`
 	Algorithm string `json:"algorithm,omitempty"`
 	// SynonymFiles holds the paths of versionless synonym files (fb_synonym,
 	// fbgn_fbtr_fbpp) discovered at GENOMIC.GFF:SYNONYM job creation time.
