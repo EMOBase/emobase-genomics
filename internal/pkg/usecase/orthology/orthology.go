@@ -23,11 +23,11 @@ func New(repo IOrthologyRepository, batchSize int) *OrthologyUseCase {
 	}
 }
 
-func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, fileID, order, algorithm string) error {
+func (uc *OrthologyUseCase) Load(ctx context.Context, f io.Reader, indexName, fileID string, order int, algorithm string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
-	orthoSource := order + "." + algorithm
+	orthoSource := fmt.Sprintf("%d.%s", order, algorithm)
 
 	lineCh, errCh := text.ReadLines(ctx, f)
 

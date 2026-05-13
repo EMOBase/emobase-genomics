@@ -15,7 +15,7 @@ import (
 )
 
 type IOrthologyUseCase interface {
-	Load(ctx context.Context, f io.Reader, indexName, fileID, order, algorithm string) error
+	Load(ctx context.Context, f io.Reader, indexName, fileID string, order int, algorithm string) error
 }
 
 type IOrthologyRepository interface {
