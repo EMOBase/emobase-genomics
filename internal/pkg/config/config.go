@@ -32,7 +32,8 @@ type KeycloakConfig struct {
 }
 
 type UploadsConfig struct {
-	Dir string `mapstructure:"dir"`
+	Dir         string `mapstructure:"dir"`
+	TUSBasePath string `mapstructure:"tus_base_path"`
 }
 
 type BlastConfig struct {

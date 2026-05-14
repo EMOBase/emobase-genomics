@@ -54,6 +54,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	uploadUC, err := upload.New(
 		config.Uploads.Dir,
+		config.Uploads.TUSBasePath,
 		versionRepo,
 		jobRepo,
 		uploadFileRepo,
