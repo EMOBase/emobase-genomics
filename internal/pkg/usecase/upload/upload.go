@@ -34,6 +34,7 @@ type UseCase struct {
 
 func New(
 	uploadDir string,
+	tusBasePath string,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
@@ -53,12 +54,13 @@ func New(
 	}
 
 	handler, err := tusd.NewHandler(tusd.Config{
-		BasePath:                  "/uploads",
+		BasePath:                  tusBasePath,
 		StoreComposer:             composer,
 		DisableDownload:           true,
 		NotifyCreatedUploads:      true,
 		PreUploadCreateCallback:   uc.handlePreUploadCreate,
 		PreFinishResponseCallback: uc.handlePreFinish,
+		RespectForwardedHeaders:   true,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("unable to create tusd handler")

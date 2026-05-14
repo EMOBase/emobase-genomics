@@ -36,3 +36,4 @@ blast:
 
 uploads:
   dir: ./public/uploads
+  tus_base_path: /api/uploads/
