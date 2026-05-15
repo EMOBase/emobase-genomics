@@ -30,7 +30,7 @@ type SynonymHandler struct {
 	versionRepo IVersionRepository
 	synonymUC   ISynonymUseCase
 	synonymRepo ISynonymRepository
-	gff3Parser  synonymparser.ISynonymParser
+	mainSpecies string
 	fbSynParser synonymparser.ISynonymParser
 	fbGRPParser synonymparser.ISynonymParser
 	indexPrefix string
@@ -40,7 +40,7 @@ func NewSynonymHandler(
 	versionRepo IVersionRepository,
 	synonymUC ISynonymUseCase,
 	synonymRepo ISynonymRepository,
-	gff3Parser synonymparser.ISynonymParser,
+	mainSpecies string,
 	fbSynParser synonymparser.ISynonymParser,
 	fbGRPParser synonymparser.ISynonymParser,
 	indexPrefix string,
@@ -49,7 +49,7 @@ func NewSynonymHandler(
 		versionRepo: versionRepo,
 		synonymUC:   synonymUC,
 		synonymRepo: synonymRepo,
-		gff3Parser:  gff3Parser,
+		mainSpecies: mainSpecies,
 		fbSynParser: fbSynParser,
 		fbGRPParser: fbGRPParser,
 		indexPrefix: indexPrefix,
@@ -78,8 +78,9 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
-	// Load synonyms from the GFF3 file.
-	if err := h.loadGzip(ctx, payload.FilePath, indexName, h.gff3Parser); err != nil {
+	// Load synonyms from the GFF3 file using a parser built from the job payload.
+	gff3Parser := synonymparser.NewGFF3SynonymParser(h.mainSpecies, payload.GeneIDKey, payload.TrimPrefixChars, payload.TrimSuffixChars, payload.OldGeneIDKeys)
+	if err := h.loadGzip(ctx, payload.FilePath, indexName, gff3Parser); err != nil {
 		return nil, err
 	}
 

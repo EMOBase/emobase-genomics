@@ -26,7 +26,7 @@ func New(
 	}
 }
 
-func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexName string) error {
+func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexName string, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -52,7 +52,7 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexNa
 			continue
 		}
 
-		loc, err := uc.mapGFF3RecordToGenomicLocation(record)
+		loc, err := uc.mapGFF3RecordToGenomicLocation(record, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 		if err != nil {
 			return fmt.Errorf("line %d: %w", record.Line, err)
 		}
@@ -78,8 +78,8 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexNa
 	return nil
 }
 
-func (uc *GenomicLocationUseCase) mapGFF3RecordToGenomicLocation(record gff3.GFF3Record) (entity.GenomicLocation, error) {
-	gene, err := gff3.NCBIFindGeneID(record)
+func (uc *GenomicLocationUseCase) mapGFF3RecordToGenomicLocation(record gff3.GFF3Record, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.GenomicLocation, error) {
+	gene, err := gff3.GeneralGeneIDFinder(record, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 	if err != nil {
 		return entity.GenomicLocation{}, err
 	}

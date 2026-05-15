@@ -19,18 +19,28 @@ var (
 
 // GFF3SynonymParser implements ISynonymParser for GFF3 genomic annotation files.
 type GFF3SynonymParser struct {
-	mainSpecies string
+	mainSpecies     string
+	geneIDKey       string
+	trimPrefixChars int
+	trimSuffixChars int
+	oldGeneIDKeys   []string
 }
 
-func NewGFF3SynonymParser(mainSpecies string) *GFF3SynonymParser {
-	return &GFF3SynonymParser{mainSpecies: mainSpecies}
+func NewGFF3SynonymParser(mainSpecies, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) *GFF3SynonymParser {
+	return &GFF3SynonymParser{
+		mainSpecies:     mainSpecies,
+		geneIDKey:       geneIDKey,
+		trimPrefixChars: trimPrefixChars,
+		trimSuffixChars: trimSuffixChars,
+		oldGeneIDKeys:   oldGeneIDKeys,
+	}
 }
 
 func (p *GFF3SynonymParser) Parse(ctx context.Context, r io.Reader) (<-chan entity.Synonym, <-chan error) {
-	return parseSynonyms(ctx, r, p.mainSpecies)
+	return parseSynonyms(ctx, r, p.mainSpecies, p.geneIDKey, p.trimPrefixChars, p.trimSuffixChars, p.oldGeneIDKeys)
 }
 
-func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies string) (<-chan entity.Synonym, <-chan error) {
+func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (<-chan entity.Synonym, <-chan error) {
 	synonymCh := make(chan entity.Synonym)
 	errCh := make(chan error, 1)
 
@@ -46,7 +56,7 @@ func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies string) (<-chan
 			if len(gff3Records) == 0 {
 				return nil
 			}
-			synonyms, err := MakeSynonyms(gff3Records, mainSpecies)
+			synonyms, err := MakeSynonyms(gff3Records, mainSpecies, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 			if err != nil {
 				return fmt.Errorf("line %d: %w", gff3Records[0].Line, err)
 			}
@@ -86,7 +96,7 @@ func parseSynonyms(ctx context.Context, f io.Reader, mainSpecies string) (<-chan
 	return synonymCh, errCh
 }
 
-func MakeSynonyms(gff3Records []gff3.GFF3Record, mainSpecies string) ([]entity.Synonym, error) {
+func MakeSynonyms(gff3Records []gff3.GFF3Record, mainSpecies, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) ([]entity.Synonym, error) {
 	synonyms := make([]entity.Synonym, 0)
 
 	geneRecord := gff3Records[0]
@@ -94,7 +104,7 @@ func MakeSynonyms(gff3Records []gff3.GFF3Record, mainSpecies string) ([]entity.S
 		return nil, ErrFirstRecordNotGene
 	}
 
-	geneXrefIdGroup, err := gff3.NCBIFindGeneID(geneRecord)
+	geneXrefIdGroup, err := gff3.GeneralGeneIDFinder(geneRecord, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 	if err != nil {
 		return nil, err
 	}

@@ -113,7 +113,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, nil
 	}
 
-	// 4. Validate orthology-specific metadata fields.
+	// 4. Validate file-type-specific metadata fields.
 	if fileType == entity.FileTypeOrthologyTSV {
 		if strings.TrimSpace(meta["order"]) == "" {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
@@ -126,6 +126,20 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		if strings.TrimSpace(meta["algorithm"]) == "" {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 				"orthology.tsv uploads require an \"algorithm\" metadata field")
+		}
+	}
+	if fileType == entity.FileTypeGenomicGFF {
+		if strings.TrimSpace(meta["geneIDKey"]) == "" {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"genomic.gff uploads require a \"geneIDKey\" metadata field")
+		}
+		if _, err := strconv.Atoi(meta["trimPrefixChars"]); err != nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"genomic.gff \"trimPrefixChars\" metadata field must be an integer")
+		}
+		if _, err := strconv.Atoi(meta["trimSuffixChars"]); err != nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"genomic.gff \"trimSuffixChars\" metadata field must be an integer")
 		}
 	}
 
@@ -313,12 +327,19 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	order, _ := strconv.Atoi(meta["order"])
+	trimPrefixChars, _ := strconv.Atoi(meta["trimPrefixChars"])
+	trimSuffixChars, _ := strconv.Atoi(meta["trimSuffixChars"])
+	oldGeneIDKeys := parseCommaSeparated(meta["oldGeneIDKeys"])
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
-		UploadFileID: uploadID,
-		VersionID:    versionID,
-		FilePath:     filePath,
-		Order:        order,
-		Algorithm:    strings.TrimSpace(meta["algorithm"]),
+		UploadFileID:    uploadID,
+		VersionID:       versionID,
+		FilePath:        filePath,
+		Order:           order,
+		Algorithm:       strings.TrimSpace(meta["algorithm"]),
+		GeneIDKey:       strings.TrimSpace(meta["geneIDKey"]),
+		TrimPrefixChars: trimPrefixChars,
+		TrimSuffixChars: trimSuffixChars,
+		OldGeneIDKeys:   oldGeneIDKeys,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal job payload: %w", err)
@@ -353,7 +374,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	if fileType == entity.FileTypeGenomicGFF {
 		// Also enqueue a GENOMIC.GFF:SYNONYM job that combines GFF3 + versionless FB synonym files.
 		// TODO: Refactor this to process only the GFF file instead.
-		synonymJob, err := uc.enqueueGenomicGFFSynonymJob(ctx, versionID, uploadID, filePath)
+		synonymJob, err := uc.enqueueGenomicGFFSynonymJob(ctx, versionID, uploadID, filePath, strings.TrimSpace(meta["geneIDKey"]), trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 		if err != nil {
 			return nil, err
 		}
@@ -465,7 +486,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 
 // enqueueGenomicGFFSynonymJob creates a single GENOMIC.GFF:SYNONYM job that carries the GFF3 file
 // path plus any versionless FB synonym files found in the uploads root.
-func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath string) (entity.Job, error) {
+func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
 	var synonymFiles []string
 	for _, name := range []string{"fb_synonym.tsv.gz", "fbgn_fbtr_fbpp.tsv.gz"} {
 		p := filepath.Join(uc.uploadDir, name)
@@ -475,10 +496,14 @@ func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID ui
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
-		UploadFileID: uploadFileID,
-		VersionID:    versionID,
-		FilePath:     gffFilePath,
-		SynonymFiles: synonymFiles,
+		UploadFileID:    uploadFileID,
+		VersionID:       versionID,
+		FilePath:        gffFilePath,
+		SynonymFiles:    synonymFiles,
+		GeneIDKey:       geneIDKey,
+		TrimPrefixChars: trimPrefixChars,
+		TrimSuffixChars: trimSuffixChars,
+		OldGeneIDKeys:   oldGeneIDKeys,
 	})
 	if err != nil {
 		return entity.Job{}, fmt.Errorf("failed to marshal synonym job payload: %w", err)
@@ -613,6 +638,21 @@ func (uc *UseCase) removeUploadFiles(uploadID string) {
 			log.Error().Err(err).Str("path", path).Msg("failed to remove upload file during cleanup")
 		}
 	}
+}
+
+func parseCommaSeparated(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 func isGzip(filePath string) (bool, error) {
