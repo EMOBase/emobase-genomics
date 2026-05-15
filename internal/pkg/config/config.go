@@ -21,6 +21,11 @@ type Config struct {
 	Keycloak      KeycloakConfig      `mapstructure:"keycloak"`
 	Blast         BlastConfig         `mapstructure:"blast"`
 	Uploads       UploadsConfig       `mapstructure:"uploads"`
+	JBrowse2      JBrowse2Config      `mapstructure:"jbrowse2"`
+}
+
+type JBrowse2Config struct {
+	GeneLinkBase string `mapstructure:"gene_link_base"`
 }
 
 type KeycloakConfig struct {

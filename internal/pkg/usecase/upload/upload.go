@@ -24,17 +24,19 @@ import (
 )
 
 type UseCase struct {
-	Handler     http.Handler
-	tusHandler  *tusd.Handler
-	uploadDir   string
-	versionRepo IVersionRepository
-	jobRepo     IJobRepository
-	uploadRepo  IUploadFileRepository
+	Handler      http.Handler
+	tusHandler   *tusd.Handler
+	uploadDir    string
+	geneLinkBase string
+	versionRepo  IVersionRepository
+	jobRepo      IJobRepository
+	uploadRepo   IUploadFileRepository
 }
 
 func New(
 	uploadDir string,
 	tusBasePath string,
+	geneLinkBase string,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
@@ -47,10 +49,11 @@ func New(
 	locker.UseIn(composer)
 
 	uc := &UseCase{
-		uploadDir:   uploadDir,
-		versionRepo: versionRepo,
-		jobRepo:     jobRepo,
-		uploadRepo:  uploadRepo,
+		uploadDir:    uploadDir,
+		geneLinkBase: geneLinkBase,
+		versionRepo:  versionRepo,
+		jobRepo:      jobRepo,
+		uploadRepo:   uploadRepo,
 	}
 
 	handler, err := tusd.NewHandler(tusd.Config{
@@ -381,7 +384,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		jobs = append(jobs, synonymJob)
 
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
-		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath); err != nil {
+		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath, strings.TrimSpace(meta["geneIDKey"])); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
 		} else if gffSetupJob != nil {
 			jobs = append(jobs, *gffSetupJob)
@@ -427,7 +430,7 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 
 // tryEnqueueGFFSetupJBrowse2 creates a GENOMIC.GFF:SETUP_JBROWSE2 job if
 // GENOMIC.FNA:SETUP_JBROWSE2 is done and no non-failed job exists for this GFF file.
-func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath string) (*entity.Job, error) {
+func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath, geneIDKey string) (*entity.Job, error) {
 	fnaFile, err := uc.uploadRepo.FindLatestCompletedByVersionAndType(ctx, versionID, entity.FileTypeGenomicFNA)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find latest %s file: %w", entity.FileTypeGenomicFNA, err)
@@ -454,6 +457,8 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
 		VersionName:    versionName,
 		GenomicGFFPath: gffFilePath,
+		GeneIDKey:      geneIDKey,
+		GeneLinkBase:   uc.geneLinkBase,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)

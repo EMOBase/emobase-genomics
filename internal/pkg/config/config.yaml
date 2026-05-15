@@ -37,3 +37,6 @@ blast:
 uploads:
   dir: ./public/uploads
   tus_base_path: /api/uploads/
+
+jbrowse2:
+  gene_link_base: "https://ibeetle-base.uni-goettingen.de/details/" # base URL prepended to the gene ID in the annotation track detail link
