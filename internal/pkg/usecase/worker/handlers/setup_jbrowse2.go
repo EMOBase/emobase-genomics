@@ -43,6 +43,7 @@ func (h *SetupFNAJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
 		Str("version", payload.VersionName).
+		Str("scriptOutput", string(out)).
 		Msgf("%s completed successfully", entity.JobTypeGenomicFNASetupJBrowse2)
 
 	return nil, nil
@@ -88,6 +89,7 @@ func (h *SetupGFFJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
 		Str("version", payload.VersionName).
+		Str("scriptOutput", string(out)).
 		Msgf("%s completed successfully", entity.JobTypeGenomicGFFSetupJBrowse2)
 
 	return nil, nil

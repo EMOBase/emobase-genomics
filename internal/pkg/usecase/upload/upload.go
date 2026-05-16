@@ -384,7 +384,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		jobs = append(jobs, synonymJob)
 
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
-		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath, strings.TrimSpace(meta["geneIDKey"])); err != nil {
+		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
 		} else if gffSetupJob != nil {
 			jobs = append(jobs, *gffSetupJob)
@@ -430,7 +430,8 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 
 // tryEnqueueGFFSetupJBrowse2 creates a GENOMIC.GFF:SETUP_JBROWSE2 job if
 // GENOMIC.FNA:SETUP_JBROWSE2 is done and no non-failed job exists for this GFF file.
-func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath, geneIDKey string) (*entity.Job, error) {
+// GeneIDKey is read from the GENOMIC.GFF job's payload to keep a single source of truth.
+func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath string) (*entity.Job, error) {
 	fnaFile, err := uc.uploadRepo.FindLatestCompletedByVersionAndType(ctx, versionID, entity.FileTypeGenomicFNA)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find latest %s file: %w", entity.FileTypeGenomicFNA, err)
@@ -452,6 +453,18 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	}
 	if exists {
 		return nil, nil
+	}
+
+	gffJob, err := uc.jobRepo.FindLatestByFileAndType(ctx, gffFileID, entity.JobTypeGenomicGFF)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up %s job for file: %w", entity.JobTypeGenomicGFF, err)
+	}
+	var geneIDKey string
+	if gffJob != nil && gffJob.Payload != nil {
+		var p jobpayload.ProcessPayload
+		if err := json.Unmarshal(*gffJob.Payload, &p); err == nil {
+			geneIDKey = p.GeneIDKey
+		}
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{

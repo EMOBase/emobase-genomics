@@ -290,6 +290,24 @@ func (r *MySQLRepository) HasDoneJobOfTypeForFile(ctx context.Context, fileID st
 	return count > 0, nil
 }
 
+// FindLatestByFileAndType returns the most recently created job of the given
+// type for a specific file, or nil if none exists.
+func (r *MySQLRepository) FindLatestByFileAndType(ctx context.Context, fileID string, jobType string) (*entity.Job, error) {
+	var j entity.Job
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, version_id, file_id, type, payload
+		 FROM jobs WHERE file_id = ? AND type = ? ORDER BY id DESC LIMIT 1`,
+		fileID, jobType,
+	).Scan(&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Payload)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
 func (r *MySQLRepository) HasActiveJobsByVersionID(ctx context.Context, versionID uint64) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,

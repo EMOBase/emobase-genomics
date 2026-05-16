@@ -16,6 +16,7 @@ type IJobRepository interface {
 	HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
+	FindLatestByFileAndType(ctx context.Context, fileID string, jobType string) (*entity.Job, error)
 }
 
 type IUploadFileRepository interface {
