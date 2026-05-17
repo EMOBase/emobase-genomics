@@ -12,4 +12,6 @@ type SetupJBrowse2FNAPayload struct {
 type SetupJBrowse2GFFPayload struct {
 	VersionName    string `json:"version_name"`
 	GenomicGFFPath string `json:"genomic_gff_path"`
+	GeneIDKey      string `json:"gene_id_key,omitempty"`
+	GeneLinkBase   string `json:"gene_link_base,omitempty"`
 }

@@ -30,6 +30,7 @@ FROM debian:bookworm-slim
 #   - gzip                     : file compression/decompression
 #   - bash                     : interactive shell for local development
 #   - curl                     : other HTTP requests for local development
+#   - jq                       : modify JBrowse2 config.json from shell script
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       tzdata \
@@ -42,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       gzip \
       bash \
       curl \
+      jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install JBrowse CLI (unpkg serves the standalone bundle)

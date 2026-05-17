@@ -81,7 +81,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		),
 		entity.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
 			versionRepo, synonymUC, synonymRepo,
-			synonymparser.NewGFF3SynonymParser(config.MainSpecies),
+			config.MainSpecies,
 			synonymparser.NewFlyBaseSynonymParser(config.MainSpecies),
 			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
 			indexPrefix,
@@ -95,8 +95,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
 		),
-		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
-		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(),
+		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo, config.JBrowse2.GeneLinkBase),
+		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(config.JBrowse2.GeneLinkBase),
 	}
 
 	w := ucworker.New(

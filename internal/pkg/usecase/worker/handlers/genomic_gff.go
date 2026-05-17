@@ -16,7 +16,7 @@ import (
 )
 
 type IGenomicUseCase interface {
-	Load(ctx context.Context, f io.Reader, indexName string) error
+	Load(ctx context.Context, f io.Reader, indexName string, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) error
 }
 
 type IGenomicRepository interface {
@@ -79,7 +79,7 @@ func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) (json.Ra
 	}
 	defer func() { _ = gr.Close() }()
 
-	if err := h.genomicUC.Load(ctx, gr, indexName); err != nil {
+	if err := h.genomicUC.Load(ctx, gr, indexName, payload.GeneIDKey, payload.TrimPrefixChars, payload.TrimSuffixChars, payload.OldGeneIDKeys); err != nil {
 		return nil, err
 	}
 
