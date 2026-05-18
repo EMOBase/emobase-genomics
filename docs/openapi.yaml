@@ -68,13 +68,17 @@ components:
               example: 1073741824
             status:
               type: string
-              enum: [draft, processing, error, ready]
+              enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
               description: |
                 Derived from the state of jobs associated with this version.
-                - `draft` — no jobs exist, or all jobs are PENDING.
-                - `processing` — at least one job is RUNNING, none are FAILED.
-                - `error` — at least one job is FAILED.
-                - `ready` — all jobs are DONE.
+                - `DRAFT` — no jobs exist, or all jobs are PENDING.
+                - `PROCESSING` — at least one job is RUNNING.
+                - `ERROR` — at least one job is FAILED.
+                - `MISSING_REQUIRED_FILE` — at least one of the required files (`genomic.fna`, `genomic.gff`) has not been uploaded yet.
+                - `READY` — all jobs are DONE.
+
+                Beside `DRAFT` and `READY`, these states are not mutually exclusive.
+                The order of precedence is: PROCESSING > ERROR > MISSING_REQUIRED_FILE.
 
     VersionList:
       type: object
@@ -304,7 +308,7 @@ components:
           type: boolean
         status:
           type: string
-          enum: [DRAFT, PROCESSING, READY, ERROR]
+          enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
         createdAt:
           type: string
           format: date-time
@@ -701,6 +705,10 @@ paths:
         | `version` | Conditional | Version name. Required for all file types except `fb_synonym.tsv` and `fbgn_fbtr_fbpp.tsv`. |
         | `order` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `algorithm` | Conditional | Required when `fileType` is `orthology.tsv`. |
+        | `geneIDKey` | Conditional | Required when `fileType` is `genomic.gff`. GFF3 attribute key used to extract the gene ID. Supports simple keys (e.g. `ID`) and nested dot-notation keys (e.g. `Dbxref.GeneID`) to look up a `dbname:dbvalue` entry inside the attribute. |
+        | `trimPrefixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the start of the extracted gene ID value. Use `0` for no trimming. |
+        | `trimSuffixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the end of the extracted gene ID value. Use `0` for no trimming. |
+        | `oldGeneIDKeys` | No | Comma-separated list of additional GFF3 attribute keys (same format as `geneIDKey`) whose extracted values are stored as previous/synonym gene IDs. Only used when `fileType` is `genomic.gff`. |
 
         **Accepted `fileType` values:**
         - `genomic.fna`
@@ -769,6 +777,21 @@ paths:
                   summary: version does not exist
                   value:
                     error: 'version "dmel_r6.99" not found'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                missingGeneIDKey:
+                  summary: geneIDKey missing for genomic.gff
+                  value:
+                    error: 'genomic.gff uploads require a "geneIDKey" metadata field'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidTrimPrefixChars:
+                  summary: trimPrefixChars is not an integer
+                  value:
+                    error: 'genomic.gff "trimPrefixChars" metadata field must be an integer'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidTrimSuffixChars:
+                  summary: trimSuffixChars is not an integer
+                  value:
+                    error: 'genomic.gff "trimSuffixChars" metadata field must be an integer'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
