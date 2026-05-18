@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -80,7 +81,14 @@ func (h *SetupGFFJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 		return nil, fmt.Errorf("failed to unmarshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 
-	cmd := exec.CommandContext(ctx, setupJBrowse2GFFScript, payload.GenomicGFFPath, payload.VersionName, payload.GeneIDKey, payload.GeneLinkBase)
+	cmd := exec.CommandContext(ctx, setupJBrowse2GFFScript,
+		payload.GenomicGFFPath,
+		payload.VersionName,
+		payload.GeneIDKey,
+		payload.GeneLinkBase,
+		strconv.Itoa(payload.TrimPrefixChars),
+		strconv.Itoa(payload.TrimSuffixChars),
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s script failed: %w\noutput: %s", entity.JobTypeGenomicGFFSetupJBrowse2, err, out)
@@ -132,10 +140,12 @@ func tryEnqueueGFFSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, ver
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
-		VersionName:    versionName,
-		GenomicGFFPath: p.FilePath,
-		GeneIDKey:      p.GeneIDKey,
-		GeneLinkBase:   geneLinkBase,
+		VersionName:     versionName,
+		GenomicGFFPath:  p.FilePath,
+		GeneIDKey:       p.GeneIDKey,
+		GeneLinkBase:    geneLinkBase,
+		TrimPrefixChars: p.TrimPrefixChars,
+		TrimSuffixChars: p.TrimSuffixChars,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)
