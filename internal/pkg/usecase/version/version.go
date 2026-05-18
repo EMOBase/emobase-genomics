@@ -25,8 +25,9 @@ var (
 
 type VersionItem struct {
 	entity.Version
-	IsDefault     bool  `json:"isDefault"`
-	TotalFileSize int64 `json:"totalFileSize"`
+	IsDefault     bool   `json:"isDefault"`
+	TotalFileSize int64  `json:"totalFileSize"`
+	Status        string `json:"status"`
 }
 
 type VersionList struct {
@@ -120,10 +121,33 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 
 	items := make([]VersionItem, len(versions))
 	for i, v := range versions {
+		// TODO: N+1 queries for now since batch queries would be more complex to implement.
+		// If this becomes a performance bottleneck we can optimize later.
+		// Can always cache status for a version if needed to avoid computing on every request.
+		statusCounts, err := uc.jobRepo.StatusCountsByVersionID(ctx, v.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		completedFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByVersionID(ctx, v.ID)
+		if err != nil {
+			return nil, err
+		}
+		hasGFF, hasFNA := false, false
+		for _, f := range completedFiles {
+			switch f.FileType {
+			case entity.FileTypeGenomicGFF:
+				hasGFF = true
+			case entity.FileTypeGenomicFNA:
+				hasFNA = true
+			}
+		}
+
 		items[i] = VersionItem{
 			Version:       v,
 			IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
 			TotalFileSize: fileSizes[v.ID],
+			Status:        computeVersionStatus(statusCounts, hasFNA && hasGFF),
 		}
 	}
 
