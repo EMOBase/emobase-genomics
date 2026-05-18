@@ -277,7 +277,8 @@ func toJobSummary(j entity.Job) JobSummary {
 }
 
 func computeVersionStatus(c entity.JobStatusCounts, hasRequiredFiles bool) string {
-	if c.RunningCount > 0 {
+	pendingCount := c.TotalCount - c.RunningCount - c.FailedCount - c.DoneCount
+	if c.RunningCount > 0 || pendingCount > 0 {
 		return "PROCESSING"
 	}
 	if c.FailedCount > 0 {

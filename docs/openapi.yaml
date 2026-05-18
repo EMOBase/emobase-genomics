@@ -71,8 +71,8 @@ components:
               enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
               description: |
                 Derived from the state of jobs associated with this version.
-                - `DRAFT` — no jobs exist, or all jobs are PENDING.
-                - `PROCESSING` — at least one job is RUNNING.
+                - `DRAFT` — no jobs exist.
+                - `PROCESSING` — at least one job is PENDING or RUNNING.
                 - `ERROR` — at least one job is FAILED.
                 - `MISSING_REQUIRED_FILE` — at least one of the required files (`genomic.fna`, `genomic.gff`) has not been uploaded yet.
                 - `READY` — all jobs are DONE.
