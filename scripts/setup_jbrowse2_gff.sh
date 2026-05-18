@@ -5,9 +5,11 @@ GENOMIC_GFF_GZ="$1"
 VERSION="$2"
 GENE_ID_KEY="${3:-}"
 LINK_BASE="${4:-}"
+TRIM_PREFIX="${5:-0}"
+TRIM_SUFFIX="${6:-0}"
 
 if [ -z "$GENOMIC_GFF_GZ" ] || [ -z "$VERSION" ]; then
-  echo "Usage: $0 <genomic_gff.gz> <version> [gene_id_key] [link_base]" >&2
+  echo "Usage: $0 <genomic_gff.gz> <version> [gene_id_key] [link_base] [trim_prefix_chars] [trim_suffix_chars]" >&2
   exit 1
 fi
 
@@ -44,10 +46,22 @@ if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
     # One clean ternary avoids nested-ternary precedence pitfalls.
     GUARD="feature.${ATTR_KEY,,} && split('' + feature.${ATTR_KEY,,},'${DB_NAME}:')[1]"
     EXTRACT="split(split('' + feature.${ATTR_KEY,,},'${DB_NAME}:')[1],',')[0]"
-    JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${EXTRACT}+'>'+${EXTRACT}+'</a>' : ''}"
+    # Apply trim via subseq(str, start, end) which wraps String.slice().
+    # -0 == 0 in JS so omit end entirely when suffix trim is 0.
+    if [ "$TRIM_SUFFIX" -gt 0 ]; then
+      TRIMMED="slice(${EXTRACT},${TRIM_PREFIX},-${TRIM_SUFFIX})"
+    else
+      TRIMMED="slice(${EXTRACT},${TRIM_PREFIX})"
+    fi
+    JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
   else
     ID_EXPR="feature.${GENE_ID_KEY,,}"
-    JEXL_EXPR="jexl:{emobase_link:${ID_EXPR} ? '<a href=${LINK_BASE}'+${ID_EXPR}+'>'+${ID_EXPR}+'</a>' : ''}"
+    if [ "$TRIM_SUFFIX" -gt 0 ]; then
+      TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX},-${TRIM_SUFFIX})"
+    else
+      TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX})"
+    fi
+    JEXL_EXPR="jexl:{emobase_link:${ID_EXPR} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
   fi
 
   MATCHED=$(jq --arg name "${VERSION} Annotations" '[.tracks[] | select(.name == $name)] | length' /web/data/config.json)
