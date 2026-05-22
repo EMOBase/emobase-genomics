@@ -101,6 +101,55 @@ func (r *ElasticSearchRepository) DeleteByFileID(ctx context.Context, indexName,
 	return nil
 }
 
+// ListByOrthologs returns all orthology groups that contain any of the given gene IDs.
+func (r *ElasticSearchRepository) ListByOrthologs(ctx context.Context, indexName string, genes []string) ([]entity.Orthology, error) {
+	if len(genes) == 0 {
+		return nil, nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"query": map[string]any{"terms": map[string]any{"orthologs.keyword": genes}},
+		"sort":  []map[string]any{{"group.keyword": map[string]string{"order": "asc"}}},
+		"size":  1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := r.esClient.Search(
+		r.esClient.Search.WithContext(ctx),
+		r.esClient.Search.WithIndex(indexName),
+		r.esClient.Search.WithBody(bytes.NewReader(body)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("elasticsearch search failed: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if res.IsError() {
+		return nil, fmt.Errorf("elasticsearch search failed: %s", res.String())
+	}
+
+	var result struct {
+		Hits struct {
+			Hits []struct {
+				Source entity.Orthology `json:"_source"`
+			} `json:"hits"`
+		} `json:"hits"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode search response: %w", err)
+	}
+
+	orthologies := make([]entity.Orthology, len(result.Hits.Hits))
+	for i, h := range result.Hits.Hits {
+		orthologies[i] = h.Source
+	}
+	return orthologies, nil
+}
+
 // SetAlias atomically points aliasName to indexName,
 // removing it from any previous index it may have pointed to.
 func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName string) error {

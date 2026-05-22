@@ -16,11 +16,15 @@ import (
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esindex"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
+	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
+	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
+	ucsearch "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/search"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/versionresolver"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -45,12 +49,22 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	jobRepo := repojob.New(db)
+	appSettingsRepo := repoappsettings.New(db)
 
 	versionRepo := repoversion.New(db)
 	uploadFileRepo := repouploadfile.New(db)
-	versionUC := ucversion.New(versionRepo, repoappsettings.New(db), jobRepo, uploadFileRepo, esindex.New(esClient, config.Elasticsearch.IndexPrefix))
+	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, esindex.New(esClient, config.Elasticsearch.IndexPrefix))
 
 	jobUC := ucjob.New(jobRepo, versionRepo)
+
+	batchSize := config.Elasticsearch.BulkBatchSize
+	searchUC := ucsearch.New(
+		reposynonym.New(esClient, batchSize),
+		repoorthology.New(esClient, batchSize),
+		versionresolver.New(versionRepo, appSettingsRepo),
+		config.Elasticsearch.IndexPrefix,
+		config.MainSpecies,
+	)
 
 	uploadUC, err := upload.New(
 		config.Uploads.Dir,
@@ -72,7 +86,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	gin.SetMode(config.HTTP.Mode)
 
-	router := pkgapi.NewRouter(uploadUC, versionUC, jobUC, validator)
+	router := pkgapi.NewRouter(uploadUC, versionUC, jobUC, searchUC, validator)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),

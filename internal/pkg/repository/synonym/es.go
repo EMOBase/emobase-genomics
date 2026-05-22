@@ -185,3 +185,67 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 
 	return nil
 }
+
+// FindBySynonymRelaxed returns synonyms whose synonym field matches query using
+// a full-text match query (case-insensitive, hyphen-tolerant via the synonym_analyzer).
+func (r *ElasticSearchRepository) FindBySynonymRelaxed(ctx context.Context, indexName, query string) ([]entity.Synonym, error) {
+	body, err := json.Marshal(map[string]any{
+		"query": map[string]any{"match": map[string]any{"synonym": query}},
+		"size":  1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.searchSynonyms(ctx, indexName, body)
+}
+
+// FindByGenes returns all synonym documents whose gene field matches any of the given gene IDs.
+func (r *ElasticSearchRepository) FindByGenes(ctx context.Context, indexName string, genes []string) ([]entity.Synonym, error) {
+	if len(genes) == 0 {
+		return nil, nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"query": map[string]any{"terms": map[string]any{"gene.keyword": genes}},
+		"size":  1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.searchSynonyms(ctx, indexName, body)
+}
+
+func (r *ElasticSearchRepository) searchSynonyms(ctx context.Context, indexName string, body []byte) ([]entity.Synonym, error) {
+	res, err := r.esClient.Search(
+		r.esClient.Search.WithContext(ctx),
+		r.esClient.Search.WithIndex(indexName),
+		r.esClient.Search.WithBody(bytes.NewReader(body)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("elasticsearch search failed: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if res.IsError() {
+		return nil, fmt.Errorf("elasticsearch search failed: %s", res.String())
+	}
+
+	var result struct {
+		Hits struct {
+			Hits []struct {
+				Source entity.Synonym `json:"_source"`
+			} `json:"hits"`
+		} `json:"hits"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode search response: %w", err)
+	}
+
+	synonyms := make([]entity.Synonym, len(result.Hits.Hits))
+	for i, h := range result.Hits.Hits {
+		synonyms[i] = h.Source
+	}
+	return synonyms, nil
+}

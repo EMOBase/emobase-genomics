@@ -293,6 +293,89 @@ components:
           format: date-time
           nullable: true
 
+    GeneWithSynonyms:
+      type: object
+      required: [gene, synonyms]
+      properties:
+        gene:
+          type: string
+          description: Gene identifier with the species prefix stripped.
+          example: TC016177
+        synonyms:
+          type: array
+          items:
+            type: string
+          description: Non-primary synonyms for this gene (names, symbols, etc.). Empty when the gene did not match the query directly.
+          example: ["CG9533", "vermilion"]
+
+    GeneGroup:
+      type: object
+      required: [species, genes]
+      properties:
+        species:
+          type: string
+          description: Four-letter species code (e.g. `Tcas`, `Dmel`).
+          example: Dmel
+        genes:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneWithSynonyms'
+
+    OrthologyResult:
+      type: object
+      required: [group, source, orthologs]
+      properties:
+        group:
+          type: string
+          description: Orthology group identifier from the source database.
+          example: OG0001234
+        source:
+          type: string
+          description: Algorithm or database that produced this orthology group.
+          example: OrthoMCL
+        orthologs:
+          type: array
+          description: Gene groups per species — main species first, then alphabetical.
+          items:
+            $ref: '#/components/schemas/GeneGroup'
+
+    OtherGene:
+      type: object
+      required: [species, gene]
+      properties:
+        species:
+          type: string
+          description: Four-letter species code.
+          example: Dmel
+        gene:
+          type: string
+          description: Gene identifier with the species prefix stripped.
+          example: FBgn0003996
+
+    SearchResult:
+      type: object
+      description: |
+        At most one of `genes`, `orthologies`, or `otherGenes` is populated.
+        All three are absent when no match is found.
+
+        - `genes` — query matched a **main-species** gene; contains the matching gene IDs (species prefix stripped).
+        - `orthologies` — query matched a gene from **another species** and orthology groups were found; each group is enriched with synonyms from the query.
+        - `otherGenes` — query matched a gene from **another species** but no orthology groups were found.
+      properties:
+        genes:
+          type: array
+          items:
+            type: string
+          example: ["TC016177", "TC016178"]
+        orthologies:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrthologyResult'
+        otherGenes:
+          type: array
+          items:
+            $ref: '#/components/schemas/OtherGene'
+
     VersionDetail:
       type: object
       required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, files]
@@ -345,6 +428,124 @@ paths:
                   requestId:
                     type: string
                     example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /search:
+    get:
+      summary: Search genes
+      operationId: searchGenes
+      security: []
+      tags: [Search]
+      description: |
+        Searches for genes by synonym (gene ID, name, symbol, transcript ID, etc.) across
+        the Elasticsearch synonym index for a given version.
+
+        The query is case-insensitive and treats hyphens as spaces (via the `synonym_analyzer`).
+
+        The result shape depends on where the match is found:
+        - If the query matches a **main-species** gene → `genes` is populated.
+        - If the query matches a gene from **another species** and orthology groups are found → `orthologies` is populated, each group enriched with the synonyms returned by the query.
+        - If the query matches a gene from **another species** with no orthology data → `otherGenes` is populated.
+
+        All three fields are absent when no match is found.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search term (gene ID, name, symbol, …). Case-insensitive; hyphens treated as spaces.
+          example: TC016177
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Version name (e.g. `dmel_r6.54`). Defaults to the configured default version.
+            Returns 422 if omitted and no default version is set.
+          example: dmel_r6.54
+      responses:
+        '200':
+          description: Search executed successfully. One of `genes`, `orthologies`, or `otherGenes` is populated; all are absent on no match.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SearchResult'
+                  requestId:
+                    type: string
+              examples:
+                mainSpeciesMatch:
+                  summary: Query matched main-species genes
+                  value:
+                    data:
+                      genes: ["TC016177", "TC016178"]
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                orthologyMatch:
+                  summary: Query matched another species — orthology found
+                  value:
+                    data:
+                      orthologies:
+                        - group: OG0001234
+                          source: OrthoMCL
+                          orthologs:
+                            - species: Tcas
+                              genes:
+                                - gene: TC016177
+                                  synonyms: []
+                            - species: Dmel
+                              genes:
+                                - gene: FBgn0003996
+                                  synonyms: ["v", "vermilion"]
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                otherGeneMatch:
+                  summary: Query matched another species — no orthology
+                  value:
+                    data:
+                      otherGenes:
+                        - species: Dmel
+                          gene: FBgn0003996
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                noMatch:
+                  summary: No match found
+                  value:
+                    data: {}
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '400':
+          description: Missing `query` parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingQuery:
+                  value:
+                    error: query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: No `version` param provided and no default version is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                noDefault:
+                  value:
+                    error: no default version configured
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /versions:
     get:
@@ -1088,6 +1289,8 @@ paths:
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
 tags:
+  - name: Search
+    description: Gene search across synonym and orthology indexes.
   - name: Versions
     description: Genome version management.
   - name: Jobs
