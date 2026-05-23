@@ -3,17 +3,23 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"time"
 
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
 )
 
 func NewMySQL(cfg configs.MySQLConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC",
-		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
-	)
+	dsn := (&mysql.Config{
+		User:      cfg.User,
+		Passwd:    cfg.Password,
+		Net:       "tcp",
+		Addr:      fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		DBName:    cfg.Database,
+		ParseTime: true,
+		Loc:       time.UTC,
+	}).FormatDSN()
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -32,8 +38,9 @@ func NewMySQL(cfg configs.MySQLConfig) (*sql.DB, error) {
 }
 
 func MySQLMigrateDSN(cfg configs.MySQLConfig) string {
+	userInfo := url.UserPassword(cfg.User, cfg.Password)
 	return fmt.Sprintf(
-		"mysql://%s:%s@tcp(%s:%d)/%s?multiStatements=true",
-		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
+		"mysql://%s@tcp(%s:%d)/%s?multiStatements=true",
+		userInfo, cfg.Host, cfg.Port, cfg.Database,
 	)
 }
