@@ -429,6 +429,89 @@ paths:
                     type: string
                     example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
+  /search/_suggest:
+    get:
+      summary: Autocomplete gene synonyms
+      operationId: suggestGeneSynonyms
+      security: []
+      tags: [Search]
+      description: |
+        Returns up to 100 autocomplete suggestions for the given prefix using the
+        Elasticsearch completion suggester on the `synonym.suggest` field.
+
+        Results are ranked by synonym type:
+        - `SYMBOL` → boost 12
+        - `NAME` → boost 8
+        - `CURRENT_ID`, `DSRNA`, `OLD_ID` → boost 4
+        - `OTHER` → boost 1
+
+        Duplicate suggestions are suppressed. Returns an empty array when no prefix
+        match is found or the synonym index does not exist yet.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Prefix to autocomplete (e.g. `"TC01"`).
+          example: TC01
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.54`). Defaults to the configured default version.
+          example: dmel_r6.54
+      responses:
+        '200':
+          description: List of matching synonym strings, ranked by type relevance.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    example: ["TC016177", "TC016178", "TC016179"]
+                  requestId:
+                    type: string
+                    example: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '400':
+          description: Missing `query` parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingQuery:
+                  value:
+                    error: query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: No `version` param provided and no default version is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                noDefault:
+                  value:
+                    error: no default version configured
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
   /search:
     get:
       summary: Search genes

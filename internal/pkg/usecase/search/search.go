@@ -65,6 +65,15 @@ func New(
 	}
 }
 
+func (uc *UseCase) Suggest(ctx context.Context, prefix, versionName string) ([]string, error) {
+	version, err := uc.resolver.Resolve(ctx, versionName)
+	if err != nil {
+		return nil, err
+	}
+	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, strings.ToLower(version.Name))
+	return uc.synonymRepo.Suggest(ctx, synonymIndex, prefix)
+}
+
 func (uc *UseCase) Search(ctx context.Context, query, versionName string) (*SearchResult, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {

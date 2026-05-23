@@ -214,6 +214,73 @@ func (r *ElasticSearchRepository) FindByGenes(ctx context.Context, indexName str
 	return r.searchSynonyms(ctx, indexName, body)
 }
 
+// Suggest returns up to 100 autocomplete suggestions for the given prefix,
+// ranked by synonym type (SYMBOL > NAME > CURRENT_ID/DSRNA/OLD_ID > OTHER).
+func (r *ElasticSearchRepository) Suggest(ctx context.Context, indexName, prefix string) ([]string, error) {
+	body, err := json.Marshal(map[string]any{
+		"size": 0,
+		"suggest": map[string]any{
+			"suggest": map[string]any{
+				"prefix": prefix,
+				"completion": map[string]any{
+					"field":           "synonym.suggest",
+					"size":            100,
+					"skip_duplicates": true,
+					"contexts": map[string]any{
+						"synonym_type": []map[string]any{
+							{"context": "SYMBOL", "boost": 12},
+							{"context": "NAME", "boost": 8},
+							{"context": "CURRENT_ID", "boost": 4},
+							{"context": "DSRNA", "boost": 4},
+							{"context": "OLD_ID", "boost": 4},
+							{"context": "OTHER", "boost": 1},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := r.esClient.Search(
+		r.esClient.Search.WithContext(ctx),
+		r.esClient.Search.WithIndex(indexName),
+		r.esClient.Search.WithBody(bytes.NewReader(body)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("elasticsearch suggest failed: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if res.IsError() {
+		return nil, fmt.Errorf("elasticsearch suggest failed: %s", res.String())
+	}
+
+	var result struct {
+		Suggest map[string][]struct {
+			Options []struct {
+				Text string `json:"text"`
+			} `json:"options"`
+		} `json:"suggest"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode suggest response: %w", err)
+	}
+
+	var suggestions []string
+	for _, hit := range result.Suggest["suggest"] {
+		for _, opt := range hit.Options {
+			suggestions = append(suggestions, opt.Text)
+		}
+	}
+	return suggestions, nil
+}
+
 func (r *ElasticSearchRepository) searchSynonyms(ctx context.Context, indexName string, body []byte) ([]entity.Synonym, error) {
 	res, err := r.esClient.Search(
 		r.esClient.Search.WithContext(ctx),

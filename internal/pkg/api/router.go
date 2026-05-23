@@ -42,6 +42,7 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 
 	searchHandler := handler.NewSearchHandler(searchUC)
 	router.GET("/search", searchHandler.Search)
+	router.GET("/search/_suggest", searchHandler.Suggest)
 
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
 	uploadHandler := func(c *gin.Context) {
