@@ -56,6 +56,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		config.Uploads.Dir,
 		config.Uploads.TUSBasePath,
 		config.JBrowse2.GeneLinkBase,
+		config.Uploads.StaleAfter,
 		versionRepo,
 		jobRepo,
 		uploadFileRepo,

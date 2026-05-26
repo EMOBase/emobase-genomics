@@ -37,6 +37,7 @@ func New(
 	uploadDir string,
 	tusBasePath string,
 	geneLinkBase string,
+	staleUploadAge time.Duration,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
@@ -74,6 +75,10 @@ func New(
 	uc.Handler = handler
 
 	go uc.processEvents()
+
+	if staleUploadAge > 0 {
+		go uc.runStaleCleanup(staleUploadAge)
+	}
 
 	return uc, nil
 }
@@ -654,6 +659,44 @@ func (uc *UseCase) removeUploadFiles(uploadID string) {
 	} {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			log.Error().Err(err).Str("path", path).Msg("failed to remove upload file during cleanup")
+		}
+	}
+}
+
+func (uc *UseCase) runStaleCleanup(maxAge time.Duration) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		uc.cleanStaleUploads(maxAge)
+	}
+}
+
+func (uc *UseCase) cleanStaleUploads(maxAge time.Duration) {
+	entries, err := os.ReadDir(uc.uploadDir)
+	if err != nil {
+		log.Error().Err(err).Msg("stale upload cleanup: failed to read upload dir")
+		return
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".info") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+
+		uploadID := strings.TrimSuffix(entry.Name(), ".info")
+		log.Warn().Str("uploadID", uploadID).Dur("maxAge", maxAge).Msg("removing stale upload")
+		uc.removeUploadFiles(uploadID)
+		if err := uc.uploadRepo.UpdateStatus(context.Background(), uploadID, entity.UploadStatusFailed); err != nil {
+			log.Error().Err(err).Str("uploadID", uploadID).Msg("stale upload cleanup: failed to update status")
 		}
 	}
 }
