@@ -167,10 +167,10 @@ func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID 
 func (r *MySQLRepository) StatusCountsByVersionID(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error) {
 	var counts entity.JobStatusCounts
 	err := r.db.QueryRowContext(ctx, `
-		SELECT SUM(j.status = ?) AS running_count,
-		       SUM(j.status = ?) AS failed_count,
-		       SUM(j.status = ?) AS done_count,
-		       COUNT(*)          AS total_count
+		SELECT COALESCE(SUM(j.status = ?), 0) AS running_count,
+		       COALESCE(SUM(j.status = ?), 0) AS failed_count,
+		       COALESCE(SUM(j.status = ?), 0) AS done_count,
+		       COUNT(*)                        AS total_count
 		FROM jobs j
 		WHERE j.version_id = ?
 		  AND (
