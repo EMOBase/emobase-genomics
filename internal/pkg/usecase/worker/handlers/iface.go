@@ -11,6 +11,7 @@ type IJobRepository interface {
 	FindDoneByVersionAndTypes(ctx context.Context, versionID uint64, jobTypes []string) ([]entity.Job, error)
 	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
+	HasNonDoneJobOfTypesForVersion(ctx context.Context, versionID uint64, jobTypes []string) (bool, error)
 }
 
 type IUploadFileRepository interface {

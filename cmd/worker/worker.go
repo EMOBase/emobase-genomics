@@ -87,13 +87,13 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 			indexPrefix,
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
+			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, appSettingsRepo,
 		),
 		entity.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
-			"prot", blastTitle+" Proteins", blastDBPath+"/protein", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
+			"prot", blastTitle+" Proteins", blastDBPath+"/protein", blastContainerName, jobRepo, appSettingsRepo,
 		),
 		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, uploadFileRepo, appSettingsRepo,
+			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, appSettingsRepo,
 		),
 		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo, config.JBrowse2.GeneLinkBase),
 		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(config.JBrowse2.GeneLinkBase),

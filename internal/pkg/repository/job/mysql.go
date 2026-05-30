@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -268,6 +269,28 @@ func (r *MySQLRepository) HasNonDoneJobsForFile(ctx context.Context, fileID stri
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM jobs WHERE file_id = ? AND status != ?`,
 		fileID, entity.JobStatusDone,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// HasNonDoneJobOfTypesForVersion returns true if any job of the given types for
+// the version is not yet DONE (i.e. still PENDING, RUNNING, or FAILED).
+func (r *MySQLRepository) HasNonDoneJobOfTypesForVersion(ctx context.Context, versionID uint64, jobTypes []string) (bool, error) {
+	if len(jobTypes) == 0 {
+		return false, nil
+	}
+	placeholders := strings.Repeat(",?", len(jobTypes))[1:]
+	args := []any{versionID, entity.JobStatusDone}
+	for _, t := range jobTypes {
+		args = append(args, t)
+	}
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs WHERE version_id = ? AND status != ? AND type IN (`+placeholders+`)`,
+		args...,
 	).Scan(&count)
 	if err != nil {
 		return false, err
