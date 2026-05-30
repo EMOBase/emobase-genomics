@@ -24,18 +24,16 @@ type SetupBlastHandler struct {
 	out             string
 	containerName   string
 	jobRepo         IJobRepository
-	uploadFileRepo  IUploadFileRepository
 	appSettingsRepo IAppSettingsRepository
 }
 
-func NewSetupBlastHandler(dbType, title, out, containerName string, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, appSettingsRepo IAppSettingsRepository) *SetupBlastHandler {
+func NewSetupBlastHandler(dbType, title, out, containerName string, jobRepo IJobRepository, appSettingsRepo IAppSettingsRepository) *SetupBlastHandler {
 	return &SetupBlastHandler{
 		dbType:          dbType,
 		title:           title,
 		out:             out,
 		containerName:   containerName,
 		jobRepo:         jobRepo,
-		uploadFileRepo:  uploadFileRepo,
 		appSettingsRepo: appSettingsRepo,
 	}
 }
@@ -63,41 +61,25 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) (json.Ra
 	return nil, nil
 }
 
-// OnComplete checks whether all three blast databases are ready for this version
-// by finding the latest completed file of each type and confirming its blast job
-// is DONE. If all three are ready, it sets the default version and restarts the
-// blast container.
+// OnComplete promotes this version as the default once all enqueued blast jobs
+// for it are done. Since ReleaseVersion already validates prerequisites before
+// enqueuing blast jobs, no further file-type checks are needed here.
 func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job, _ json.RawMessage) error {
-	type blastSpec struct {
-		fileType string
-		jobType  string
-	}
-	specs := []blastSpec{
-		{entity.FileTypeGenomicFNA, entity.JobTypeGenomicFNASetupBlast},
-		{entity.FileTypeProteinFAA, entity.JobTypeProteinFAASetupBlast},
-		{entity.FileTypeRNAFNA, entity.JobTypeRNAFNASetupBlast},
+	blastJobTypes := []string{
+		entity.JobTypeGenomicFNASetupBlast,
+		entity.JobTypeProteinFAASetupBlast,
+		entity.JobTypeRNAFNASetupBlast,
 	}
 
-	for _, spec := range specs {
-		f, err := h.uploadFileRepo.FindLatestCompletedByVersionAndType(ctx, job.VersionID, spec.fileType)
-		if err != nil {
-			log.Ctx(ctx).Warn().Err(err).Str("fileType", spec.fileType).Msg("failed to find latest file for blast check")
-			return nil
-		}
-		if f == nil {
-			return nil // file not uploaded yet
-		}
-		done, err := h.jobRepo.HasDoneJobOfTypeForFile(ctx, f.ID, spec.jobType)
-		if err != nil {
-			log.Ctx(ctx).Warn().Err(err).Str("jobType", spec.jobType).Msg("failed to check blast job status")
-			return nil
-		}
-		if !done {
-			return nil
-		}
+	hasPending, err := h.jobRepo.HasNonDoneJobOfTypesForVersion(ctx, job.VersionID, blastJobTypes)
+	if err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to check blast job statuses")
+		return nil
+	}
+	if hasPending {
+		return nil
 	}
 
-	// All three blast databases are built — promote this version as default.
 	if err := h.appSettingsRepo.SetDefaultVersion(ctx, job.VersionID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Uint64("versionID", job.VersionID).Msg("failed to set default version after blast setup")
 		return nil
