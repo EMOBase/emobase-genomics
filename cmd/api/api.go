@@ -15,8 +15,10 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esindex"
+	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
+	reposequence "github.com/EMOBase/emobase-genomics/internal/pkg/repository/sequence"
 	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
@@ -61,6 +63,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	searchUC := ucsearch.New(
 		reposynonym.New(esClient, batchSize),
 		repoorthology.New(esClient, batchSize),
+		reposequence.New(esClient, batchSize),
+		repogenomic.New(esClient, batchSize),
 		versionresolver.New(versionRepo, appSettingsRepo),
 		config.Elasticsearch.IndexPrefix,
 		config.MainSpecies,

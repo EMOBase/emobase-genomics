@@ -199,6 +199,21 @@ func (r *ElasticSearchRepository) FindBySynonymRelaxed(ctx context.Context, inde
 	return r.searchSynonyms(ctx, indexName, body)
 }
 
+// FindBySynonyms returns all synonym documents whose synonym field exactly matches any of the given values.
+func (r *ElasticSearchRepository) FindBySynonyms(ctx context.Context, indexName string, synonyms []string) ([]entity.Synonym, error) {
+	if len(synonyms) == 0 {
+		return nil, nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"query": map[string]any{"terms": map[string]any{"synonym.keyword": synonyms}},
+		"size":  1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.searchSynonyms(ctx, indexName, body)
+}
+
 // FindByGenes returns all synonym documents whose gene field matches any of the given gene IDs.
 func (r *ElasticSearchRepository) FindByGenes(ctx context.Context, indexName string, genes []string) ([]entity.Synonym, error) {
 	if len(genes) == 0 {

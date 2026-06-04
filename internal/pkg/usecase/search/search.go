@@ -45,6 +45,8 @@ type SearchResult struct {
 type UseCase struct {
 	synonymRepo   ISynonymRepository
 	orthologyRepo IOrthologyRepository
+	sequenceRepo  ISequenceRepository
+	genomicRepo   IGenomicLocationRepository
 	resolver      versionresolver.Resolver
 	indexPrefix   string
 	mainSpecies   string
@@ -53,12 +55,16 @@ type UseCase struct {
 func New(
 	synonymRepo ISynonymRepository,
 	orthologyRepo IOrthologyRepository,
+	sequenceRepo ISequenceRepository,
+	genomicRepo IGenomicLocationRepository,
 	resolver versionresolver.Resolver,
 	indexPrefix, mainSpecies string,
 ) *UseCase {
 	return &UseCase{
 		synonymRepo:   synonymRepo,
 		orthologyRepo: orthologyRepo,
+		sequenceRepo:  sequenceRepo,
+		genomicRepo:   genomicRepo,
 		resolver:      resolver,
 		indexPrefix:   indexPrefix,
 		mainSpecies:   mainSpecies,
