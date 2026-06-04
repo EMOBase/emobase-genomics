@@ -15,14 +15,15 @@ type GeneSequence struct {
 }
 
 type GeneDetail struct {
-	ID       string         `json:"id"`
-	Start    int            `json:"start"`
-	End      int            `json:"end"`
-	Strand   string         `json:"strand"`
-	Seqname  string         `json:"seqname"`
-	MRNAs    []GeneSequence `json:"mRNAs"`
-	Proteins []GeneSequence `json:"proteins"`
-	CDS      []GeneSequence `json:"CDS"`
+	ID       string           `json:"id"`
+	Start    int              `json:"start"`
+	End      int              `json:"end"`
+	Strand   string           `json:"strand"`
+	Seqname  string           `json:"seqname"`
+	MRNAs    []GeneSequence   `json:"mRNAs"`
+	Proteins []GeneSequence   `json:"proteins"`
+	CDS      []GeneSequence   `json:"CDS"`
+	Synonyms []entity.Synonym `json:"synonyms"`
 }
 
 // GetGenesBySpecies returns genomic location and associated sequences (mRNAs, proteins, CDS)
@@ -71,9 +72,12 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 	}
 
 	// Build map: gene → []sequenceID, collecting TRANSCRIPT+CDS and PROTEIN sequence IDs.
+	// Also collect all synonyms per gene for the response.
 	geneSeqIDs := make(map[string][]string)
+	geneSynonymMap := make(map[string][]entity.Synonym)
 	var allSeqIDs []string
 	for _, s := range geneSynonyms {
+		geneSynonymMap[s.Gene] = append(geneSynonymMap[s.Gene], s)
 		switch s.Type {
 		case entity.SYNONYM_TYPE_TRANSCRIPT:
 			tID := seqGetID(species, ucsequence.SEQUENCE_TYPE_TRANSCRIPT, s.Synonym)
@@ -108,6 +112,10 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 	results := make([]GeneDetail, 0, len(locations))
 	for _, loc := range locations {
 		_, geneID := splitGeneID(loc.Gene)
+		synonyms := geneSynonymMap[loc.Gene]
+		if synonyms == nil {
+			synonyms = []entity.Synonym{}
+		}
 		detail := GeneDetail{
 			ID:       geneID,
 			Start:    loc.Start,
@@ -117,6 +125,7 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 			MRNAs:    []GeneSequence{},
 			Proteins: []GeneSequence{},
 			CDS:      []GeneSequence{},
+			Synonyms: synonyms,
 		}
 
 		for _, seqID := range geneSeqIDs[loc.Gene] {
