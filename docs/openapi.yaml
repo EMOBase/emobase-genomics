@@ -376,6 +376,33 @@ components:
           items:
             $ref: '#/components/schemas/OtherGene'
 
+    OrthologItem:
+      type: object
+      required: [gene, source]
+      properties:
+        gene:
+          type: string
+          description: Orthologous gene identifier with the species prefix stripped.
+          example: FBgn0003996
+        source:
+          type: string
+          description: Algorithm or database that produced this orthology relationship.
+          example: OrthoMCL
+
+    GeneOrthology:
+      type: object
+      required: [gene, orthologs]
+      properties:
+        gene:
+          type: string
+          description: Queried gene identifier with the species prefix stripped.
+          example: TC016177
+        orthologs:
+          type: array
+          description: Orthologous genes from other species across all matching orthology groups.
+          items:
+            $ref: '#/components/schemas/OrthologItem'
+
     VersionDetail:
       type: object
       required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, files]
@@ -606,6 +633,114 @@ paths:
                 missingQuery:
                   value:
                     error: query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: No `version` param provided and no default version is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                noDefault:
+                  value:
+                    error: no default version configured
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /orthology/{species}:
+    get:
+      summary: Get orthology for genes of a species
+      operationId: getOrthologyBySpecies
+      security: []
+      tags: [Orthology]
+      description: |
+        Returns orthology groups for the given gene IDs belonging to `species`.
+        Each gene in the result is paired with its orthologs from all other species
+        found in matching groups.
+
+        Only genes that appear in at least one orthology group are included in the response.
+        Genes with no orthology data are silently omitted.
+      parameters:
+        - name: species
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Four-letter species code (e.g. `Tcas`, `Dmel`).
+          example: Tcas
+        - name: genes
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated list of gene IDs without species prefix.
+          example: TC003413,TC000291
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            default: all
+          description: Filter by orthology source algorithm (e.g. `OrthoMCL`). Use `all` to include every source.
+          example: OrthoMCL
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.54`). Defaults to the configured default version.
+          example: dmel_r6.54
+      responses:
+        '200':
+          description: Orthology groups for the queried genes. Empty array when no orthology data is found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GeneOrthology'
+                  requestId:
+                    type: string
+              examples:
+                found:
+                  summary: Orthology found for queried genes
+                  value:
+                    data:
+                      - gene: TC003413
+                        orthologs:
+                          - gene: FBgn0003996
+                            source: OrthoMCL
+                          - gene: AGAP001234
+                            source: OrthoMCL
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                notFound:
+                  summary: No orthology found
+                  value:
+                    data: []
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '400':
+          description: Missing `genes` parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingGenes:
+                  value:
+                    error: genes parameter is required
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: The specified version does not exist.
@@ -1374,6 +1509,8 @@ paths:
 tags:
   - name: Search
     description: Gene search across synonym and orthology indexes.
+  - name: Orthology
+    description: Direct orthology lookup by known gene IDs.
   - name: Versions
     description: Genome version management.
   - name: Jobs

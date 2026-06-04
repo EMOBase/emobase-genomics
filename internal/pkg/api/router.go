@@ -44,6 +44,9 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 	router.GET("/search", searchHandler.Search)
 	router.GET("/search/_suggest", searchHandler.Suggest)
 
+	orthologyHandler := handler.NewOrthologyHandler(searchUC)
+	router.GET("/orthology/:species", orthologyHandler.BySpecies)
+
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
 	uploadHandler := func(c *gin.Context) {
 		tusHandler.ServeHTTP(c.Writer, c.Request)
