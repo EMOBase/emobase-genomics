@@ -27,6 +27,9 @@ const (
 
 	JobTypeDsRNACSV = "DSRNA.CSV"
 
+	JobTypeJBrowseTrack       = "JBROWSE.TRACK"
+	JobTypeJBrowseTrackDelete = "JBROWSE.TRACK:DELETE"
+
 	// SETUP_BLAST jobs run makeblastdb to build a SequenceServer-compatible
 	// BLAST database from the processed file.
 	JobTypeGenomicFNASetupBlast = "GENOMIC.FNA:SETUP_BLAST"
@@ -49,6 +52,8 @@ var JobDescriptions = map[string]string{
 	JobTypeOrthologyTSVDelete:      "Delete orthology TSV file",
 	JobTypeGenomicGFFSynonym:       "Build gene synonyms",
 	JobTypeDsRNACSV:                "Parse dsRNA CSV file",
+	JobTypeJBrowseTrack:            "Add JBrowse2 track",
+	JobTypeJBrowseTrackDelete:      "Remove JBrowse2 track",
 	JobTypeGenomicFNASetupBlast:    "Setup genome BLAST database",
 	JobTypeProteinFAASetupBlast:    "Setup protein BLAST database",
 	JobTypeRNAFNASetupBlast:        "Setup RNA BLAST database",

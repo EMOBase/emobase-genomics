@@ -17,6 +17,7 @@ var allowedFileTypes = map[string]struct{}{
 	entity.FileTypeFBSynonymTSV:    {},
 	entity.FileTypeFBGNFBTRFBPPTSV: {},
 	entity.FileTypeDsRNACSV:        {},
+	entity.FileTypeJBrowseTrack:    {},
 }
 
 // versionlessFileTypes are uploaded once and stored globally — they do not

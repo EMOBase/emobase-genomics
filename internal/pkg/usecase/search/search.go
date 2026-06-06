@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrVersionNotFound  = versionresolver.ErrVersionNotFound
-	ErrNoDefaultVersion = versionresolver.ErrNoDefaultVersion
+	ErrVersionNotFound   = versionresolver.ErrVersionNotFound
+	ErrNoDefaultVersion  = versionresolver.ErrNoDefaultVersion
 	ErrDsRNANotSupported = errors.New("silencingseqs is only supported when main_species is \"tcas\"")
 )
 

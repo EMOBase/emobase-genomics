@@ -159,6 +159,12 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 				"genomic.gff \"trimSuffixChars\" metadata field must be an integer")
 		}
 	}
+	if fileType == entity.FileTypeJBrowseTrack {
+		if strings.TrimSpace(meta["trackName"]) == "" {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"jbrowse.track uploads require a \"trackName\" metadata field")
+		}
+	}
 
 	// 5. Check version exists.
 	version, err := uc.versionRepo.FindByName(hook.Context, meta["version"])
@@ -172,14 +178,17 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 6. Reject if an active job of the same type already exists for this version.
-	hasActive, err := uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
-	if err != nil {
-		log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
-	}
-	if hasActive {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusConflict,
-			fmt.Sprintf("a job for file type %q is already pending or running for this version", fileType))
+	// jbrowse.track is exempt: a version may have multiple tracks processing concurrently.
+	if fileType != entity.FileTypeJBrowseTrack {
+		hasActive, err := uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
+		if err != nil {
+			log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
+		}
+		if hasActive {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusConflict,
+				fmt.Sprintf("a job for file type %q is already pending or running for this version", fileType))
+		}
 	}
 
 	// Propagate versionID through metadata so the CreatedUploads handler can
@@ -341,6 +350,39 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			return nil, err
 		}
 		return []entity.Job{job}, nil
+	}
+
+	// jbrowse.track: run jbrowse add-track with track-specific metadata.
+	if fileType == entity.FileTypeJBrowseTrack {
+		rawPayload, err := json.Marshal(jobpayload.JBrowseTrackPayload{
+			VersionName: meta["version"],
+			FilePath:    filePath,
+			TrackName:   strings.TrimSpace(meta["trackName"]),
+			FileID:      uploadID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeJBrowseTrack, err)
+		}
+		p := json.RawMessage(rawPayload)
+		now := time.Now().UTC()
+		job := &entity.Job{
+			VersionID:   versionID,
+			FileID:      &uploadID,
+			Type:        entity.JobTypeJBrowseTrack,
+			Description: entity.JobDescriptions[entity.JobTypeJBrowseTrack],
+			Payload:     &p,
+			Status:      entity.JobStatusPending,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := uc.jobRepo.Create(ctx, job); err != nil {
+			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeJBrowseTrack, err)
+		}
+		log.Ctx(ctx).Info().
+			Str("uploadID", uploadID).
+			Uint64("jobID", job.ID).
+			Msg("jbrowse.track job enqueued")
+		return []entity.Job{*job}, nil
 	}
 
 	order, _ := strconv.Atoi(meta["order"])
@@ -614,6 +656,12 @@ func (uc *UseCase) ListByVersion(ctx context.Context, versionName string) ([]Upl
 	return summaries, nil
 }
 
+// deletableFileTypes maps each file type that supports deletion to its delete job type.
+var deletableFileTypes = map[string]string{
+	entity.FileTypeOrthologyTSV: entity.JobTypeOrthologyTSVDelete,
+	entity.FileTypeJBrowseTrack: entity.JobTypeJBrowseTrackDelete,
+}
+
 func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error) {
 	f, err := uc.uploadRepo.FindByID(ctx, id)
 	if err != nil {
@@ -622,11 +670,12 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	if f == nil {
 		return nil, ErrUploadFileNotFound
 	}
-	if f.FileType != entity.FileTypeOrthologyTSV {
+	deleteJobType, ok := deletableFileTypes[f.FileType]
+	if !ok {
 		return nil, ErrUploadFileNotDeletable
 	}
 
-	hasActive, err := uc.jobRepo.HasActiveJobOfTypeForFile(ctx, id, entity.JobTypeOrthologyTSVDelete)
+	hasActive, err := uc.jobRepo.HasActiveJobOfTypeForFile(ctx, id, deleteJobType)
 	if err != nil {
 		return nil, err
 	}
@@ -647,8 +696,8 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	job := &entity.Job{
 		VersionID:   f.VersionID,
 		FileID:      &id,
-		Type:        entity.JobTypeOrthologyTSVDelete,
-		Description: entity.JobDescriptions[entity.JobTypeOrthologyTSVDelete],
+		Type:        deleteJobType,
+		Description: entity.JobDescriptions[deleteJobType],
 		Payload:     &p,
 		Status:      entity.JobStatusPending,
 		CreatedAt:   now,

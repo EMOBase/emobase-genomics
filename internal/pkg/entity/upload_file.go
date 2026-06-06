@@ -15,6 +15,7 @@ const (
 	FileTypeFBSynonymTSV    = "fb_synonym.tsv"
 	FileTypeFBGNFBTRFBPPTSV = "fbgn_fbtr_fbpp.tsv"
 	FileTypeDsRNACSV        = "dsrna.csv"
+	FileTypeJBrowseTrack    = "jbrowse.track"
 )
 
 type UploadStatus string
