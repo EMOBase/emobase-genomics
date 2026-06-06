@@ -14,6 +14,7 @@ import (
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
+	repodsrna "github.com/EMOBase/emobase-genomics/internal/pkg/repository/dsrna"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esindex"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
@@ -65,6 +66,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		repoorthology.New(esClient, batchSize),
 		reposequence.New(esClient, batchSize),
 		repogenomic.New(esClient, batchSize),
+		repodsrna.New(esClient, batchSize),
 		versionresolver.New(versionRepo, appSettingsRepo),
 		config.Elasticsearch.IndexPrefix,
 		config.MainSpecies,

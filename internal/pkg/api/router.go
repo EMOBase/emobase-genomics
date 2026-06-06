@@ -50,6 +50,9 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 	genesHandler := handler.NewGenesHandler(searchUC)
 	router.GET("/genes/:species", genesHandler.BySpecies)
 
+	silencingSeqsHandler := handler.NewSilencingSeqsHandler(searchUC)
+	router.GET("/silencingseqs", silencingSeqsHandler.Get)
+
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
 	uploadHandler := func(c *gin.Context) {
 		tusHandler.ServeHTTP(c.Writer, c.Request)

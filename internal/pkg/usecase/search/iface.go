@@ -24,3 +24,7 @@ type ISequenceRepository interface {
 type IGenomicLocationRepository interface {
 	FindByIDs(ctx context.Context, indexName string, ids []string) ([]entity.GenomicLocation, error)
 }
+
+type IDsRNARepository interface {
+	FindByIDs(ctx context.Context, indexName string, ids []string) ([]entity.DsRNA, error)
+}

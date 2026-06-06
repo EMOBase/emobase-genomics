@@ -77,6 +77,23 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client, i
 			}`,
 		},
 		{
+			name: p + "dsrna",
+			body: `{
+				"index_patterns": ["` + p + `dsrna-*"],
+				"priority": 100,
+				"template": {
+					"mappings": {
+						"properties": {
+							"gene":        {"type": "keyword"},
+							"seq":         {"type": "text", "index": false},
+							"leftPrimer":  {"type": "text", "index": false},
+							"rightPrimer": {"type": "text", "index": false}
+						}
+					}
+				}
+			}`,
+		},
+		{
 			name: p + "synonym",
 			body: `{
 				"index_patterns": ["` + p + `synonym-*"],

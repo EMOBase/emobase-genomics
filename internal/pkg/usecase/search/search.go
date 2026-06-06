@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 var (
 	ErrVersionNotFound  = versionresolver.ErrVersionNotFound
 	ErrNoDefaultVersion = versionresolver.ErrNoDefaultVersion
+	ErrDsRNANotSupported = errors.New("silencingseqs is only supported when main_species is \"tcas\"")
 )
 
 type GeneWithSynonyms struct {
@@ -47,6 +49,7 @@ type UseCase struct {
 	orthologyRepo IOrthologyRepository
 	sequenceRepo  ISequenceRepository
 	genomicRepo   IGenomicLocationRepository
+	dsrnaRepo     IDsRNARepository
 	resolver      versionresolver.Resolver
 	indexPrefix   string
 	mainSpecies   string
@@ -57,6 +60,7 @@ func New(
 	orthologyRepo IOrthologyRepository,
 	sequenceRepo ISequenceRepository,
 	genomicRepo IGenomicLocationRepository,
+	dsrnaRepo IDsRNARepository,
 	resolver versionresolver.Resolver,
 	indexPrefix, mainSpecies string,
 ) *UseCase {
@@ -65,6 +69,7 @@ func New(
 		orthologyRepo: orthologyRepo,
 		sequenceRepo:  sequenceRepo,
 		genomicRepo:   genomicRepo,
+		dsrnaRepo:     dsrnaRepo,
 		resolver:      resolver,
 		indexPrefix:   indexPrefix,
 		mainSpecies:   mainSpecies,
@@ -190,6 +195,120 @@ func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string
 		Source:    source,
 		Orthologs: groups,
 	}
+}
+
+// SilencingSeq is the response shape for GET /silencingseqs.
+type SilencingSeq struct {
+	ID          string   `json:"id"`
+	GeneIDs     []string `json:"geneIds"`
+	Seq         string   `json:"seq"`
+	LeftPrimer  string   `json:"leftPrimer,omitempty"`
+	RightPrimer string   `json:"rightPrimer,omitempty"`
+}
+
+// GetSilencingSeqs fetches dsRNA records by iB numbers (ids) or by gene IDs (geneIDs).
+// Exactly one of ids / geneIDs must be non-empty; the caller is responsible for
+// enforcing mutual exclusivity before calling this method.
+func (uc *UseCase) GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, versionName string) ([]SilencingSeq, error) {
+	if !strings.EqualFold(uc.mainSpecies, "tcas") {
+		return nil, ErrDsRNANotSupported
+	}
+
+	version, err := uc.resolver.Resolve(ctx, versionName)
+	if err != nil {
+		return nil, err
+	}
+	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, strings.ToLower(version.Name))
+	dsrnaIndex := fmt.Sprintf("%s-dsrna-%s", uc.indexPrefix, strings.ToLower(version.Name))
+
+	if len(ids) > 0 {
+		return uc.getSilencingSeqsByIDs(ctx, ids, synonymIndex, dsrnaIndex)
+	}
+	if len(geneIDs) > 0 {
+		return uc.getSilencingSeqsByGeneIDs(ctx, geneIDs, synonymIndex, dsrnaIndex)
+	}
+	return []SilencingSeq{}, nil
+}
+
+func (uc *UseCase) getSilencingSeqsByIDs(ctx context.Context, ids []string, synonymIndex, dsrnaIndex string) ([]SilencingSeq, error) {
+	allSynonyms, err := uc.synonymRepo.FindBySynonyms(ctx, synonymIndex, ids)
+	if err != nil {
+		return nil, err
+	}
+	synonymsByIB := make(map[string][]entity.Synonym)
+	for _, s := range allSynonyms {
+		if s.Type == entity.SYNONYM_TYPE_DSRNA {
+			synonymsByIB[s.Synonym] = append(synonymsByIB[s.Synonym], s)
+		}
+	}
+
+	prefixed := make([]string, len(ids))
+	for i, id := range ids {
+		prefixed[i] = uc.mainSpecies + ":" + id
+	}
+	dsrnas, err := uc.dsrnaRepo.FindByIDs(ctx, dsrnaIndex, prefixed)
+	if err != nil {
+		return nil, err
+	}
+
+	return uc.buildSilencingSeqs(dsrnas, synonymsByIB), nil
+}
+
+func (uc *UseCase) getSilencingSeqsByGeneIDs(ctx context.Context, geneIDs []string, synonymIndex, dsrnaIndex string) ([]SilencingSeq, error) {
+	prefixedGenes := make([]string, len(geneIDs))
+	for i, id := range geneIDs {
+		prefixedGenes[i] = uc.mainSpecies + ":" + id
+	}
+
+	allSynonyms, err := uc.synonymRepo.FindByGenes(ctx, synonymIndex, prefixedGenes)
+	if err != nil {
+		return nil, err
+	}
+	synonymsByIB := make(map[string][]entity.Synonym)
+	for _, s := range allSynonyms {
+		if s.Type == entity.SYNONYM_TYPE_DSRNA {
+			synonymsByIB[s.Synonym] = append(synonymsByIB[s.Synonym], s)
+		}
+	}
+	if len(synonymsByIB) == 0 {
+		return []SilencingSeq{}, nil
+	}
+
+	ibIDs := make([]string, 0, len(synonymsByIB))
+	for ib := range synonymsByIB {
+		ibIDs = append(ibIDs, ib)
+	}
+	prefixedIBs := make([]string, len(ibIDs))
+	for i, ib := range ibIDs {
+		prefixedIBs[i] = uc.mainSpecies + ":" + ib
+	}
+
+	dsrnas, err := uc.dsrnaRepo.FindByIDs(ctx, dsrnaIndex, prefixedIBs)
+	if err != nil {
+		return nil, err
+	}
+
+	return uc.buildSilencingSeqs(dsrnas, synonymsByIB), nil
+}
+
+func (uc *UseCase) buildSilencingSeqs(dsrnas []entity.DsRNA, synonymsByIB map[string][]entity.Synonym) []SilencingSeq {
+	prefix := uc.mainSpecies + ":"
+	result := make([]SilencingSeq, 0, len(dsrnas))
+	for _, d := range dsrnas {
+		rawID := strings.TrimPrefix(d.Gene, prefix)
+		geneIDs := make([]string, 0)
+		for _, s := range synonymsByIB[rawID] {
+			geneIDs = append(geneIDs, strings.TrimPrefix(s.Gene, prefix))
+		}
+		result = append(result, SilencingSeq{
+			ID:          rawID,
+			GeneIDs:     geneIDs,
+			Seq:         d.Seq,
+			LeftPrimer:  d.LeftPrimer,
+			RightPrimer: d.RightPrimer,
+		})
+	}
+	return result
 }
 
 // splitGeneID splits "Species:GeneID" into its two parts.
