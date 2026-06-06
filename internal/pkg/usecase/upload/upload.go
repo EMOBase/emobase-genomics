@@ -28,6 +28,7 @@ type UseCase struct {
 	tusHandler   *tusd.Handler
 	uploadDir    string
 	geneLinkBase string
+	mainSpecies  string
 	versionRepo  IVersionRepository
 	jobRepo      IJobRepository
 	uploadRepo   IUploadFileRepository
@@ -37,6 +38,7 @@ func New(
 	uploadDir string,
 	tusBasePath string,
 	geneLinkBase string,
+	mainSpecies string,
 	staleUploadAge time.Duration,
 	versionRepo IVersionRepository,
 	jobRepo IJobRepository,
@@ -52,6 +54,7 @@ func New(
 	uc := &UseCase{
 		uploadDir:    uploadDir,
 		geneLinkBase: geneLinkBase,
+		mainSpecies:  mainSpecies,
 		versionRepo:  versionRepo,
 		jobRepo:      jobRepo,
 		uploadRepo:   uploadRepo,
@@ -97,14 +100,20 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			fmt.Sprintf("invalid fileType %q, must be one of: %s", fileType, strings.Join(allowed, ", ")))
 	}
 
-	// 2. Validate fileName.
+	// 2. Species-restricted file types.
+	if fileType == entity.FileTypeDsRNACSV && !strings.EqualFold(uc.mainSpecies, "tcas") {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			"dsrna.csv uploads are only supported when main_species is \"tcas\"")
+	}
+
+	// 3. Validate fileName.
 	fileName := meta["fileName"]
 	if !fileNamePattern.MatchString(fileName) {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 			"invalid fileName: must be 1–255 characters and must not contain path separators or control characters")
 	}
 
-	// 3. Reject non-gzip files by extension before any data is stored.
+	// 4. Reject non-gzip files by extension before any data is stored.
 	lower := strings.ToLower(fileName)
 	if !strings.HasSuffix(lower, ".gz") && !strings.HasSuffix(lower, ".gzip") {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,

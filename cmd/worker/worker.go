@@ -10,6 +10,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
+	repodsrna "github.com/EMOBase/emobase-genomics/internal/pkg/repository/dsrna"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
 	repoorthology "github.com/EMOBase/emobase-genomics/internal/pkg/repository/orthology"
@@ -17,6 +18,7 @@ import (
 	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
+	ucdsrna "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/dsrna"
 	ucgenomic "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
 	ucorthology "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/orthology"
 	ucsequence "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
@@ -64,6 +66,9 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	synonymRepo := reposynonym.New(esClient, batchSize)
 	synonymUC := ucsynonym.New(synonymRepo, batchSize)
 
+	dsrnaRepo := repodsrna.New(esClient, batchSize)
+	dsrnaUC := ucdsrna.New(dsrnaRepo, config.MainSpecies, batchSize)
+
 	blastDBPath := config.Blast.DBPath
 	blastTitle := config.Blast.DisplayName
 	blastContainerName := config.Blast.ContainerName
@@ -97,6 +102,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		),
 		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo, config.JBrowse2.GeneLinkBase),
 		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(config.JBrowse2.GeneLinkBase),
+		entity.JobTypeDsRNACSV:                handlers.NewDsRNACSVHandler(versionRepo, dsrnaUC, dsrnaRepo, indexPrefix),
 	}
 
 	w := ucworker.New(

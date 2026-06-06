@@ -25,6 +25,8 @@ const (
 
 	JobTypeGenomicGFFSynonym = "GENOMIC.GFF:SYNONYM"
 
+	JobTypeDsRNACSV = "DSRNA.CSV"
+
 	// SETUP_BLAST jobs run makeblastdb to build a SequenceServer-compatible
 	// BLAST database from the processed file.
 	JobTypeGenomicFNASetupBlast = "GENOMIC.FNA:SETUP_BLAST"
@@ -46,6 +48,7 @@ var JobDescriptions = map[string]string{
 	JobTypeOrthologyTSV:            "Parse orthology TSV file",
 	JobTypeOrthologyTSVDelete:      "Delete orthology TSV file",
 	JobTypeGenomicGFFSynonym:       "Build gene synonyms",
+	JobTypeDsRNACSV:                "Parse dsRNA CSV file",
 	JobTypeGenomicFNASetupBlast:    "Setup genome BLAST database",
 	JobTypeProteinFAASetupBlast:    "Setup protein BLAST database",
 	JobTypeRNAFNASetupBlast:        "Setup RNA BLAST database",

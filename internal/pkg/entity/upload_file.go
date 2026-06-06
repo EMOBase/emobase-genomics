@@ -14,6 +14,7 @@ const (
 	FileTypeOrthologyTSV    = "orthology.tsv"
 	FileTypeFBSynonymTSV    = "fb_synonym.tsv"
 	FileTypeFBGNFBTRFBPPTSV = "fbgn_fbtr_fbpp.tsv"
+	FileTypeDsRNACSV        = "dsrna.csv"
 )
 
 type UploadStatus string
