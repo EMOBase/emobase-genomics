@@ -125,6 +125,9 @@ components:
         - RNA.FNA:SETUP_BLAST
         - GENOMIC.FNA:SETUP_JBROWSE2
         - GENOMIC.GFF:SETUP_JBROWSE2
+        - DSRNA.CSV
+        - JBROWSE.TRACK
+        - JBROWSE.TRACK:DELETE
       description: |
         Identifies which file type and pipeline the job processes.
         - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
@@ -139,6 +142,9 @@ components:
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
         - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track and rebuild the JBrowse2 text index.
+        - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
+        - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
+        - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
 
     JobSummary:
       type: object
@@ -234,9 +240,9 @@ components:
     VersionDetailFiles:
       type: object
       description: |
-        Uploaded files grouped by type. For all types except `orthology.tsv`, only the
-        latest non-deleted file is returned (or `null` if none exists). For `orthology.tsv`,
-        all non-deleted files are returned.
+        Uploaded files grouped by type. For all types except `orthology.tsv` and
+        `jbrowse.track`, only the latest non-deleted file is returned (or `null` if none
+        exists). For `orthology.tsv` and `jbrowse.track`, all non-deleted files are returned.
       properties:
         genomic.fna:
           $ref: '#/components/schemas/FileDetail'
@@ -253,8 +259,17 @@ components:
         protein.faa:
           $ref: '#/components/schemas/FileDetail'
           nullable: true
+        dsrna.csv:
+          $ref: '#/components/schemas/FileDetail'
+          nullable: true
+          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when `main_species` is `tcas`.
         orthology.tsv:
           type: array
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        jbrowse.track:
+          type: array
+          description: All non-deleted JBrowse2 track files for this version.
           items:
             $ref: '#/components/schemas/FileDetail'
 
@@ -272,7 +287,7 @@ components:
           example: 1
         fileType:
           type: string
-          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, fb_synonym.tsv, fbgn_fbtr_fbpp.tsv]
+          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, dsrna.csv, jbrowse.track, fb_synonym.tsv, fbgn_fbtr_fbpp.tsv]
           example: genomic.gff
         fileSize:
           type: integer
@@ -433,6 +448,34 @@ components:
           type: string
           description: Raw sequence string (nucleotide or amino acid).
           example: ATGCGT...
+
+    SilencingSeq:
+      type: object
+      required: [id, geneIds, seq]
+      description: A dsRNA silencing sequence record with its associated gene IDs and primer information.
+      properties:
+        id:
+          type: string
+          description: iB number (species prefix stripped).
+          example: iB-00001
+        geneIds:
+          type: array
+          items:
+            type: string
+          description: Gene IDs associated with this silencing sequence (species prefix stripped).
+          example: ["TC016177"]
+        seq:
+          type: string
+          description: dsRNA nucleotide sequence.
+          example: ATGCGT...
+        leftPrimer:
+          type: string
+          description: Left primer sequence. Omitted when not present.
+          example: GCTAGCTAGC
+        rightPrimer:
+          type: string
+          description: Right primer sequence. Omitted when not present.
+          example: CTAGCTAGCT
 
     GeneDetail:
       type: object
@@ -822,6 +865,122 @@ paths:
                 missingIds:
                   value:
                     error: ids parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: No `version` param provided and no default version is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                noDefault:
+                  value:
+                    error: no default version configured
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /silencingseqs:
+    get:
+      summary: Get silencing sequences
+      operationId: getSilencingSeqs
+      security: []
+      tags: [Search]
+      description: |
+        Returns dsRNA silencing sequence records for the given iB numbers (`ids`) or
+        gene IDs (`geneIds`).
+
+        **Constraints:**
+        - Only available when `main_species` is `tcas`. Returns 400 otherwise.
+        - `ids` and `geneIds` are mutually exclusive — pass exactly one. Returns 400 if both are provided.
+        - When querying by `geneIds`, the response includes all silencing sequences that have the
+          given genes as synonyms via a `DSRNA` synonym relationship.
+        - When neither parameter is provided an empty array is returned.
+      parameters:
+        - name: ids
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated list of iB numbers (without species prefix) to look up directly.
+          example: iB-00001,iB-00002
+        - name: geneIds
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated list of gene IDs (without species prefix) whose associated silencing sequences should be returned.
+          example: TC016177,TC000291
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Version name (e.g. `tcas_5.2`). Defaults to the configured default version.
+          example: tcas_5.2
+      responses:
+        '200':
+          description: Silencing sequence records matching the query. Empty array when none are found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SilencingSeq'
+                  requestId:
+                    type: string
+              examples:
+                byIds:
+                  summary: Query by iB numbers
+                  value:
+                    data:
+                      - id: iB-00001
+                        geneIds: ["TC016177"]
+                        seq: ATGCGT...
+                        leftPrimer: GCTAGCTAGC
+                        rightPrimer: CTAGCTAGCT
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                byGeneIds:
+                  summary: Query by gene IDs
+                  value:
+                    data:
+                      - id: iB-00001
+                        geneIds: ["TC016177"]
+                        seq: ATGCGT...
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                empty:
+                  summary: No records found
+                  value:
+                    data: []
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '400':
+          description: Both `ids` and `geneIds` provided, or `main_species` is not `tcas`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                bothParams:
+                  summary: ids and geneIds are mutually exclusive
+                  value:
+                    error: ids and geneIds are mutually exclusive
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                notTcas:
+                  summary: main_species is not tcas
+                  value:
+                    error: silencingseqs is only supported when main_species is "tcas"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: The specified version does not exist.
@@ -1317,6 +1476,7 @@ paths:
         | `trimPrefixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the start of the extracted gene ID value. Use `0` for no trimming. |
         | `trimSuffixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the end of the extracted gene ID value. Use `0` for no trimming. |
         | `oldGeneIDKeys` | No | Comma-separated list of additional GFF3 attribute keys (same format as `geneIDKey`) whose extracted values are stored as previous/synonym gene IDs. Only used when `fileType` is `genomic.gff`. |
+        | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
 
         **Accepted `fileType` values:**
         - `genomic.fna`
@@ -1325,6 +1485,8 @@ paths:
         - `cds.fna`
         - `protein.faa`
         - `orthology.tsv`
+        - `dsrna.csv` *(tcas species only; 1 active per version — re-upload replaces the previous index)*
+        - `jbrowse.track` *(multiple tracks allowed per version; requires `trackName` metadata; deletable)*
         - `fb_synonym.tsv` *(versionless — `version` field not required)*
         - `fbgn_fbtr_fbpp.tsv` *(versionless — `version` field not required)*
 
@@ -1400,6 +1562,16 @@ paths:
                   summary: trimSuffixChars is not an integer
                   value:
                     error: 'genomic.gff "trimSuffixChars" metadata field must be an integer'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                missingTrackName:
+                  summary: trackName missing for jbrowse.track
+                  value:
+                    error: 'jbrowse.track uploads require a "trackName" metadata field'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                dsrnaNotSupported:
+                  summary: dsrna.csv upload attempted on non-tcas species
+                  value:
+                    error: dsrna.csv uploads are only supported for the tcas species
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
@@ -1626,7 +1798,11 @@ paths:
     delete:
       summary: Delete an upload file
       description: |
-        Enqueues an `ORTHOLOGY.TSV:DELETE` job to delete the uploaded file. Only files of type `orthology.tsv` may be deleted.
+        Enqueues an async delete job for the uploaded file. Only files of type `orthology.tsv`
+        and `jbrowse.track` may be deleted. The appropriate job type is selected automatically:
+        - `orthology.tsv` → enqueues `ORTHOLOGY.TSV:DELETE`
+        - `jbrowse.track` → enqueues `JBROWSE.TRACK:DELETE` (runs `jbrowse remove-track`, then soft-deletes the record and removes the file from disk)
+
         The deletion is processed asynchronously by the worker.
       operationId: deleteUploadFile
       tags: [Uploads]
@@ -1684,7 +1860,7 @@ paths:
                     error: a delete job for this file is already pending or running
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '422':
-          description: File type cannot be deleted (only `orthology.tsv` files are deletable).
+          description: File type cannot be deleted (only `orthology.tsv` and `jbrowse.track` files are deletable).
           content:
             application/json:
               schema:
@@ -1692,12 +1868,12 @@ paths:
               examples:
                 notDeletable:
                   value:
-                    error: only orthology.tsv files can be deleted
+                    error: this file type cannot be deleted
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
 tags:
   - name: Search
-    description: Gene search across synonym and orthology indexes.
+    description: Gene search, autocomplete, silencing sequences across synonym, orthology, and dsRNA indexes.
   - name: Genes
     description: Gene detail lookup — genomic location, sequences, and synonyms.
   - name: Orthology
