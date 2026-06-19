@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	jbrowseBin    = "jbrowse"
-	jbrowseOutDir = "/web/data"
+	jbrowseBin            = "jbrowse"
+	jbrowseOutDir         = "/web/data"
+	addJBrowseTrackScript = "/app/scripts/add_jbrowse_track.sh"
 )
 
 // JBrowseTrackHandler runs `jbrowse add-track` to register an uploaded track file.
@@ -33,18 +34,15 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 	trackID := "track-" + payload.FileID
 	trackName := payload.VersionName + " " + payload.TrackName
 
-	cmd := exec.CommandContext(ctx, jbrowseBin, "add-track",
+	cmd := exec.CommandContext(ctx, addJBrowseTrackScript,
 		payload.FilePath,
-		"--name", trackName,
-		"--assemblyNames", payload.VersionName,
-		"--trackId", trackID,
-		"--load", "copy",
-		"--out", jbrowseOutDir,
-		"--force",
+		trackName,
+		payload.VersionName,
+		trackID,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("%s failed: %w\noutput: %s", entity.JobTypeJBrowseTrack, err, out)
+		return nil, fmt.Errorf("%s script failed: %w\noutput: %s", entity.JobTypeJBrowseTrack, err, out)
 	}
 
 	log.Ctx(ctx).Info().
