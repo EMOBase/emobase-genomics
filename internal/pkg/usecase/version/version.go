@@ -451,6 +451,10 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		return err
 	}
 
+	if err := uc.jobRepo.DeleteByVersionID(ctx, v.ID); err != nil {
+		return err
+	}
+
 	if err := uc.uploadFileRepo.HardDeleteByVersionID(ctx, v.ID); err != nil {
 		return err
 	}
@@ -459,10 +463,6 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		if err := os.Remove(f.FilePath); err != nil && !os.IsNotExist(err) {
 			log.Ctx(ctx).Warn().Err(err).Str("path", f.FilePath).Msg("failed to remove upload file from disk during version delete")
 		}
-	}
-
-	if err := uc.jobRepo.DeleteByVersionID(ctx, v.ID); err != nil {
-		return err
 	}
 
 	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {
