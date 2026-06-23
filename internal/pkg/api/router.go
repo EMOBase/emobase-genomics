@@ -16,8 +16,10 @@ import (
 )
 
 var skipLogPaths = map[string]struct{}{
-	"/health":  {},
-	"/uploads": {},
+	"/health":            {},
+	"/uploads":           {},
+	"/docs":              {},
+	"/docs/openapi.yaml": {},
 }
 
 func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) *gin.Engine {
@@ -39,6 +41,9 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		apires.OK(c, "OK")
 		c.Abort()
 	})
+
+	router.GET("/docs", handler.ServeAPIDocs)
+	router.GET("/docs/openapi.yaml", handler.ServeOpenAPISpec)
 
 	searchHandler := handler.NewSearchHandler(searchUC)
 	router.GET("/search", searchHandler.Search)

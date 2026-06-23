@@ -13,6 +13,7 @@ RUN go mod download
 # Copy source and build a static binary
 COPY ./cmd ./cmd
 COPY ./internal ./internal
+COPY ./docs ./docs
 RUN CGO_ENABLED=0 GOOS=linux go build -o server ./cmd
 
 # ─── Stage 2: BLAST+ binaries ────────────────────────────────────────────────
