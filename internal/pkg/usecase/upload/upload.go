@@ -101,9 +101,9 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 2. Species-restricted file types.
-	if fileType == entity.FileTypeDsRNACSV && !strings.EqualFold(uc.mainSpecies, "tcas") {
+	if fileType == entity.FileTypeDsRNACSV && uc.mainSpecies != "Tcas" {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-			"dsrna.csv uploads are only supported when main_species is \"tcas\"")
+			"dsrna.csv uploads are only supported when main_species is \"Tcas\"")
 	}
 
 	// 3. Validate fileName.

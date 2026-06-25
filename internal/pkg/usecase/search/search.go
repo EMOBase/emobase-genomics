@@ -14,7 +14,7 @@ import (
 var (
 	ErrVersionNotFound   = versionresolver.ErrVersionNotFound
 	ErrNoDefaultVersion  = versionresolver.ErrNoDefaultVersion
-	ErrDsRNANotSupported = errors.New("silencingseqs is only supported when main_species is \"tcas\"")
+	ErrDsRNANotSupported = errors.New("silencingseqs is only supported when main_species is \"Tcas\"")
 )
 
 type GeneWithSynonyms struct {
@@ -210,7 +210,7 @@ type SilencingSeq struct {
 // Exactly one of ids / geneIDs must be non-empty; the caller is responsible for
 // enforcing mutual exclusivity before calling this method.
 func (uc *UseCase) GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, versionName string) ([]SilencingSeq, error) {
-	if !strings.EqualFold(uc.mainSpecies, "tcas") {
+	if uc.mainSpecies != "Tcas" {
 		return nil, ErrDsRNANotSupported
 	}
 
