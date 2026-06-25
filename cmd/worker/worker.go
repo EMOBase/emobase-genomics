@@ -87,8 +87,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
 			versionRepo, synonymUC, synonymRepo,
 			config.MainSpecies,
-			synonymparser.NewFlyBaseSynonymParser(config.MainSpecies),
-			synonymparser.NewFlyBaseGeneRNAProteinMapParser(config.MainSpecies),
+			synonymparser.NewFlyBaseSynonymParser(entity.SpeciesDmel),
+			synonymparser.NewFlyBaseGeneRNAProteinMapParser(entity.SpeciesDmel),
 			indexPrefix,
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(

@@ -210,7 +210,7 @@ type SilencingSeq struct {
 // Exactly one of ids / geneIDs must be non-empty; the caller is responsible for
 // enforcing mutual exclusivity before calling this method.
 func (uc *UseCase) GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, versionName string) ([]SilencingSeq, error) {
-	if uc.mainSpecies != "Tcas" {
+	if uc.mainSpecies != entity.SpeciesTcas {
 		return nil, ErrDsRNANotSupported
 	}
 
