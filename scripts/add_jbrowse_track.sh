@@ -21,8 +21,23 @@ BASENAME="${BASENAME%.gz}"
 echo "Decompressing track file..."
 gunzip -c "$TRACK_GZ" > "$TMPDIR/$BASENAME"
 
+# GFF files must be sorted, bgzip-compressed, and tabix-indexed before
+# jbrowse add-track can register them correctly.
+case "$BASENAME" in
+  *.gff|*.gff3)
+    SORTED_FILE="$TMPDIR/${BASENAME%.*}.sorted.gff.gz"
+    echo "Sorting and compressing GFF..."
+    jbrowse sort-gff "$TMPDIR/$BASENAME" | bgzip > "$SORTED_FILE"
+    tabix "$SORTED_FILE"
+    TRACK_FILE="$SORTED_FILE"
+    ;;
+  *)
+    TRACK_FILE="$TMPDIR/$BASENAME"
+    ;;
+esac
+
 echo "Adding JBrowse2 track..."
-jbrowse add-track "$TMPDIR/$BASENAME" \
+jbrowse add-track "$TRACK_FILE" \
   --name "$TRACK_NAME" \
   --assemblyNames "$ASSEMBLY_NAME" \
   --trackId "$TRACK_ID" \
