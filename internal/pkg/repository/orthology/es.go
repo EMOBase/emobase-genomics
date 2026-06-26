@@ -107,8 +107,8 @@ func (r *ElasticSearchRepository) ListByOrthologs(ctx context.Context, indexName
 		return nil, nil
 	}
 	body, err := json.Marshal(map[string]any{
-		"query": map[string]any{"terms": map[string]any{"orthologs.keyword": genes}},
-		"sort":  []map[string]any{{"group.keyword": map[string]string{"order": "asc"}}},
+		"query": map[string]any{"terms": map[string]any{"orthologs": genes}},
+		"sort":  []map[string]any{{"group": map[string]string{"order": "asc"}}},
 		"size":  1000,
 	})
 	if err != nil {

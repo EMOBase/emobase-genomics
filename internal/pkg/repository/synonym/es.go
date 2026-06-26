@@ -220,7 +220,7 @@ func (r *ElasticSearchRepository) FindByGenes(ctx context.Context, indexName str
 		return nil, nil
 	}
 	body, err := json.Marshal(map[string]any{
-		"query": map[string]any{"terms": map[string]any{"gene.keyword": genes}},
+		"query": map[string]any{"terms": map[string]any{"gene": genes}},
 		"size":  1000,
 	})
 	if err != nil {

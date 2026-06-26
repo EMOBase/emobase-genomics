@@ -139,8 +139,8 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client, i
 									}
 								}
 							},
-							"gene": {"type": "text"},
-							"type": {"type": "text"}
+							"gene": {"type": "keyword"},
+							"type": {"type": "keyword"}
 						}
 					}
 				}
