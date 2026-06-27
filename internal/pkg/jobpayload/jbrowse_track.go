@@ -7,4 +7,5 @@ type JBrowseTrackPayload struct {
 	FilePath    string `json:"file_path"`
 	TrackName   string `json:"track_name"`
 	FileID      string `json:"file_id"`
+	Category    string `json:"category,omitempty"`
 }

@@ -5,9 +5,10 @@ TRACK_GZ="$1"
 TRACK_NAME="$2"
 ASSEMBLY_NAME="$3"
 TRACK_ID="$4"
+CATEGORY="${5:-}"
 
 if [ -z "$TRACK_GZ" ] || [ -z "$TRACK_NAME" ] || [ -z "$ASSEMBLY_NAME" ] || [ -z "$TRACK_ID" ]; then
-  echo "Usage: $0 <track.gz> <track_name> <assembly_name> <track_id>" >&2
+  echo "Usage: $0 <track.gz> <track_name> <assembly_name> <track_id> [category]" >&2
   exit 1
 fi
 
@@ -37,12 +38,17 @@ case "$BASENAME" in
 esac
 
 echo "Adding JBrowse2 track..."
+CATEGORY_ARG=()
+if [ -n "$CATEGORY" ]; then
+  CATEGORY_ARG=(--category "$CATEGORY")
+fi
 jbrowse add-track "$TRACK_FILE" \
   --name "$TRACK_NAME" \
   --assemblyNames "$ASSEMBLY_NAME" \
   --trackId "$TRACK_ID" \
   --load copy \
   --out /web/data \
-  --force
+  --force \
+  "${CATEGORY_ARG[@]}"
 
 echo "JBrowse2 track added successfully."

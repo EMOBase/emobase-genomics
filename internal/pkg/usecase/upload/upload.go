@@ -359,6 +359,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			FilePath:    filePath,
 			TrackName:   strings.TrimSpace(meta["trackName"]),
 			FileID:      uploadID,
+			Category:    strings.TrimSpace(meta["category"]),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeJBrowseTrack, err)

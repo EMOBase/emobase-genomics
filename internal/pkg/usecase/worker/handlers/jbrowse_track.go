@@ -39,6 +39,7 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 		trackName,
 		payload.VersionName,
 		trackID,
+		payload.Category,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
