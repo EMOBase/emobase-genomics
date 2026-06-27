@@ -1477,6 +1477,7 @@ paths:
         | `trimSuffixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the end of the extracted gene ID value. Use `0` for no trimming. |
         | `oldGeneIDKeys` | No | Comma-separated list of additional GFF3 attribute keys (same format as `geneIDKey`) whose extracted values are stored as previous/synonym gene IDs. Only used when `fileType` is `genomic.gff`. |
         | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
+        | `category` | No | Only used when `fileType` is `jbrowse.track`. Comma-separated list of category labels used to group the track in the JBrowse2 track selector (e.g. `Alignments,My Lab`). |
 
         **Accepted `fileType` values:**
         - `genomic.fna`
@@ -1486,7 +1487,7 @@ paths:
         - `protein.faa`
         - `orthology.tsv`
         - `dsrna.csv` *(tcas species only; 1 active per version — re-upload replaces the previous index)*
-        - `jbrowse.track` *(multiple tracks allowed per version; requires `trackName` metadata; deletable)*
+        - `jbrowse.track` *(multiple tracks allowed per version; requires `trackName` metadata; optional `category`; deletable)*
         - `fb_synonym.tsv` *(versionless — `version` field not required)*
         - `fbgn_fbtr_fbpp.tsv` *(versionless — `version` field not required)*
 
