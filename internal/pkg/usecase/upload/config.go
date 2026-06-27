@@ -33,8 +33,8 @@ var versionlessFileMeta = map[string]struct {
 	prefix        string
 	canonicalName string
 }{
-	entity.FileTypeFBSynonymTSV:    {prefix: "fb_synonym_", canonicalName: "fb_synonym.tsv.gz"},
-	entity.FileTypeFBGNFBTRFBPPTSV: {prefix: "fbgn_fbtr_fbpp_", canonicalName: "fbgn_fbtr_fbpp.tsv.gz"},
+	entity.FileTypeFBSynonymTSV:    {prefix: "fb_synonym_", canonicalName: "fb_synonym_fb.tsv.gz"},
+	entity.FileTypeFBGNFBTRFBPPTSV: {prefix: "fbgn_fbtr_fbpp_", canonicalName: "fbgn_fbtr_fbpp_fb.tsv.gz"},
 }
 
 // fileNamePattern blocks path separators and control characters. Path traversal

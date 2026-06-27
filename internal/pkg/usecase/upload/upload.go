@@ -562,7 +562,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 // path plus any versionless FB synonym files found in the uploads root.
 func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
 	var synonymFiles []string
-	for _, name := range []string{"fb_synonym.tsv.gz", "fbgn_fbtr_fbpp.tsv.gz"} {
+	for _, name := range []string{"fb_synonym_fb.tsv.gz", "fbgn_fbtr_fbpp_fb.tsv.gz"} {
 		p := filepath.Join(uc.uploadDir, name)
 		if _, err := os.Stat(p); err == nil {
 			synonymFiles = append(synonymFiles, p)
