@@ -32,11 +32,10 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 	}
 
 	trackID := "track-" + payload.FileID
-	trackName := payload.VersionName + " " + payload.TrackName
 
 	cmd := exec.CommandContext(ctx, addJBrowseTrackScript,
 		payload.FilePath,
-		trackName,
+		payload.TrackName,
 		payload.VersionName,
 		trackID,
 		payload.Category,
