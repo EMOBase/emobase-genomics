@@ -448,6 +448,16 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	jobs := []entity.Job{*job}
 
 	if fileType == entity.FileTypeGenomicGFF {
+		trimPrefixChars, _ := strconv.Atoi(meta["trimPrefixChars"])
+		trimSuffixChars, _ := strconv.Atoi(meta["trimSuffixChars"])
+		synonymJob, err := uc.enqueueSpeciesSynonymJob(ctx, versionID, uploadID, filePath,
+			uc.mainSpecies, strings.TrimSpace(meta["geneIDKey"]),
+			trimPrefixChars, trimSuffixChars, parseCommaSeparated(meta["oldGeneIDKeys"]))
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, synonymJob)
+
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
 		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
@@ -457,6 +467,46 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 
 	return jobs, nil
+}
+
+func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint64, uploadID, filePath, species, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
+	rawPayload, err := json.Marshal(jobpayload.SpeciesSynonymPayload{
+		UploadFileID:    uploadID,
+		VersionID:       versionID,
+		FilePath:        filePath,
+		Species:         species,
+		GeneIDKey:       geneIDKey,
+		TrimPrefixChars: trimPrefixChars,
+		TrimSuffixChars: trimSuffixChars,
+		OldGeneIDKeys:   oldGeneIDKeys,
+	})
+	if err != nil {
+		return entity.Job{}, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
+	}
+
+	p := json.RawMessage(rawPayload)
+	now := time.Now().UTC()
+	j := &entity.Job{
+		VersionID:   versionID,
+		FileID:      &uploadID,
+		Type:        entity.JobTypeSpeciesSynonym,
+		Description: entity.JobDescriptions[entity.JobTypeSpeciesSynonym],
+		Payload:     &p,
+		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	if err := uc.jobRepo.Create(ctx, j); err != nil {
+		return entity.Job{}, fmt.Errorf("failed to create %s job: %w", entity.JobTypeSpeciesSynonym, err)
+	}
+
+	log.Ctx(ctx).Info().
+		Uint64("jobID", j.ID).
+		Str("species", species).
+		Msgf("%s job enqueued", entity.JobTypeSpeciesSynonym)
+
+	return *j, nil
 }
 
 func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uint64, uploadID, versionName, filePath string) (entity.Job, error) {

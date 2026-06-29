@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
@@ -67,9 +66,11 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 	}
 
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
+	// Use version.CreatedAt.Unix() instead of time.Now().Unix() to fix the index name,
+	// so multiple synonym files uploaded for the same version will be indexed into the same ES index.
+	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
 
-	parser := h.parserForFile(payload.FilePath, payload.Species)
+	parser := h.parserForFile(payload)
 	if parser == nil {
 		return nil, fmt.Errorf("unrecognised synonym file: %q", filepath.Base(payload.FilePath))
 	}
@@ -89,19 +90,22 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 	return raw, nil
 }
 
-// parserForFile selects the appropriate parser based on filename prefix.
-// fb_synonym_*      → FlyBaseSynonymParser        		(Dmel fb_synonym files)
-// fbgn_fbtr_fbpp_*  → FlyBaseGeneRNAProteinMapParser 	(Dmel gene/RNA/protein map)
-// ib_tc*            → IBTCParser                  		(Tcas iB-to-TC mapping)
-func (h *SynonymHandler) parserForFile(path, species string) synonymparser.ISynonymParser {
-	base := strings.ToLower(filepath.Base(path))
+// parserForFile selects the appropriate parser based on filename prefix/extension.
+// *.gff.gz / *.gff3.gz  → GFF3SynonymParser             (any species)
+// fb_synonym_*           → FlyBaseSynonymParser          (Dmel fb_synonym files)
+// fbgn_fbtr_fbpp_*       → FlyBaseGeneRNAProteinMapParser (Dmel gene/RNA/protein map)
+// ib_tc*                 → IBTCParser                    (Tcas iB-to-TC mapping)
+func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload) synonymparser.ISynonymParser {
+	base := strings.ToLower(filepath.Base(payload.FilePath))
 	switch {
+	case strings.HasSuffix(base, ".gff.gz") || strings.HasSuffix(base, ".gff3.gz"):
+		return synonymparser.NewGFF3SynonymParser(payload.Species, payload.GeneIDKey, payload.TrimPrefixChars, payload.TrimSuffixChars, payload.OldGeneIDKeys)
 	case strings.HasPrefix(base, "fb_synonym_"):
-		return synonymparser.NewFlyBaseSynonymParser(species)
+		return synonymparser.NewFlyBaseSynonymParser(payload.Species)
 	case strings.HasPrefix(base, "fbgn_fbtr_fbpp_"):
-		return synonymparser.NewFlyBaseGeneRNAProteinMapParser(species)
+		return synonymparser.NewFlyBaseGeneRNAProteinMapParser(payload.Species)
 	case strings.HasPrefix(base, "ib_tc"):
-		return synonymparser.NewIBTCParser(species)
+		return synonymparser.NewIBTCParser(payload.Species)
 	default:
 		return nil
 	}
