@@ -23,7 +23,6 @@ import (
 	ucorthology "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/orthology"
 	ucsequence "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
 	ucsynonym "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym"
-	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
 	ucworker "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/worker/handlers"
 	"github.com/rs/zerolog/log"
@@ -75,6 +74,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	indexPrefix := config.Elasticsearch.IndexPrefix
 	appSettingsRepo := repoappsettings.New(db)
 
+	synonymHandler := handlers.NewSynonymHandler(versionRepo, synonymUC, synonymRepo, indexPrefix)
+
 	jobHandlers := map[string]ucworker.Handler{
 		entity.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, indexPrefix),
 		entity.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
@@ -84,13 +85,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(
 			config.Uploads.Dir, uploadFileRepo, versionRepo, orthologyRepo, indexPrefix,
 		),
-		entity.JobTypeGenomicGFFSynonym: handlers.NewSynonymHandler(
-			versionRepo, synonymUC, synonymRepo,
-			config.MainSpecies,
-			synonymparser.NewFlyBaseSynonymParser(entity.SpeciesDmel),
-			synonymparser.NewFlyBaseGeneRNAProteinMapParser(entity.SpeciesDmel),
-			indexPrefix,
-		),
+		entity.JobTypeSpeciesSynonym: synonymHandler,
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, appSettingsRepo,
 		),

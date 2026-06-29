@@ -119,7 +119,7 @@ components:
         - PROTEIN.FAA
         - ORTHOLOGY.TSV
         - ORTHOLOGY.TSV:DELETE
-        - GENOMIC.GFF:SYNONYM
+        - SPECIES.SYNONYM
         - GENOMIC.FNA:SETUP_BLAST
         - PROTEIN.FAA:SETUP_BLAST
         - RNA.FNA:SETUP_BLAST
@@ -136,7 +136,7 @@ components:
         - `PROTEIN.FAA` — parse protein FASTA sequences.
         - `ORTHOLOGY.TSV` — parse orthology group mappings.
         - `ORTHOLOGY.TSV:DELETE` — delete orthology TSV file (async).
-        - `GENOMIC.GFF:SYNONYM` — build gene synonyms from GFF3.
+        - `SPECIES.SYNONYM` — parse a species-specific FB synonym file and index gene synonyms.
         - `GENOMIC.FNA:SETUP_BLAST` — build genome BLAST database.
         - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
@@ -287,7 +287,7 @@ components:
           example: 1
         fileType:
           type: string
-          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, dsrna.csv, jbrowse.track, fb_synonym.tsv, fbgn_fbtr_fbpp.tsv]
+          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, species.synonym, dsrna.csv, jbrowse.track]
           example: genomic.gff
         fileSize:
           type: integer
@@ -1469,13 +1469,14 @@ paths:
         |---|---|---|
         | `fileType` | Yes | One of the accepted file types (see enum below). |
         | `fileName` | Yes | File name; must end with `.gz` or `.gzip`. |
-        | `version` | Conditional | Version name. Required for all file types except `fb_synonym.tsv` and `fbgn_fbtr_fbpp.tsv`. |
+        | `version` | Yes | Version name. Required for all file types. |
         | `order` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `algorithm` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `geneIDKey` | Conditional | Required when `fileType` is `genomic.gff`. GFF3 attribute key used to extract the gene ID. Supports simple keys (e.g. `ID`) and nested dot-notation keys (e.g. `Dbxref.GeneID`) to look up a `dbname:dbvalue` entry inside the attribute. |
         | `trimPrefixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the start of the extracted gene ID value. Use `0` for no trimming. |
         | `trimSuffixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the end of the extracted gene ID value. Use `0` for no trimming. |
         | `oldGeneIDKeys` | No | Comma-separated list of additional GFF3 attribute keys (same format as `geneIDKey`) whose extracted values are stored as previous/synonym gene IDs. Only used when `fileType` is `genomic.gff`. |
+        | `species` | Conditional | Required when `fileType` is `species.synonym`. The species identifier whose synonym rows are parsed from the file (e.g. `Dmel`). |
         | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
         | `category` | No | Only used when `fileType` is `jbrowse.track`. Comma-separated list of category labels used to group the track in the JBrowse2 track selector (e.g. `Alignments,My Lab`). |
 
@@ -1486,10 +1487,9 @@ paths:
         - `cds.fna`
         - `protein.faa`
         - `orthology.tsv`
+        - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files)*
         - `dsrna.csv` *(tcas species only; 1 active per version — re-upload replaces the previous index)*
         - `jbrowse.track` *(multiple tracks allowed per version; requires `trackName` metadata; optional `category`; deletable)*
-        - `fb_synonym.tsv` *(versionless — `version` field not required)*
-        - `fbgn_fbtr_fbpp.tsv` *(versionless — `version` field not required)*
 
         On success, the `Location` response header contains the URL for subsequent PATCH / HEAD requests.
       operationId: createUpload

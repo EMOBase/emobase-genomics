@@ -120,16 +120,6 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			"only gzip files are accepted (.gz or .gzip)")
 	}
 
-	// Versionless file types: validate the expected filename prefix, then skip
-	// all version and job conflict checks.
-	if meta, versionless := versionlessFileMeta[fileType]; versionless {
-		if !strings.HasPrefix(fileName, meta.prefix) {
-			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-				fmt.Sprintf("invalid fileName for fileType %q: must start with %q", fileType, meta.prefix))
-		}
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, nil
-	}
-
 	// 4. Validate file-type-specific metadata fields.
 	if fileType == entity.FileTypeOrthologyTSV {
 		if strings.TrimSpace(meta["order"]) == "" {
@@ -163,6 +153,12 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		if strings.TrimSpace(meta["trackName"]) == "" {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 				"jbrowse.track uploads require a \"trackName\" metadata field")
+		}
+	}
+	if fileType == entity.FileTypeSpeciesSynonym {
+		if strings.TrimSpace(meta["species"]) == "" {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				"species.synonym uploads require a \"species\" metadata field")
 		}
 	}
 
@@ -209,15 +205,6 @@ func (uc *UseCase) processEvents() {
 func (uc *UseCase) onCreated(event tusd.HookEvent) {
 	upload := event.Upload
 
-	// Versionless uploads are not tracked in upload_files.
-	if _, versionless := versionlessFileTypes[upload.MetaData["fileType"]]; versionless {
-		log.Info().
-			Str("uploadID", upload.ID).
-			Str("fileType", upload.MetaData["fileType"]).
-			Msg("versionless upload started")
-		return
-	}
-
 	versionID, err := strconv.ParseUint(upload.MetaData["_versionID"], 10, 64)
 	if err != nil {
 		log.Error().Err(err).Str("uploadID", upload.ID).Msg("missing or invalid _versionID in upload metadata")
@@ -255,37 +242,23 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	ctx := hook.Context
 
 	srcPath := filepath.Join(uc.uploadDir, upload.ID)
-	fileType := upload.MetaData["fileType"]
 	fileName := upload.MetaData["fileName"]
-	_, versionless := versionlessFileTypes[fileType]
 
 	if ok, err := isGzip(srcPath); err != nil {
 		log.Ctx(ctx).Err(err).Str("uploadID", upload.ID).Msg("failed to read uploaded file for gzip check")
 		uc.removeUploadFiles(upload.ID)
-		if !versionless {
-			_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
-		}
+		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
 		return tusd.HTTPResponse{}, err
 	} else if !ok {
 		log.Ctx(ctx).Warn().Str("uploadID", upload.ID).Msg("uploaded file is not gzip, discarding")
 		uc.removeUploadFiles(upload.ID)
-		if !versionless {
-			_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
-		}
+		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
 		return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity, "uploaded file is not a valid gzip")
 	}
 
-	// Versionless files go to the uploads root under a canonical fixed name;
-	// versioned files go into a version subfolder.
-	var dstDir, dstPath string
-	if versionless {
-		dstDir = uc.uploadDir
-		dstPath = filepath.Join(dstDir, versionlessFileMeta[fileType].canonicalName)
-	} else {
-		version := upload.MetaData["version"]
-		dstDir = filepath.Join(uc.uploadDir, version)
-		dstPath = filepath.Join(dstDir, filepath.Base(fileName))
-	}
+	version := upload.MetaData["version"]
+	dstDir := filepath.Join(uc.uploadDir, version)
+	dstPath := filepath.Join(dstDir, filepath.Base(fileName))
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		log.Ctx(ctx).Err(err).Str("dir", dstDir).Msg("failed to create version directory")
@@ -302,11 +275,6 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	}
 
 	log.Ctx(ctx).Info().Str("uploadID", upload.ID).Str("path", dstPath).Msg("upload complete, file moved")
-
-	// Versionless files require no further processing.
-	if versionless {
-		return tusd.HTTPResponse{}, nil
-	}
 
 	jobs, err := uc.enqueueProcessJob(ctx, upload.ID, upload.MetaData, dstPath)
 	if err != nil {
@@ -350,6 +318,39 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			return nil, err
 		}
 		return []entity.Job{job}, nil
+	}
+
+	// species_synonym: parse a species-specific FB synonym file.
+	if fileType == entity.FileTypeSpeciesSynonym {
+		rawPayload, err := json.Marshal(jobpayload.SpeciesSynonymPayload{
+			UploadFileID: uploadID,
+			VersionID:    versionID,
+			FilePath:     filePath,
+			Species:      strings.TrimSpace(meta["species"]),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
+		}
+		p := json.RawMessage(rawPayload)
+		now := time.Now().UTC()
+		job := &entity.Job{
+			VersionID:   versionID,
+			FileID:      &uploadID,
+			Type:        entity.JobTypeSpeciesSynonym,
+			Description: entity.JobDescriptions[entity.JobTypeSpeciesSynonym],
+			Payload:     &p,
+			Status:      entity.JobStatusPending,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := uc.jobRepo.Create(ctx, job); err != nil {
+			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeSpeciesSynonym, err)
+		}
+		log.Ctx(ctx).Info().
+			Str("uploadID", uploadID).
+			Uint64("jobID", job.ID).
+			Msg("species.synonym job enqueued")
+		return []entity.Job{*job}, nil
 	}
 
 	// jbrowse.track: run jbrowse add-track with track-specific metadata.
@@ -432,14 +433,6 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	jobs := []entity.Job{*job}
 
 	if fileType == entity.FileTypeGenomicGFF {
-		// Also enqueue a GENOMIC.GFF:SYNONYM job that combines GFF3 + versionless FB synonym files.
-		// TODO: Refactor this to process only the GFF file instead.
-		synonymJob, err := uc.enqueueGenomicGFFSynonymJob(ctx, versionID, uploadID, filePath, strings.TrimSpace(meta["geneIDKey"]), trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
-		if err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, synonymJob)
-
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
 		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
@@ -557,57 +550,6 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 		Msgf("%s job enqueued", entity.JobTypeGenomicGFFSetupJBrowse2)
 
 	return j, nil
-}
-
-// enqueueGenomicGFFSynonymJob creates a single GENOMIC.GFF:SYNONYM job that carries the GFF3 file
-// path plus any versionless FB synonym files found in the uploads root.
-func (uc *UseCase) enqueueGenomicGFFSynonymJob(ctx context.Context, versionID uint64, uploadFileID, gffFilePath, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
-	var synonymFiles []string
-	for _, name := range []string{"fb_synonym_fb.tsv.gz", "fbgn_fbtr_fbpp_fb.tsv.gz"} {
-		p := filepath.Join(uc.uploadDir, name)
-		if _, err := os.Stat(p); err == nil {
-			synonymFiles = append(synonymFiles, p)
-		}
-	}
-
-	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
-		UploadFileID:    uploadFileID,
-		VersionID:       versionID,
-		FilePath:        gffFilePath,
-		SynonymFiles:    synonymFiles,
-		GeneIDKey:       geneIDKey,
-		TrimPrefixChars: trimPrefixChars,
-		TrimSuffixChars: trimSuffixChars,
-		OldGeneIDKeys:   oldGeneIDKeys,
-	})
-	if err != nil {
-		return entity.Job{}, fmt.Errorf("failed to marshal synonym job payload: %w", err)
-	}
-
-	p := json.RawMessage(rawPayload)
-	now := time.Now().UTC()
-	j := &entity.Job{
-		VersionID:   versionID,
-		FileID:      &uploadFileID,
-		Type:        entity.JobTypeGenomicGFFSynonym,
-		Description: entity.JobDescriptions[entity.JobTypeGenomicGFFSynonym],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-
-	if err := uc.jobRepo.Create(ctx, j); err != nil {
-		return entity.Job{}, fmt.Errorf("failed to create synonym job: %w", err)
-	}
-
-	log.Ctx(ctx).Info().
-		Uint64("jobID", j.ID).
-		Str("gffFile", gffFilePath).
-		Strs("synonymFiles", synonymFiles).
-		Msg("synonym job enqueued")
-
-	return *j, nil
 }
 
 var ErrUploadFileNotFound = errors.New("upload file not found")

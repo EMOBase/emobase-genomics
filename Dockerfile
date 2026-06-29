@@ -69,14 +69,6 @@ COPY --from=ncbi-blast \
   /blast/bin/
 ENV PATH=/blast/bin:${PATH}
 
-# Create the uploads directory and download pre-seeded FlyBase files.
-# Placed before frequently-changing source copies so this layer is cached.
-RUN mkdir -p ./public/uploads \
- && wget -q https://s3ftp.flybase.org/releases/FB2026_02/precomputed_files/synonyms/fb_synonym_fb_2026_02.tsv.gz \
-         -O ./public/uploads/fb_synonym_fb.tsv.gz \
- && wget -q https://s3ftp.flybase.org/releases/FB2026_02/precomputed_files/genes/fbgn_fbtr_fbpp_fb_2026_02.tsv.gz \
-         -O ./public/uploads/fbgn_fbtr_fbpp_fb.tsv.gz
-
 COPY internal/pkg/config/config.yaml /app/config.yaml
 COPY migrations ./migrations
 COPY scripts ./scripts

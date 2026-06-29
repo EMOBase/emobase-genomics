@@ -30,9 +30,6 @@ type SynonymHandler struct {
 	versionRepo IVersionRepository
 	synonymUC   ISynonymUseCase
 	synonymRepo ISynonymRepository
-	mainSpecies string
-	fbSynParser synonymparser.ISynonymParser
-	fbGRPParser synonymparser.ISynonymParser
 	indexPrefix string
 }
 
@@ -40,18 +37,12 @@ func NewSynonymHandler(
 	versionRepo IVersionRepository,
 	synonymUC ISynonymUseCase,
 	synonymRepo ISynonymRepository,
-	mainSpecies string,
-	fbSynParser synonymparser.ISynonymParser,
-	fbGRPParser synonymparser.ISynonymParser,
 	indexPrefix string,
 ) *SynonymHandler {
 	return &SynonymHandler{
 		versionRepo: versionRepo,
 		synonymUC:   synonymUC,
 		synonymRepo: synonymRepo,
-		mainSpecies: mainSpecies,
-		fbSynParser: fbSynParser,
-		fbGRPParser: fbGRPParser,
 		indexPrefix: indexPrefix,
 	}
 }
@@ -62,9 +53,9 @@ type synonymResult struct {
 }
 
 func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
-	var payload jobpayload.ProcessPayload
+	var payload jobpayload.SpeciesSynonymPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
 	}
 
 	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
@@ -78,21 +69,13 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
-	// Load synonyms from the GFF3 file using a parser built from the job payload.
-	gff3Parser := synonymparser.NewGFF3SynonymParser(h.mainSpecies, payload.GeneIDKey, payload.TrimPrefixChars, payload.TrimSuffixChars, payload.OldGeneIDKeys)
-	if err := h.loadGzip(ctx, payload.FilePath, indexName, gff3Parser); err != nil {
-		return nil, err
+	parser := h.parserForFile(payload.FilePath, payload.Species)
+	if parser == nil {
+		return nil, fmt.Errorf("unrecognised synonym file: %q", filepath.Base(payload.FilePath))
 	}
 
-	// Load synonyms from each versionless synonym file using the appropriate parser.
-	for _, path := range payload.SynonymFiles {
-		parser := h.parserForFile(path)
-		if parser == nil {
-			continue
-		}
-		if err := h.loadGzip(ctx, path, indexName, parser); err != nil {
-			return nil, err
-		}
+	if err := h.loadGzip(ctx, payload.FilePath, indexName, parser); err != nil {
+		return nil, err
 	}
 
 	if err := h.synonymRepo.SetAlias(ctx, indexName, aliasName); err != nil {
@@ -104,6 +87,19 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
 	return raw, nil
+}
+
+// parserForFile selects the appropriate parser based on filename conventions.
+func (h *SynonymHandler) parserForFile(path, species string) synonymparser.ISynonymParser {
+	base := filepath.Base(path)
+	switch {
+	case strings.HasPrefix(base, "fb_synonym_"):
+		return synonymparser.NewFlyBaseSynonymParser(species)
+	case strings.HasPrefix(base, "fbgn_fbtr_fbpp_"):
+		return synonymparser.NewFlyBaseGeneRNAProteinMapParser(species)
+	default:
+		return nil
+	}
 }
 
 func (h *SynonymHandler) OnComplete(ctx context.Context, _ entity.Job, result json.RawMessage) error {
@@ -120,18 +116,6 @@ func (h *SynonymHandler) OnComplete(ctx context.Context, _ entity.Job, result js
 			Msg("failed to delete stale synonym indexes")
 	}
 	return nil
-}
-
-func (h *SynonymHandler) parserForFile(path string) synonymparser.ISynonymParser {
-	base := filepath.Base(path)
-	switch {
-	case strings.HasPrefix(base, "fb_synonym_"):
-		return h.fbSynParser
-	case strings.HasPrefix(base, "fbgn_fbtr_fbpp_"):
-		return h.fbGRPParser
-	default:
-		return nil
-	}
 }
 
 func (h *SynonymHandler) loadGzip(ctx context.Context, path, indexName string, parser synonymparser.ISynonymParser) error {
