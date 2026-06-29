@@ -89,14 +89,19 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 	return raw, nil
 }
 
-// parserForFile selects the appropriate parser based on filename conventions.
+// parserForFile selects the appropriate parser based on filename prefix.
+// fb_synonym_*      → FlyBaseSynonymParser        		(Dmel fb_synonym files)
+// fbgn_fbtr_fbpp_*  → FlyBaseGeneRNAProteinMapParser 	(Dmel gene/RNA/protein map)
+// ib_tc*            → IBTCParser                  		(Tcas iB-to-TC mapping)
 func (h *SynonymHandler) parserForFile(path, species string) synonymparser.ISynonymParser {
-	base := filepath.Base(path)
+	base := strings.ToLower(filepath.Base(path))
 	switch {
 	case strings.HasPrefix(base, "fb_synonym_"):
 		return synonymparser.NewFlyBaseSynonymParser(species)
 	case strings.HasPrefix(base, "fbgn_fbtr_fbpp_"):
 		return synonymparser.NewFlyBaseGeneRNAProteinMapParser(species)
+	case strings.HasPrefix(base, "ib_tc"):
+		return synonymparser.NewIBTCParser(species)
 	default:
 		return nil
 	}
