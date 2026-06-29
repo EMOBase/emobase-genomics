@@ -45,7 +45,7 @@ func NewOrthologyTSVHandler(
 }
 
 func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
-	var payload jobpayload.ProcessPayload
+	var payload jobpayload.OrthologyTSVPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
 	}
@@ -85,7 +85,7 @@ func (h *OrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) (json.
 // OnFailure removes any partially-inserted ES records for the file so the
 // index is not left in a dirty state.
 func (h *OrthologyTSVHandler) OnFailure(ctx context.Context, job entity.Job, _ error) error {
-	var payload jobpayload.ProcessPayload
+	var payload jobpayload.OrthologyTSVPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal orthology payload in OnFailure; skipping cleanup")
 		return nil

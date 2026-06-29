@@ -51,7 +51,7 @@ type genomicGFFResult struct {
 }
 
 func (h *GenomicGFFHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
-	var payload jobpayload.ProcessPayload
+	var payload jobpayload.GenomicGFFPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal job payload: %w", err)
 	}

@@ -387,21 +387,36 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		return []entity.Job{*job}, nil
 	}
 
-	order, _ := strconv.Atoi(meta["order"])
-	trimPrefixChars, _ := strconv.Atoi(meta["trimPrefixChars"])
-	trimSuffixChars, _ := strconv.Atoi(meta["trimSuffixChars"])
-	oldGeneIDKeys := parseCommaSeparated(meta["oldGeneIDKeys"])
-	rawPayload, err := json.Marshal(jobpayload.ProcessPayload{
-		UploadFileID:    uploadID,
-		VersionID:       versionID,
-		FilePath:        filePath,
-		Order:           order,
-		Algorithm:       strings.TrimSpace(meta["algorithm"]),
-		GeneIDKey:       strings.TrimSpace(meta["geneIDKey"]),
-		TrimPrefixChars: trimPrefixChars,
-		TrimSuffixChars: trimSuffixChars,
-		OldGeneIDKeys:   oldGeneIDKeys,
-	})
+	var rawPayload []byte
+	switch fileType {
+	case entity.FileTypeGenomicGFF:
+		trimPrefixChars, _ := strconv.Atoi(meta["trimPrefixChars"])
+		trimSuffixChars, _ := strconv.Atoi(meta["trimSuffixChars"])
+		rawPayload, err = json.Marshal(jobpayload.GenomicGFFPayload{
+			UploadFileID:    uploadID,
+			VersionID:       versionID,
+			FilePath:        filePath,
+			GeneIDKey:       strings.TrimSpace(meta["geneIDKey"]),
+			TrimPrefixChars: trimPrefixChars,
+			TrimSuffixChars: trimSuffixChars,
+			OldGeneIDKeys:   parseCommaSeparated(meta["oldGeneIDKeys"]),
+		})
+	case entity.FileTypeOrthologyTSV:
+		order, _ := strconv.Atoi(meta["order"])
+		rawPayload, err = json.Marshal(jobpayload.OrthologyTSVPayload{
+			UploadFileID: uploadID,
+			VersionID:    versionID,
+			FilePath:     filePath,
+			Order:        order,
+			Algorithm:    strings.TrimSpace(meta["algorithm"]),
+		})
+	default:
+		rawPayload, err = json.Marshal(jobpayload.ProcessPayload{
+			UploadFileID: uploadID,
+			VersionID:    versionID,
+			FilePath:     filePath,
+		})
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal job payload: %w", err)
 	}
@@ -511,7 +526,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	}
 	var geneIDKey string
 	if gffJob != nil && gffJob.Payload != nil {
-		var p jobpayload.ProcessPayload
+		var p jobpayload.GenomicGFFPayload
 		if err := json.Unmarshal(*gffJob.Payload, &p); err == nil {
 			geneIDKey = p.GeneIDKey
 		}

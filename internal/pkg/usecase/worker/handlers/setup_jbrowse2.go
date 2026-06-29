@@ -134,7 +134,7 @@ func tryEnqueueGFFSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, ver
 		return nil
 	}
 
-	var p jobpayload.ProcessPayload
+	var p jobpayload.GenomicGFFPayload
 	if err := json.Unmarshal(*latest.Payload, &p); err != nil {
 		return fmt.Errorf("failed to unmarshal %s job payload: %w", entity.JobTypeGenomicGFF, err)
 	}
