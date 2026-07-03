@@ -479,45 +479,55 @@ components:
 
     GeneDetail:
       type: object
-      required: [id, start, end, strand, seqname, mRNAs, proteins, CDS, synonyms]
+      required: [id]
       properties:
         id:
           type: string
           description: Gene identifier with the species prefix stripped.
           example: TC016177
+        symbol:
+          type: string
+          description: Gene symbol (SYMBOL synonym type). Omitted when not present.
+          example: vermilion
+        fullname:
+          type: string
+          description: Full gene name (NAME synonym type). Omitted when not present.
+          example: vermilion
+        annotationId:
+          type: string
+          description: Annotation identifier (OTHER synonym type, e.g. FlyBase CG number). Omitted when not present.
+          example: CG1943
         start:
           type: integer
-          description: Genomic start position (1-based).
+          description: Genomic start position (1-based). Omitted when no genomic location is indexed.
           example: 1234567
         end:
           type: integer
-          description: Genomic end position (1-based, inclusive).
+          description: Genomic end position (1-based, inclusive). Omitted when no genomic location is indexed.
           example: 1240000
         strand:
           type: string
-          description: DNA strand.
+          description: DNA strand. Omitted when no genomic location is indexed.
           example: "+"
         seqname:
           type: string
-          description: Reference sequence / chromosome name.
+          description: Reference sequence / chromosome name. Omitted when no genomic location is indexed.
           example: CM009943.2
         mRNAs:
           type: array
+          description: mRNA sequences. Omitted when no sequence data is indexed.
           items:
             $ref: '#/components/schemas/GeneSequence'
         proteins:
           type: array
+          description: Protein sequences. Omitted when no sequence data is indexed.
           items:
             $ref: '#/components/schemas/GeneSequence'
         CDS:
           type: array
+          description: CDS sequences. Omitted when no sequence data is indexed.
           items:
             $ref: '#/components/schemas/GeneSequence'
-        synonyms:
-          type: array
-          description: All synonyms for this gene (CURRENT_ID, NAME, SYMBOL, TRANSCRIPT, PROTEIN, etc.).
-          items:
-            $ref: '#/components/schemas/Synonym'
 
     VersionDetail:
       type: object
@@ -780,13 +790,20 @@ paths:
       security: []
       tags: [Genes]
       description: |
-        Returns genomic location, associated sequences (mRNAs, proteins, CDS), and all
-        synonyms for the given gene IDs belonging to `species`.
+        Returns gene details for genes belonging to `species`, matched by one of four
+        mutually exclusive query params. Exactly one must be provided.
 
-        Gene IDs are resolved via an exact synonym lookup (`CURRENT_ID` or `OLD_ID` type),
-        so both current and old identifiers are accepted in `ids`.
+        | Param | Synonym type searched | Typical use |
+        |---|---|---|
+        | `ids` | `CURRENT_ID` or `OLD_ID` | Lookup by gene ID (current or retired) |
+        | `symbol` | `SYMBOL` | Lookup by gene symbol |
+        | `fullname` | `NAME` | Lookup by full gene name |
+        | `annotationId` | `OTHER` | Lookup by annotation identifier (e.g. FlyBase CG number) |
 
-        Only genes that have a genomic location entry are included in the response.
+        The response shape is the same for all species. Fields that have no data for the
+        matched gene are omitted: `symbol`/`fullname`/`annotationId` when the species has no
+        such synonyms indexed; `start`/`end`/`strand`/`seqname` when no genomic location is
+        indexed; `mRNAs`/`proteins`/`CDS` when no sequences are indexed.
       parameters:
         - name: species
           in: path
@@ -797,11 +814,36 @@ paths:
           example: Tcas
         - name: ids
           in: query
-          required: true
+          required: false
           schema:
             type: string
-          description: Comma-separated list of gene IDs without species prefix.
+          description: |
+            Comma-separated list of gene IDs without species prefix.
+            Matches `CURRENT_ID` and `OLD_ID` synonym types.
           example: TC016177,TC000291
+        - name: symbol
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Gene symbol to look up (exact match, `SYMBOL` synonym type).
+          example: vermilion
+        - name: fullname
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Full gene name to look up (exact match, `NAME` synonym type).
+          example: vermilion
+        - name: annotationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Annotation identifier to look up (exact match, `OTHER` synonym type).
+            Only synonyms whose value starts with `CG` are matched.
+          example: CG1943
         - name: version
           in: query
           required: false
@@ -824,11 +866,12 @@ paths:
                   requestId:
                     type: string
               examples:
-                found:
-                  summary: Genes found
+                foundTcas:
+                  summary: Tcas gene with genomic location and sequences
                   value:
                     data:
                       - id: TC016177
+                        symbol: vermilion
                         start: 1234567
                         end: 1240000
                         strand: "+"
@@ -842,13 +885,15 @@ paths:
                         CDS:
                           - id: TC016177-RA
                             seq: ATGCGT...
-                        synonyms:
-                          - gene: Tcas:TC016177
-                            type: CURRENT_ID
-                            synonym: TC016177
-                          - gene: Tcas:TC016177
-                            type: SYMBOL
-                            synonym: vermilion
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                foundDmel:
+                  summary: Dmel gene with symbol and annotation ID (no genomic data indexed)
+                  value:
+                    data:
+                      - id: FBgn0000015
+                        symbol: Abd-B
+                        fullname: Abdominal B
+                        annotationId: CG11648
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 notFound:
                   summary: No genes found
@@ -856,15 +901,21 @@ paths:
                     data: []
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '400':
-          description: Missing `ids` parameter.
+          description: Missing or conflicting query params.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                missingIds:
+                missingParam:
+                  summary: No query param provided
                   value:
-                    error: ids parameter is required
+                    error: one of ids, symbol, fullname, annotationId is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                multipleParams:
+                  summary: More than one query param provided
+                  value:
+                    error: only one of ids, symbol, fullname, annotationId is allowed
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: The specified version does not exist.

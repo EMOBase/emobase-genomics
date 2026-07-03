@@ -11,7 +11,7 @@ import (
 )
 
 type genesUseCase interface {
-	GetGenesBySpecies(ctx context.Context, species, ids, versionName string) ([]ucsearch.GeneDetail, error)
+	GetGenesBySpecies(ctx context.Context, species, ids, symbol, fullname, annotationID, versionName string) ([]ucsearch.GeneDetail, error)
 }
 
 type GenesHandler struct {
@@ -25,12 +25,21 @@ func NewGenesHandler(uc genesUseCase) *GenesHandler {
 func (h *GenesHandler) BySpecies(c *gin.Context) {
 	species := c.Param("species")
 	ids := c.Query("ids")
-	if ids == "" {
-		apires.Fail(c, http.StatusBadRequest, "ids parameter is required")
+	symbol := c.Query("symbol")
+	fullname := c.Query("fullname")
+	annotationID := c.Query("annotationId")
+
+	n := countNonEmpty(ids, symbol, fullname, annotationID)
+	if n == 0 {
+		apires.Fail(c, http.StatusBadRequest, "one of ids, symbol, fullname, annotationId is required")
+		return
+	}
+	if n > 1 {
+		apires.Fail(c, http.StatusBadRequest, "only one of ids, symbol, fullname, annotationId is allowed")
 		return
 	}
 
-	results, err := h.uc.GetGenesBySpecies(c.Request.Context(), species, ids, c.Query("version"))
+	results, err := h.uc.GetGenesBySpecies(c.Request.Context(), species, ids, symbol, fullname, annotationID, c.Query("version"))
 	if err != nil {
 		if errors.Is(err, ucsearch.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
@@ -44,4 +53,14 @@ func (h *GenesHandler) BySpecies(c *gin.Context) {
 	}
 
 	apires.OK(c, results)
+}
+
+func countNonEmpty(ss ...string) int {
+	n := 0
+	for _, s := range ss {
+		if s != "" {
+			n++
+		}
+	}
+	return n
 }

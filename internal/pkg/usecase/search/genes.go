@@ -15,20 +15,26 @@ type GeneSequence struct {
 }
 
 type GeneDetail struct {
-	ID       string           `json:"id"`
-	Start    int              `json:"start"`
-	End      int              `json:"end"`
-	Strand   string           `json:"strand"`
-	Seqname  string           `json:"seqname"`
-	MRNAs    []GeneSequence   `json:"mRNAs"`
-	Proteins []GeneSequence   `json:"proteins"`
-	CDS      []GeneSequence   `json:"CDS"`
-	Synonyms []entity.Synonym `json:"synonyms"`
+	ID           string `json:"id"`
+	Symbol       string `json:"symbol,omitempty"`
+	FullName     string `json:"fullname,omitempty"`
+	AnnotationID string `json:"annotationId,omitempty"`
+
+	Start   *int   `json:"start,omitempty"`
+	End     *int   `json:"end,omitempty"`
+	Strand  string `json:"strand,omitempty"`
+	Seqname string `json:"seqname,omitempty"`
+
+	MRNAs    []GeneSequence `json:"mRNAs,omitempty"`
+	Proteins []GeneSequence `json:"proteins,omitempty"`
+	CDS      []GeneSequence `json:"CDS,omitempty"`
 }
 
-// GetGenesBySpecies returns genomic location and associated sequences (mRNAs, proteins, CDS)
-// for the given gene IDs belonging to species.
-func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionName string) ([]GeneDetail, error) {
+// GetGenesBySpecies returns gene details for genes belonging to species matched by one of:
+// ids (CURRENT_ID/OLD_ID lookup), symbol (SYMBOL), fullname (NAME), or annotationId (OTHER).
+// Exactly one of the four params must be non-empty; the caller enforces this.
+// Genomic location and sequence fields are populated only when that data exists in the index.
+func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, symbol, fullname, annotationID, versionName string) ([]GeneDetail, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
 		return nil, err
@@ -39,18 +45,18 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 	sequenceIndex := fmt.Sprintf("%s-sequence-%s", uc.indexPrefix, versionLower)
 	genomicIndex := fmt.Sprintf("%s-genomiclocation-%s", uc.indexPrefix, versionLower)
 
-	// Step 1: resolve input IDs to full gene IDs via exact synonym match.
-	idList := splitAndTrim(ids)
-	inputSynonyms, err := uc.synonymRepo.FindBySynonyms(ctx, synonymIndex, idList)
+	// Step 1: resolve input to full gene IDs via synonym lookup with type filter.
+	lookupValues, typeFilter := resolveQueryParam(ids, symbol, fullname, annotationID)
+	inputSynonyms, err := uc.synonymRepo.FindBySynonyms(ctx, synonymIndex, lookupValues)
 	if err != nil {
 		return nil, err
 	}
 
 	seen := make(map[string]bool)
-	var geneIDs []string // full IDs like "Tcas:TC016177"
+	var geneIDs []string
 	speciesPrefix := species + ":"
 	for _, s := range inputSynonyms {
-		if s.Type != entity.SYNONYM_TYPE_CURRENT_ID && s.Type != entity.SYNONYM_TYPE_OLD_ID {
+		if !typeFilter(s) {
 			continue
 		}
 		if !strings.HasPrefix(s.Gene, speciesPrefix) {
@@ -65,14 +71,12 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 		return []GeneDetail{}, nil
 	}
 
-	// Step 2: fetch all synonyms for those genes to find transcript/protein IDs.
+	// Step 2: fetch all synonyms for those genes.
 	geneSynonyms, err := uc.synonymRepo.FindByGenes(ctx, synonymIndex, geneIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build map: gene → []sequenceID, collecting TRANSCRIPT+CDS and PROTEIN sequence IDs.
-	// Also collect all synonyms per gene for the response.
 	geneSeqIDs := make(map[string][]string)
 	geneSynonymMap := make(map[string][]entity.Synonym)
 	var allSeqIDs []string
@@ -91,7 +95,7 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 		}
 	}
 
-	// Step 3: fetch sequences and genomic locations in parallel via separate calls.
+	// Step 3: fetch sequences and genomic locations (empty results are fine).
 	sequences, err := uc.sequenceRepo.FindByIDs(ctx, sequenceIndex, allSeqIDs)
 	if err != nil {
 		return nil, err
@@ -102,33 +106,41 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 		return nil, err
 	}
 
-	// Index sequences by their ES document ID for O(1) lookup.
 	seqByID := make(map[string]entity.Sequence, len(sequences))
 	for _, s := range sequences {
 		seqByID[s.GetID()] = s
 	}
-
-	// Build response: one GeneDetail per genomic location.
-	results := make([]GeneDetail, 0, len(locations))
+	locByGene := make(map[string]entity.GenomicLocation, len(locations))
 	for _, loc := range locations {
-		_, geneID := splitGeneID(loc.Gene)
-		synonyms := geneSynonymMap[loc.Gene]
-		if synonyms == nil {
-			synonyms = []entity.Synonym{}
-		}
-		detail := GeneDetail{
-			ID:       geneID,
-			Start:    loc.Start,
-			End:      loc.End,
-			Strand:   loc.Strand,
-			Seqname:  loc.ReferenceSeq,
-			MRNAs:    []GeneSequence{},
-			Proteins: []GeneSequence{},
-			CDS:      []GeneSequence{},
-			Synonyms: synonyms,
+		locByGene[loc.Gene] = loc
+	}
+
+	// Build response: one GeneDetail per resolved gene ID.
+	results := make([]GeneDetail, 0, len(geneIDs))
+	for _, fullGeneID := range geneIDs {
+		_, geneID := splitGeneID(fullGeneID)
+		detail := GeneDetail{ID: geneID}
+
+		for _, s := range geneSynonymMap[fullGeneID] {
+			switch s.Type {
+			case entity.SYNONYM_TYPE_SYMBOL:
+				detail.Symbol = s.Synonym
+			case entity.SYNONYM_TYPE_NAME:
+				detail.FullName = s.Synonym
+			case entity.SYNONYM_TYPE_OTHER:
+				detail.AnnotationID = s.Synonym
+			}
 		}
 
-		for _, seqID := range geneSeqIDs[loc.Gene] {
+		if loc, ok := locByGene[fullGeneID]; ok {
+			start, end := loc.Start, loc.End
+			detail.Start = &start
+			detail.End = &end
+			detail.Strand = loc.Strand
+			detail.Seqname = loc.ReferenceSeq
+		}
+
+		for _, seqID := range geneSeqIDs[fullGeneID] {
 			s, ok := seqByID[seqID]
 			if !ok {
 				continue
@@ -147,6 +159,32 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, versionN
 		results = append(results, detail)
 	}
 	return results, nil
+}
+
+// resolveQueryParam returns the lookup values and a synonym type filter based on
+// which query param is set. Exactly one of ids/symbol/fullname/annotationID is expected
+// to be non-empty; the caller is responsible for enforcing this.
+func resolveQueryParam(ids, symbol, fullname, annotationID string) (values []string, filter func(entity.Synonym) bool) {
+	switch {
+	case ids != "":
+		return splitAndTrim(ids), func(s entity.Synonym) bool {
+			return s.Type == entity.SYNONYM_TYPE_CURRENT_ID || s.Type == entity.SYNONYM_TYPE_OLD_ID
+		}
+	case symbol != "":
+		return []string{symbol}, func(s entity.Synonym) bool {
+			return s.Type == entity.SYNONYM_TYPE_SYMBOL
+		}
+	case fullname != "":
+		return []string{fullname}, func(s entity.Synonym) bool {
+			return s.Type == entity.SYNONYM_TYPE_NAME
+		}
+	case annotationID != "":
+		return []string{annotationID}, func(s entity.Synonym) bool {
+			return s.Type == entity.SYNONYM_TYPE_OTHER && strings.HasPrefix(s.Synonym, "CG")
+		}
+	default:
+		return nil, func(_ entity.Synonym) bool { return false }
+	}
 }
 
 // seqGetID builds the ES document ID for a sequence: "species:type:name".
