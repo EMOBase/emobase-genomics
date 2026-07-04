@@ -618,7 +618,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 }
 
 var ErrUploadFileNotFound = errors.New("upload file not found")
-var ErrUploadFileNotDeletable = errors.New("only orthology.tsv files can be deleted")
+var ErrUploadFileNotDeletable = errors.New("this file type does not support deletion")
 var ErrUploadFileDeletePending = errors.New("a delete job for this file is already pending or running")
 var ErrVersionNotFound = errors.New("version not found")
 
@@ -666,8 +666,9 @@ func (uc *UseCase) ListByVersion(ctx context.Context, versionName string) ([]Upl
 
 // deletableFileTypes maps each file type that supports deletion to its delete job type.
 var deletableFileTypes = map[string]string{
-	entity.FileTypeOrthologyTSV: entity.JobTypeOrthologyTSVDelete,
-	entity.FileTypeJBrowseTrack: entity.JobTypeJBrowseTrackDelete,
+	entity.FileTypeOrthologyTSV:   entity.JobTypeOrthologyTSVDelete,
+	entity.FileTypeJBrowseTrack:   entity.JobTypeJBrowseTrackDelete,
+	entity.FileTypeSpeciesSynonym: entity.JobTypeSpeciesSynonymDelete,
 }
 
 func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error) {

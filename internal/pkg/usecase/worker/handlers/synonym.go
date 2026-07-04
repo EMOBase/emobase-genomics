@@ -17,12 +17,12 @@ import (
 )
 
 type ISynonymUseCase interface {
-	Load(ctx context.Context, f io.Reader, indexName string, p synonymparser.ISynonymParser) error
+	Load(ctx context.Context, f io.Reader, indexName, fileID string, p synonymparser.ISynonymParser) error
 }
 
 type ISynonymRepository interface {
 	SetAlias(ctx context.Context, indexName, aliasName string) error
-	DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName string) error
+	DeleteByFileID(ctx context.Context, indexName, fileID string) error
 }
 
 type SynonymHandler struct {
@@ -44,11 +44,6 @@ func NewSynonymHandler(
 		synonymRepo: synonymRepo,
 		indexPrefix: indexPrefix,
 	}
-}
-
-type synonymResult struct {
-	IndexName string `json:"indexName"`
-	AliasName string `json:"aliasName"`
 }
 
 func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
@@ -75,7 +70,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, fmt.Errorf("unrecognised synonym file: %q", filepath.Base(payload.FilePath))
 	}
 
-	if err := h.loadGzip(ctx, payload.FilePath, indexName, parser); err != nil {
+	if err := h.loadGzip(ctx, payload.FilePath, indexName, payload.UploadFileID, parser); err != nil {
 		return nil, err
 	}
 
@@ -83,11 +78,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, err
 	}
 
-	raw, err := json.Marshal(synonymResult{IndexName: indexName, AliasName: aliasName})
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result: %w", err)
-	}
-	return raw, nil
+	return nil, nil
 }
 
 // parserForFile selects the appropriate parser based on filename prefix/extension.
@@ -111,23 +102,34 @@ func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload)
 	}
 }
 
-func (h *SynonymHandler) OnComplete(ctx context.Context, _ entity.Job, result json.RawMessage) error {
-	var res synonymResult
-	if err := json.Unmarshal(result, &res); err != nil {
-		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal synonym result in OnComplete; skipping stale index cleanup")
+// OnFailure removes any partially-inserted ES records for the file so the index
+// is not left in a dirty state.
+func (h *SynonymHandler) OnFailure(ctx context.Context, job entity.Job, _ error) error {
+	var payload jobpayload.SpeciesSynonymPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal synonym payload in OnFailure; skipping cleanup")
 		return nil
 	}
 
-	if err := h.synonymRepo.DeleteStaleIndexes(ctx, res.AliasName, res.IndexName); err != nil {
+	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
+	if err != nil || version == nil {
+		log.Ctx(ctx).Warn().Err(err).Uint64("versionID", payload.VersionID).Msg("failed to look up version in OnFailure; skipping cleanup")
+		return nil
+	}
+
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
+	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+
+	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).
-			Str("aliasName", res.AliasName).
-			Str("liveIndex", res.IndexName).
-			Msg("failed to delete stale synonym indexes")
+			Str("indexName", indexName).
+			Str("fileID", payload.UploadFileID).
+			Msg("failed to clean up synonym records after job failure")
 	}
 	return nil
 }
 
-func (h *SynonymHandler) loadGzip(ctx context.Context, path, indexName string, parser synonymparser.ISynonymParser) error {
+func (h *SynonymHandler) loadGzip(ctx context.Context, path, indexName, fileID string, parser synonymparser.ISynonymParser) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file %q: %w", path, err)
@@ -140,5 +142,5 @@ func (h *SynonymHandler) loadGzip(ctx context.Context, path, indexName string, p
 	}
 	defer func() { _ = gr.Close() }()
 
-	return h.synonymUC.Load(ctx, gr, indexName, parser)
+	return h.synonymUC.Load(ctx, gr, indexName, fileID, parser)
 }

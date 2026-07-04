@@ -21,7 +21,7 @@ func New(repo ISynonymRepository, batchSize int) *SynonymUseCase {
 	}
 }
 
-func (uc *SynonymUseCase) Load(ctx context.Context, f io.Reader, indexName string, p synonymparser.ISynonymParser) error {
+func (uc *SynonymUseCase) Load(ctx context.Context, f io.Reader, indexName, fileID string, p synonymparser.ISynonymParser) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -43,6 +43,7 @@ func (uc *SynonymUseCase) Load(ctx context.Context, f io.Reader, indexName strin
 	}
 
 	for s := range synonymCh {
+		s.FileID = fileID
 		batch = append(batch, s)
 		if len(batch) >= uc.config.BatchSize {
 			if err := flush(); err != nil {

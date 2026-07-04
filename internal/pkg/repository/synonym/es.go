@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/elastic/go-elasticsearch/v8"
@@ -80,53 +81,21 @@ func (r *ElasticSearchRepository) bulkIndex(
 	return nil
 }
 
-// DeleteStaleIndexes deletes all indexes matching the pattern aliasName-* except
-// liveIndexName, cleaning up old timestamped indexes after a re-upload.
-func (r *ElasticSearchRepository) DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName string) error {
-	pattern := aliasName + "-*"
-
-	getRes, err := r.esClient.Indices.Get(
-		[]string{pattern},
-		r.esClient.Indices.Get.WithContext(ctx),
+// DeleteByFileID removes all documents in indexName where file_id equals fileID.
+func (r *ElasticSearchRepository) DeleteByFileID(ctx context.Context, indexName, fileID string) error {
+	query := `{"query":{"term":{"file_id":"` + fileID + `"}}}`
+	res, err := r.esClient.DeleteByQuery(
+		[]string{indexName},
+		strings.NewReader(query),
+		r.esClient.DeleteByQuery.WithContext(ctx),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to list indexes for pattern %q: %w", pattern, err)
+		return fmt.Errorf("failed to delete by file_id: %w", err)
 	}
-	defer func() { _ = getRes.Body.Close() }()
+	defer func() { _ = res.Body.Close() }()
 
-	if getRes.StatusCode == http.StatusNotFound {
-		return nil
-	}
-	if getRes.IsError() {
-		return fmt.Errorf("elasticsearch list indexes failed: %s", getRes.String())
-	}
-
-	var indices map[string]json.RawMessage
-	if err := json.NewDecoder(getRes.Body).Decode(&indices); err != nil {
-		return fmt.Errorf("failed to decode index list: %w", err)
-	}
-
-	var toDelete []string
-	for name := range indices {
-		if name != liveIndexName {
-			toDelete = append(toDelete, name)
-		}
-	}
-	if len(toDelete) == 0 {
-		return nil
-	}
-
-	delRes, err := r.esClient.Indices.Delete(
-		toDelete,
-		r.esClient.Indices.Delete.WithContext(ctx),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to delete stale indexes: %w", err)
-	}
-	defer func() { _ = delRes.Body.Close() }()
-
-	if delRes.IsError() {
-		return fmt.Errorf("elasticsearch delete indexes failed: %s", delRes.String())
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch delete_by_query failed: %s", res.String())
 	}
 	return nil
 }

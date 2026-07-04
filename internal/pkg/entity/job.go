@@ -25,7 +25,8 @@ const (
 
 	JobTypeDsRNACSV = "DSRNA.CSV"
 
-	JobTypeSpeciesSynonym = "SPECIES.SYNONYM"
+	JobTypeSpeciesSynonym       = "SPECIES.SYNONYM"
+	JobTypeSpeciesSynonymDelete = "SPECIES.SYNONYM:DELETE"
 
 	JobTypeJBrowseTrack       = "JBROWSE.TRACK"
 	JobTypeJBrowseTrackDelete = "JBROWSE.TRACK:DELETE"
@@ -51,6 +52,7 @@ var JobDescriptions = map[string]string{
 	JobTypeOrthologyTSV:            "Parse orthology TSV file",
 	JobTypeOrthologyTSVDelete:      "Delete orthology TSV file",
 	JobTypeSpeciesSynonym:          "Parse species synonym file",
+	JobTypeSpeciesSynonymDelete:    "Delete species synonym file",
 	JobTypeDsRNACSV:                "Parse dsRNA CSV file",
 	JobTypeJBrowseTrack:            "Add JBrowse2 track",
 	JobTypeJBrowseTrackDelete:      "Remove JBrowse2 track",

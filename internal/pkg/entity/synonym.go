@@ -9,6 +9,7 @@ type Synonym struct {
 	Gene    string `json:"gene"`
 	Type    string `json:"type"`
 	Synonym string `json:"synonym"`
+	FileID  string `json:"file_id"`
 }
 
 const (
