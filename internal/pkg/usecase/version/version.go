@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
@@ -87,10 +88,11 @@ type UseCase struct {
 	jobRepo         IJobRepository
 	uploadFileRepo  IUploadFileRepository
 	esRepo          IVersionESRepository
+	uploadDir       string
 }
 
-func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IVersionESRepository) *UseCase {
-	return &UseCase{versionRepo: versionRepo, appSettingsRepo: appSettingsRepo, jobRepo: jobRepo, uploadFileRepo: uploadFileRepo, esRepo: esRepo}
+func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IVersionESRepository, uploadDir string) *UseCase {
+	return &UseCase{versionRepo: versionRepo, appSettingsRepo: appSettingsRepo, jobRepo: jobRepo, uploadFileRepo: uploadFileRepo, esRepo: esRepo, uploadDir: uploadDir}
 }
 
 func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*VersionList, error) {
@@ -463,6 +465,11 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		if err := os.Remove(f.FilePath); err != nil && !os.IsNotExist(err) {
 			log.Ctx(ctx).Warn().Err(err).Str("path", f.FilePath).Msg("failed to remove upload file from disk during version delete")
 		}
+	}
+
+	versionDir := filepath.Join(uc.uploadDir, v.Name)
+	if err := os.RemoveAll(versionDir); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("path", versionDir).Msg("failed to remove version directory during version delete")
 	}
 
 	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {

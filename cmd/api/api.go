@@ -56,7 +56,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	versionRepo := repoversion.New(db)
 	uploadFileRepo := repouploadfile.New(db)
-	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, esindex.New(esClient, config.Elasticsearch.IndexPrefix))
+	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, esindex.New(esClient, config.Elasticsearch.IndexPrefix), config.Uploads.Dir)
 
 	jobUC := ucjob.New(jobRepo, versionRepo)
 
