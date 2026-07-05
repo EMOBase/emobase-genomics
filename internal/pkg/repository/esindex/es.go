@@ -28,6 +28,7 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 		p + "sequence-" + vn + "-*",
 		p + "orthology-" + vn + "-*",
 		p + "synonym-" + vn + "-*",
+		p + "dsrna-" + vn + "-*",
 	}
 
 	res, err := r.esClient.Indices.Delete(
