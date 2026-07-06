@@ -35,6 +35,7 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 		patterns,
 		r.esClient.Indices.Delete.WithContext(ctx),
 		r.esClient.Indices.Delete.WithIgnoreUnavailable(true),
+		r.esClient.Indices.Delete.WithAllowNoIndices(true),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to delete ES indexes for version %q: %w", versionName, err)
