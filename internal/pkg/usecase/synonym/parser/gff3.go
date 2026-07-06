@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	ErrFirstRecordNotGene     = errors.New("first record is not a gene")
-	ErrMRNAMustHaveGeneParent = errors.New("mRNA must have a gene parent declared before it")
-	ErrCDSMustHaveMRNAParent  = errors.New("CDS must have an mRNA parent declared before it")
+	ErrFirstRecordNotGene          = errors.New("first record is not a gene")
+	ErrMRNAMustHaveGeneParent      = errors.New("mRNA must have a gene parent declared before it")
+	ErrCDSMustHaveMRNAOrGeneParent = errors.New("CDS must have an mRNA or gene parent declared before it")
 )
 
 // GFF3SynonymParser implements ISynonymParser for GFF3 genomic annotation files.
@@ -157,8 +157,9 @@ func MakeSynonyms(gff3Records []gff3.GFF3Record, mainSpecies, geneIDKey string, 
 			}
 
 		case "CDS":
-			if _, ok := mRNALocalIds[record.GetParentID()]; !ok {
-				return nil, ErrCDSMustHaveMRNAParent
+			parentID := record.GetParentID()
+			if _, ok := mRNALocalIds[parentID]; !ok && parentID != geneLocalId {
+				return nil, ErrCDSMustHaveMRNAOrGeneParent
 			}
 
 			if v, ok := record.GetAttributeFirstValue("protein_id"); ok && v != "" {
