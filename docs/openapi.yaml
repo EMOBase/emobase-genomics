@@ -89,7 +89,7 @@ components:
                 - `DRAFT` — no jobs exist.
                 - `PROCESSING` — at least one job is PENDING or RUNNING.
                 - `ERROR` — at least one job is FAILED.
-                - `MISSING_REQUIRED_FILE` — at least one of the required files (`genomic.fna`, `genomic.gff`) has not been uploaded yet.
+                - `MISSING_REQUIRED_FILE` — the required file (`genomic.fna`) has not been uploaded yet.
                 - `READY` — all jobs are DONE.
 
                 Beside `DRAFT` and `READY`, these states are not mutually exclusive.
@@ -1424,7 +1424,7 @@ paths:
         is automatically promoted to the default and the BLAST container is restarted.
 
         **Preconditions** (returns 422 if not met):
-        - `genomic.fna` and `genomic.gff` must have at least one completed upload.
+        - `genomic.fna` must have at least one completed upload.
         - All jobs generated from the latest completed file of every uploaded type must be in `DONE` state.
 
         If a non-failed blast job already exists for a given type it is skipped (idempotent per type).

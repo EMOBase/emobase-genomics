@@ -156,13 +156,11 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 		if err != nil {
 			return nil, err
 		}
-		hasGFF, hasFNA := false, false
+		hasFNA := false
 		for _, f := range completedFiles {
-			switch f.FileType {
-			case entity.FileTypeGenomicGFF:
-				hasGFF = true
-			case entity.FileTypeGenomicFNA:
+			if f.FileType == entity.FileTypeGenomicFNA {
 				hasFNA = true
+				break
 			}
 		}
 
@@ -170,7 +168,7 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 			Version:       v,
 			IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
 			TotalFileSize: fileSizes[v.ID],
-			Status:        computeVersionStatus(statusCounts, hasFNA && hasGFF),
+			Status:        computeVersionStatus(statusCounts, hasFNA),
 		}
 	}
 
@@ -272,7 +270,7 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	if err != nil {
 		return nil, err
 	}
-	hasRequiredFiles := seen[entity.FileTypeGenomicGFF] && seen[entity.FileTypeGenomicFNA]
+	hasRequiredFiles := seen[entity.FileTypeGenomicFNA]
 	detail.Status = computeVersionStatus(statusCounts, hasRequiredFiles)
 
 	fileSizes, err := uc.uploadFileRepo.TotalFileSizeByVersionIDs(ctx, []uint64{v.ID})
@@ -349,11 +347,8 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		latestByType[latestFiles[i].FileType] = &latestFiles[i]
 	}
 
-	// genomic.fna and genomic.gff are required before a release.
-	for _, ft := range []string{entity.FileTypeGenomicFNA, entity.FileTypeGenomicGFF} {
-		if latestByType[ft] == nil {
-			return nil, fmt.Errorf("%w: %s", ErrRequiredFileNotUploaded, ft)
-		}
+	if latestByType[entity.FileTypeGenomicFNA] == nil {
+		return nil, fmt.Errorf("%w: %s", ErrRequiredFileNotUploaded, entity.FileTypeGenomicFNA)
 	}
 
 	// All jobs for the latest completed file of each uploaded type must be DONE.
