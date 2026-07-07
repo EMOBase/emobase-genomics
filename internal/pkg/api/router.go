@@ -58,6 +58,9 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 	silencingSeqsHandler := handler.NewSilencingSeqsHandler(searchUC)
 	router.GET("/silencingseqs", silencingSeqsHandler.Get)
 
+	publicVersionHandler := handler.NewVersionHandler(versionUC)
+	router.GET("/public/versions", publicVersionHandler.ListPublic)
+
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
 	uploadHandler := func(c *gin.Context) {
 		tusHandler.ServeHTTP(c.Writer, c.Request)

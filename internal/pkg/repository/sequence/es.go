@@ -128,7 +128,6 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 	return sequences, nil
 }
 
-
 // SetAlias atomically points aliasName to indexName,
 // removing it from any previous index it may have pointed to.
 func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName string) error {

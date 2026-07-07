@@ -52,6 +52,21 @@ components:
           type: string
           example: admin
 
+    VersionPublicItem:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: dmel_r6.54
+        createdAt:
+          type: string
+          format: date-time
+
     VersionItem:
       allOf:
         - $ref: '#/components/schemas/Version'
@@ -1164,6 +1179,27 @@ paths:
                   value:
                     error: no default version configured
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /public/versions:
+    get:
+      summary: List versions (public)
+      operationId: listVersionsPublic
+      tags: [Versions]
+      description: Returns a lightweight list of all versions (id, name, createdAt), sorted by createdAt descending. No authentication required. Capped at 100 results.
+      responses:
+        '200':
+          description: List of versions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VersionPublicItem'
+                  requestId:
+                    type: string
 
   /versions:
     get:

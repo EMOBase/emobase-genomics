@@ -38,6 +38,25 @@ type VersionList struct {
 	PageSize int           `json:"pageSize"`
 }
 
+// VersionPublicItem is the limited version data returned by the public endpoint.
+type VersionPublicItem struct {
+	ID        uint64    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (uc *UseCase) ListVersionsPublic(ctx context.Context) ([]VersionPublicItem, error) {
+	versions, err := uc.versionRepo.ListPublic(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]VersionPublicItem, len(versions))
+	for i, v := range versions {
+		items[i] = VersionPublicItem{ID: v.ID, Name: v.Name, CreatedAt: v.CreatedAt}
+	}
+	return items, nil
+}
+
 // JobSummary is the per-file job representation inside VersionDetail.
 type JobSummary struct {
 	ID          uint64           `json:"id"`

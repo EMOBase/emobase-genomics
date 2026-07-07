@@ -10,6 +10,7 @@ type IVersionRepository interface {
 	Create(ctx context.Context, v *entity.Version) error
 	FindByName(ctx context.Context, name string) (*entity.Version, error)
 	List(ctx context.Context, offset, limit int) ([]entity.Version, error)
+	ListPublic(ctx context.Context) ([]entity.Version, error)
 	Count(ctx context.Context) (int, error)
 	Delete(ctx context.Context, id uint64) error
 }

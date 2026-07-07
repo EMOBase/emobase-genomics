@@ -95,6 +95,26 @@ func (r *MySQLRepository) List(ctx context.Context, offset, limit int) ([]entity
 	return versions, rows.Err()
 }
 
+func (r *MySQLRepository) ListPublic(ctx context.Context) ([]entity.Version, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, created_at FROM versions ORDER BY created_at DESC LIMIT 100`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var versions []entity.Version
+	for rows.Next() {
+		var v entity.Version
+		if err := rows.Scan(&v.ID, &v.Name, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
+}
+
 func (r *MySQLRepository) Count(ctx context.Context) (int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM versions`).Scan(&total)
