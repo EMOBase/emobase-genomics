@@ -38,7 +38,7 @@ func (h *OrthologyHandler) BySpecies(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, ucsearch.ErrNoDefaultVersion) {
-			apires.Fail(c, http.StatusUnprocessableEntity, "no default version configured")
+			apires.OK(c, []ucsearch.GeneOrthology{})
 			return
 		}
 		panic(err)

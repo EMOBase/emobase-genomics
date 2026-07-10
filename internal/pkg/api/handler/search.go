@@ -37,7 +37,7 @@ func (h *SearchHandler) Suggest(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, ucsearch.ErrNoDefaultVersion) {
-			apires.Fail(c, http.StatusUnprocessableEntity, "no default version configured")
+			apires.OK(c, []string{})
 			return
 		}
 		panic(err)
@@ -63,7 +63,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, ucsearch.ErrNoDefaultVersion) {
-			apires.Fail(c, http.StatusUnprocessableEntity, "no default version configured")
+			apires.OK(c, &ucsearch.SearchResult{})
 			return
 		}
 		panic(err)
