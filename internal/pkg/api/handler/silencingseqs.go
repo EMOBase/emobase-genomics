@@ -43,7 +43,7 @@ func (h *SilencingSeqsHandler) Get(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, ucsearch.ErrNoDefaultVersion) {
-			apires.Fail(c, http.StatusUnprocessableEntity, "no default version configured")
+			apires.OK(c, []ucsearch.SilencingSeq{})
 			return
 		}
 		panic(err)
