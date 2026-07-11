@@ -82,14 +82,15 @@ type FileDetail struct {
 // VersionDetailFiles holds the latest uploaded file for each single-file type
 // and all uploaded files for orthology / jbrowse.track.
 type VersionDetailFiles struct {
-	GenomicFNA   *FileDetail  `json:"genomic.fna"`
-	GenomicGFF   *FileDetail  `json:"genomic.gff"`
-	RNAFNA       *FileDetail  `json:"rna.fna"`
-	CDSFNA       *FileDetail  `json:"cds.fna"`
-	ProteinFAA   *FileDetail  `json:"protein.faa"`
-	DsRNACSV     *FileDetail  `json:"dsrna.csv"`
-	OrthologyTSV []FileDetail `json:"orthology.tsv"`
-	JBrowseTrack []FileDetail `json:"jbrowse.track"`
+	GenomicFNA     *FileDetail  `json:"genomic.fna"`
+	GenomicGFF     *FileDetail  `json:"genomic.gff"`
+	RNAFNA         *FileDetail  `json:"rna.fna"`
+	CDSFNA         *FileDetail  `json:"cds.fna"`
+	ProteinFAA     *FileDetail  `json:"protein.faa"`
+	DsRNACSV       *FileDetail  `json:"dsrna.csv"`
+	OrthologyTSV   []FileDetail `json:"orthology.tsv"`
+	JBrowseTrack   []FileDetail `json:"jbrowse.track"`
+	SpeciesSynonym []FileDetail `json:"species.synonym"`
 }
 
 // VersionDetail is the response for GET /versions/{name}/detail.
@@ -222,7 +223,7 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	detail := VersionDetail{
 		Version:   *v,
 		IsDefault: defaultVersionID != nil && *defaultVersionID == v.ID,
-		Files:     VersionDetailFiles{OrthologyTSV: []FileDetail{}, JBrowseTrack: []FileDetail{}},
+		Files:     VersionDetailFiles{OrthologyTSV: []FileDetail{}, JBrowseTrack: []FileDetail{}, SpeciesSynonym: []FileDetail{}},
 	}
 
 	for _, f := range files {
@@ -245,6 +246,8 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 			detail.Files.OrthologyTSV = append(detail.Files.OrthologyTSV, fd)
 		case entity.FileTypeJBrowseTrack:
 			detail.Files.JBrowseTrack = append(detail.Files.JBrowseTrack, fd)
+		case entity.FileTypeSpeciesSynonym:
+			detail.Files.SpeciesSynonym = append(detail.Files.SpeciesSynonym, fd)
 		default:
 			if !seen[f.FileType] {
 				seen[f.FileType] = true
