@@ -19,21 +19,22 @@ BASENAME=$(basename "$TRACK_GZ")
 BASENAME="${BASENAME%.gzip}"
 BASENAME="${BASENAME%.gz}"
 
-echo "Decompressing track file..."
-gunzip -c "$TRACK_GZ" > "$TMPDIR/$BASENAME"
-
-# GFF files must be sorted, bgzip-compressed, and tabix-indexed before
-# jbrowse add-track can register them correctly.
+# Prefix the filename with the assembly/version name so that files from
+# different versions with the same original filename (e.g. tcas1.read_coverage.bw)
+# are stored as distinct files in /web/data/ and don't overwrite each other.
 case "$BASENAME" in
   *.gff|*.gff3)
-    SORTED_FILE="$TMPDIR/${BASENAME%.*}.sorted.gff.gz"
+    echo "Decompressing track file..."
+    gunzip -c "$TRACK_GZ" > "$TMPDIR/$BASENAME"
+    TRACK_FILE="$TMPDIR/$ASSEMBLY_NAME.${BASENAME%.*}.sorted.gff.gz"
     echo "Sorting and compressing GFF..."
-    jbrowse sort-gff "$TMPDIR/$BASENAME" | bgzip > "$SORTED_FILE"
-    tabix "$SORTED_FILE"
-    TRACK_FILE="$SORTED_FILE"
+    jbrowse sort-gff "$TMPDIR/$BASENAME" | bgzip > "$TRACK_FILE"
+    tabix "$TRACK_FILE"
     ;;
   *)
-    TRACK_FILE="$TMPDIR/$BASENAME"
+    TRACK_FILE="$TMPDIR/$ASSEMBLY_NAME.$BASENAME"
+    echo "Decompressing track file..."
+    gunzip -c "$TRACK_GZ" > "$TRACK_FILE"
     ;;
 esac
 

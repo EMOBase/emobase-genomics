@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -14,6 +15,11 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 )
+
+// deleteJBrowseVersionScript removes a version's assembly, tracks, and
+// text-search index entries from the shared JBrowse2 config.json, plus the
+// underlying data files (see scripts/delete_jbrowse_version.sh).
+const deleteJBrowseVersionScript = "/app/scripts/delete_jbrowse_version.sh"
 
 var (
 	ErrVersionAlreadyExists       = errors.New("version already exists")
@@ -491,6 +497,11 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 
 	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to delete ES indexes during version delete")
+	}
+
+	if out, err := exec.CommandContext(ctx, deleteJBrowseVersionScript, v.Name).CombinedOutput(); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("scriptOutput", string(out)).
+			Msg("failed to clean up JBrowse2 data during version delete")
 	}
 
 	return uc.versionRepo.Delete(ctx, v.ID)
