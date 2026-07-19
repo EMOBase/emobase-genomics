@@ -23,6 +23,15 @@ echo "Sorting and compressing GFF..."
 jbrowse sort-gff "$TMPDIR/${VERSION}.genomic.gff" | bgzip > "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
 tabix "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
 
+# Serialize access to the shared config.json from here on: multiple JBrowse2
+# setup/track/delete scripts can run concurrently (see docker-compose worker
+# replicas), and each does a non-atomic read-modify-write of that file. Held
+# through every config.json mutation below (add-track, text-index, both jq
+# patches) so this version's setup lands as one atomic unit relative to
+# other scripts.
+exec 200>/web/data/.jbrowse-config.lock
+flock -x 200
+
 echo "Adding JBrowse2 annotation track and rebuilding text index for version ${VERSION}..."
 jbrowse add-track "$TMPDIR/${VERSION}.genomic.sorted.gff.gz" --name "${VERSION} Annotations" --assemblyNames "$VERSION" --load copy --out /web/data --force
 

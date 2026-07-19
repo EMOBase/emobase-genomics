@@ -16,6 +16,12 @@ if [ ! -f "$CONFIG" ]; then
   exit 0
 fi
 
+# Serialize access to the shared config.json: multiple JBrowse2 setup/track/
+# delete scripts can run concurrently (see docker-compose worker replicas),
+# and each does a non-atomic read-modify-write of that file.
+exec 200>"$DATA_DIR/.jbrowse-config.lock"
+flock -x 200
+
 echo "Removing JBrowse2 assembly, tracks, text-search entries, and default-session views for version ${VERSION}..."
 jq --arg version "$VERSION" '
   (

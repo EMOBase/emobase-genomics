@@ -19,6 +19,11 @@ echo "Indexing FASTA..."
 samtools faidx "$TMPDIR/${VERSION}.genomic.fna"
 
 echo "Adding JBrowse2 assembly for version ${VERSION}..."
+# Serialize access to the shared config.json: multiple JBrowse2 setup/track/
+# delete scripts can run concurrently (see docker-compose worker replicas),
+# and each does a non-atomic read-modify-write of that file.
+exec 200>/web/data/.jbrowse-config.lock
+flock -x 200
 jbrowse add-assembly "$TMPDIR/${VERSION}.genomic.fna" --name "$VERSION" --load copy --out /web/data --force
 
 echo "JBrowse2 FNA setup complete."

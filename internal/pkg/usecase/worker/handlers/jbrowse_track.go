@@ -17,6 +17,12 @@ const (
 	jbrowseBin            = "jbrowse"
 	jbrowseOutDir         = "/web/data"
 	addJBrowseTrackScript = "/app/scripts/add_jbrowse_track.sh"
+
+	// jbrowseConfigLockFile serializes access to config.json across every
+	// process that reads/modifies it — the setup/track/delete shell scripts
+	// and this handler's direct `jbrowse remove-track` call both race on it
+	// otherwise, since worker replicas process jobs concurrently.
+	jbrowseConfigLockFile = jbrowseOutDir + "/.jbrowse-config.lock"
 )
 
 // JBrowseTrackHandler runs `jbrowse add-track` to register an uploaded track file.
@@ -75,7 +81,12 @@ func (h *DeleteJBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) 
 	}
 
 	trackID := "track-" + payload.UploadFileID
-	cmd := exec.CommandContext(ctx, jbrowseBin, "remove-track", trackID, "--out", jbrowseOutDir)
+	// "flock <file> <command...>" blocks until it can acquire an exclusive
+	// lock on jbrowseConfigLockFile (creating it if needed), runs the
+	// command, then releases the lock — matching the flock usage in
+	// scripts/{add_jbrowse_track,setup_jbrowse2_fna,setup_jbrowse2_gff,
+	// delete_jbrowse_version}.sh, which all touch the same config.json.
+	cmd := exec.CommandContext(ctx, "flock", jbrowseConfigLockFile, jbrowseBin, "remove-track", trackID, "--out", jbrowseOutDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %w\noutput: %s", entity.JobTypeJBrowseTrackDelete, err, out)

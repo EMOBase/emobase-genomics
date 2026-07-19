@@ -41,6 +41,14 @@ case "$BASENAME" in
     ;;
 esac
 
+# Serialize access to the shared config.json from here on: multiple JBrowse2
+# setup/track/delete scripts can run concurrently (see docker-compose worker
+# replicas), and each does a non-atomic read-modify-write of that file. Held
+# through the default-session patch below too, so both mutations for this
+# track land as one atomic unit relative to other scripts.
+exec 200>"$DATA_DIR/.jbrowse-config.lock"
+flock -x 200
+
 echo "Adding JBrowse2 track..."
 CATEGORY_ARG=()
 if [ -n "$CATEGORY" ]; then
