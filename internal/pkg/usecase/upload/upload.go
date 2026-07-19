@@ -355,12 +355,14 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	// jbrowse.track: run jbrowse add-track with track-specific metadata.
 	if fileType == entity.FileTypeJBrowseTrack {
+		selectInDefaultSession, _ := strconv.ParseBool(meta["selectInDefaultSession"])
 		rawPayload, err := json.Marshal(jobpayload.JBrowseTrackPayload{
-			VersionName: meta["version"],
-			FilePath:    filePath,
-			TrackName:   strings.TrimSpace(meta["trackName"]),
-			FileID:      uploadID,
-			Category:    strings.TrimSpace(meta["category"]),
+			VersionName:            meta["version"],
+			FilePath:               filePath,
+			TrackName:              strings.TrimSpace(meta["trackName"]),
+			FileID:                 uploadID,
+			Category:               strings.TrimSpace(meta["category"]),
+			SelectInDefaultSession: selectInDefaultSession,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeJBrowseTrack, err)

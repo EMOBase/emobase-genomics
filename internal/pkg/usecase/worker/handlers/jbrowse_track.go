@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
@@ -39,6 +40,7 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 		payload.VersionName,
 		trackID,
 		payload.Category,
+		strconv.FormatBool(payload.SelectInDefaultSession),
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -49,6 +51,7 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 		Uint64("jobID", job.ID).
 		Str("trackId", trackID).
 		Str("version", payload.VersionName).
+		Bool("selectInDefaultSession", payload.SelectInDefaultSession).
 		Str("scriptOutput", string(out)).
 		Msgf("%s completed successfully", entity.JobTypeJBrowseTrack)
 

@@ -157,7 +157,7 @@ components:
         - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
-        - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track and rebuild the JBrowse2 text index.
+        - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track, rebuild the JBrowse2 text index, and select the annotation track in the assembly default session.
         - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
         - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
@@ -1567,6 +1567,7 @@ paths:
         | `species` | Conditional | Required when `fileType` is `species.synonym`. The species identifier whose synonym rows are parsed from the file (e.g. `Dmel`). |
         | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
         | `category` | No | Only used when `fileType` is `jbrowse.track`. Comma-separated list of category labels used to group the track in the JBrowse2 track selector (e.g. `Alignments,My Lab`). |
+        | `selectInDefaultSession` | No | Only used when `fileType` is `jbrowse.track`. Boolean (`true`/`false`, default `false`). When `true`, the track is added to the assembly's default session (already selected/visible the first time a user opens that assembly in JBrowse2) and the "Available Tracks" panel is opened by default. |
 
         **Accepted `fileType` values:**
         - `genomic.fna`

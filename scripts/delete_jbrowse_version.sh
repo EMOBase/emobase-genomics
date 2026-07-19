@@ -16,8 +16,13 @@ if [ ! -f "$CONFIG" ]; then
   exit 0
 fi
 
-echo "Removing JBrowse2 assembly, tracks, and text-search entries for version ${VERSION}..."
+echo "Removing JBrowse2 assembly, tracks, text-search entries, and default-session views for version ${VERSION}..."
 jq --arg version "$VERSION" '
+  (
+    (.defaultSession.views // [])
+    | map(select((.init.assembly // "") == $version))
+    | map(.id)
+  ) as $removedViewIds |
   .assemblies |= map(select(.name != $version)) |
   .tracks |= (
     map(
@@ -37,7 +42,24 @@ jq --arg version "$VERSION" '
         end
       )
     | map(select((.assemblyNames // []) | length > 0))
-  )
+  ) |
+  .defaultSession.views |= (
+    (. // [])
+    | map(select((.init.assembly // "") != $version))
+  ) |
+  # The hierarchical track selector ("Available Tracks" panel) is the only
+  # widget our automation writes (see add_jbrowse_track.sh); if it points at
+  # a view we just removed, drop it too instead of leaving a dangling ref.
+  # (Bind the widget current-view value before piping into $removedViewIds
+  # below: a function argument like "index(...)" evaluates "." against
+  # whatever the pipeline currently holds, not the top-level document.)
+  (.defaultSession.widgets.hierarchicalTrackSelector.view) as $selectorView |
+  if ($removedViewIds | index($selectorView))
+  then
+    .defaultSession.widgets |= (. // {} | del(.hierarchicalTrackSelector)) |
+    .defaultSession.activeWidgets |= (. // {} | del(.hierarchicalTrackSelector))
+  else .
+  end
 ' "$CONFIG" > /tmp/_jbrowse_config.json && mv /tmp/_jbrowse_config.json "$CONFIG"
 
 # All assembly/track files for a version are written with a "<version>." filename
