@@ -23,12 +23,70 @@ echo "Sorting and compressing GFF..."
 jbrowse sort-gff "$TMPDIR/${VERSION}.genomic.gff" | bgzip > "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
 tabix "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
 
+# Serialize access to the shared config.json from here on: multiple JBrowse2
+# setup/track/delete scripts can run concurrently (see docker-compose worker
+# replicas), and each does a non-atomic read-modify-write of that file. Held
+# through every config.json mutation below (add-track, text-index, both jq
+# patches) so this version's setup lands as one atomic unit relative to
+# other scripts.
+exec 200>/web/data/.jbrowse-config.lock
+flock -x 200
+
 echo "Adding JBrowse2 annotation track and rebuilding text index for version ${VERSION}..."
 jbrowse add-track "$TMPDIR/${VERSION}.genomic.sorted.gff.gz" --name "${VERSION} Annotations" --assemblyNames "$VERSION" --load copy --out /web/data --force
 
-# Run text-index before the jq patch: text-index rewrites config.json and
-# would overwrite any formatDetails we inject before it runs.
+# Run text-index before the jq patches below: text-index rewrites config.json
+# and would overwrite anything we inject before it runs.
 jbrowse text-index --out /web/data
+
+echo "Selecting annotation track by default for version ${VERSION}..."
+
+# Default the view initial location to the assembly first contig (full
+# length), read from the .fai index written by setup_jbrowse2_fna.sh (that
+# job always completes before this one is enqueued, so the file is present).
+FAI_FILE="/web/data/${VERSION}.genomic.fna.fai"
+LOC=""
+if [ -f "$FAI_FILE" ]; then
+  LOC=$(awk -F'\t' 'NR==1{print $1":1-"$2}' "$FAI_FILE")
+fi
+
+jq --arg assembly "$VERSION" --arg trackName "${VERSION} Annotations" --arg loc "$LOC" '
+  (first(.tracks[] | select(.name == $trackName) | .trackId)) as $trackId |
+  .defaultSession.views |= (. // []) |
+  if (.defaultSession.views | any(.init.assembly == $assembly))
+  then
+    .defaultSession.views |= map(
+      if .init.assembly == $assembly
+      then .init.tracks = (
+        (.init.tracks // []) as $existing
+        | if ($existing | index($trackId)) then $existing else $existing + [$trackId] end
+      )
+      else .
+      end
+    )
+  else
+    .defaultSession.views += [{
+      id: ("view-" + $assembly),
+      type: "LinearGenomeView",
+      init: (if $loc == "" then {assembly: $assembly, tracks: [$trackId]}
+             else {assembly: $assembly, loc: $loc, tracks: [$trackId]} end)
+    }]
+  end
+  # Open the "Available Tracks" panel (the JBrowse2 hierarchical track
+  # selector) by default, pointed at the view for this assembly. Look up
+  # the view id just created/updated rather than assuming a naming
+  # convention, since hand-authored views may not follow "view-<assembly>".
+  | (first(.defaultSession.views[] | select(.init.assembly == $assembly) | .id) // ("view-" + $assembly)) as $viewId
+  | .defaultSession.widgets.hierarchicalTrackSelector = {
+      id: "hierarchicalTrackSelector",
+      type: "HierarchicalTrackSelectorWidget",
+      view: $viewId,
+      filterText: ""
+    }
+  | .defaultSession.activeWidgets.hierarchicalTrackSelector = "hierarchicalTrackSelector"
+' /web/data/config.json > /tmp/_jbrowse_config.json && mv /tmp/_jbrowse_config.json /web/data/config.json
+
+echo "Annotation track added to default session."
 
 if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
   echo "Patching config.json with formatDetails for track '${VERSION} Annotations'..."
