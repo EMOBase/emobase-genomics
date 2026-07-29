@@ -37,6 +37,14 @@ const (
 	JobTypeProteinFAASetupBlast = "PROTEIN.FAA:SETUP_BLAST"
 	JobTypeRNAFNASetupBlast     = "RNA.FNA:SETUP_BLAST"
 
+	// REMOVE_BLAST jobs delete a stale BLAST database when a released version
+	// has no file of the corresponding (optional) type, so the blast server
+	// never keeps serving data from an older, superseded version.
+	// genomic.fna has no REMOVE_BLAST counterpart since it is required on
+	// every release (see ReleaseVersion).
+	JobTypeProteinFAARemoveBlast = "PROTEIN.FAA:REMOVE_BLAST"
+	JobTypeRNAFNARemoveBlast     = "RNA.FNA:REMOVE_BLAST"
+
 	// SETUP_JBROWSE2 jobs build JBrowse2 genome browser tracks.
 	// FNA job runs first (add-assembly). GFF job runs after FNA:SETUP_JBROWSE2 is done.
 	JobTypeGenomicFNASetupJBrowse2 = "GENOMIC.FNA:SETUP_JBROWSE2"
@@ -59,6 +67,8 @@ var JobDescriptions = map[string]string{
 	JobTypeGenomicFNASetupBlast:    "Setup genome BLAST database",
 	JobTypeProteinFAASetupBlast:    "Setup protein BLAST database",
 	JobTypeRNAFNASetupBlast:        "Setup RNA BLAST database",
+	JobTypeProteinFAARemoveBlast:   "Remove stale protein BLAST database",
+	JobTypeRNAFNARemoveBlast:       "Remove stale RNA BLAST database",
 	JobTypeGenomicFNASetupJBrowse2: "Setup JBrowse2 assembly",
 	JobTypeGenomicGFFSetupJBrowse2: "Setup JBrowse2 annotation track",
 }

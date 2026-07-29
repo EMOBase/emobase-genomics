@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"os/exec"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -65,64 +62,10 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) (json.Ra
 // for it are done. Since ReleaseVersion already validates prerequisites before
 // enqueuing blast jobs, no further file-type checks are needed here.
 func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job, _ json.RawMessage) error {
-	blastJobTypes := []string{
-		entity.JobTypeGenomicFNASetupBlast,
-		entity.JobTypeProteinFAASetupBlast,
-		entity.JobTypeRNAFNASetupBlast,
-	}
-
-	hasPending, err := h.jobRepo.HasNonDoneJobOfTypesForVersion(ctx, job.VersionID, blastJobTypes)
-	if err != nil {
-		log.Ctx(ctx).Warn().Err(err).Msg("failed to check blast job statuses")
+	var payload jobpayload.SetupBlastPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal setup_blast payload in OnComplete")
 		return nil
 	}
-	if hasPending {
-		return nil
-	}
-
-	if err := h.appSettingsRepo.SetDefaultVersion(ctx, job.VersionID); err != nil {
-		log.Ctx(ctx).Warn().Err(err).Uint64("versionID", job.VersionID).Msg("failed to set default version after blast setup")
-		return nil
-	}
-
-	if h.containerName != "" {
-		if err := restartDockerContainer(ctx, h.containerName); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Str("container", h.containerName).Msg("failed to restart blast container")
-			return nil
-		}
-	}
-
-	log.Ctx(ctx).Info().
-		Uint64("versionID", job.VersionID).
-		Str("container", h.containerName).
-		Msg("all blast databases ready: default version set and blast container restarted")
-
-	return nil
-}
-
-func restartDockerContainer(ctx context.Context, containerName string) error {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", "/var/run/docker.sock")
-		},
-	}
-	client := &http.Client{Transport: transport}
-
-	url := fmt.Sprintf("http://localhost/containers/%s/restart", containerName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return fmt.Errorf("docker restart %s: %w", containerName, err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("docker restart %s: %w", containerName, err)
-	}
-	defer func() { _, _ = io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("docker restart %s: unexpected status %d: %s", containerName, resp.StatusCode, body)
-	}
-	return nil
+	return finalizeBlastRelease(ctx, h.jobRepo, h.appSettingsRepo, job.VersionID, payload.VersionName, h.containerName)
 }

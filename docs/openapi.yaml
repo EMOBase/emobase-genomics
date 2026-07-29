@@ -139,6 +139,8 @@ components:
         - GENOMIC.FNA:SETUP_BLAST
         - PROTEIN.FAA:SETUP_BLAST
         - RNA.FNA:SETUP_BLAST
+        - PROTEIN.FAA:REMOVE_BLAST
+        - RNA.FNA:REMOVE_BLAST
         - GENOMIC.FNA:SETUP_JBROWSE2
         - GENOMIC.GFF:SETUP_JBROWSE2
         - DSRNA.CSV
@@ -156,6 +158,8 @@ components:
         - `GENOMIC.FNA:SETUP_BLAST` — build genome BLAST database.
         - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
+        - `PROTEIN.FAA:REMOVE_BLAST` — remove a stale protein BLAST database left by a previous version that released without a `protein.faa` file.
+        - `RNA.FNA:REMOVE_BLAST` — remove a stale RNA BLAST database left by a previous version that released without a `rna.fna` file.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
         - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track, rebuild the JBrowse2 text index, and select the annotation track in the assembly default session.
         - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
@@ -1420,8 +1424,14 @@ paths:
       tags: [Versions]
       description: |
         Enqueues `GENOMIC.FNA:SETUP_BLAST`, `PROTEIN.FAA:SETUP_BLAST`, and `RNA.FNA:SETUP_BLAST`
-        jobs for the latest completed file of each type. Once all three jobs succeed, the version
-        is automatically promoted to the default and the BLAST container is restarted.
+        jobs for the latest completed file of each type. For `protein.faa` and `rna.fna`, if this
+        version has no completed upload of that type, a `PROTEIN.FAA:REMOVE_BLAST` /
+        `RNA.FNA:REMOVE_BLAST` job is enqueued instead, so a BLAST database built by a previous
+        version isn't left stale and served under this version. Once all enqueued blast jobs
+        succeed, the version is automatically promoted to the default, the BLAST container is
+        restarted, and this version's JBrowse2 assembly is promoted to the front of the default
+        session so it is what JBrowse2 opens by default (older assemblies remain available but no
+        longer take priority).
 
         **Preconditions** (returns 422 if not met):
         - `genomic.fna` must have at least one completed upload.

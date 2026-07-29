@@ -372,25 +372,45 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		}
 	}
 
+	// removeJobType is empty for file types that are required on every release
+	// (currently only genomic.fna) — those can never be absent, so there is no
+	// stale database to clean up.
 	type blastSpec struct {
-		fileType string
-		jobType  string
+		fileType      string
+		setupJobType  string
+		removeJobType string
 	}
 	specs := []blastSpec{
-		{entity.FileTypeGenomicFNA, entity.JobTypeGenomicFNASetupBlast},
-		{entity.FileTypeProteinFAA, entity.JobTypeProteinFAASetupBlast},
-		{entity.FileTypeRNAFNA, entity.JobTypeRNAFNASetupBlast},
+		{entity.FileTypeGenomicFNA, entity.JobTypeGenomicFNASetupBlast, ""},
+		{entity.FileTypeProteinFAA, entity.JobTypeProteinFAASetupBlast, entity.JobTypeProteinFAARemoveBlast},
+		{entity.FileTypeRNAFNA, entity.JobTypeRNAFNASetupBlast, entity.JobTypeRNAFNARemoveBlast},
 	}
 
 	var createdJobs []JobSummary
 	for _, spec := range specs {
 		latestFile := latestByType[spec.fileType]
+
 		if latestFile == nil {
+			// This version has no file of this type. If it was ever built
+			// (e.g. by a previous version), the on-disk database would
+			// otherwise be left stale and keep being served for this
+			// version too — enqueue a job to remove it instead.
+			if spec.removeJobType == "" {
+				continue
+			}
+
+			j, err := uc.enqueueRemoveBlastJob(ctx, v.ID, v.Name, spec.removeJobType)
+			if err != nil {
+				return nil, err
+			}
+			if j != nil {
+				createdJobs = append(createdJobs, toJobSummary(*j))
+			}
 			continue
 		}
 
 		// TODO: seems like a N+1 query problem. Can we batch this?
-		exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, v.ID, spec.jobType)
+		exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, v.ID, spec.setupJobType)
 		if err != nil {
 			return nil, err
 		}
@@ -398,7 +418,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 			continue
 		}
 
-		rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath})
+		rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath, VersionName: v.Name})
 		if err != nil {
 			return nil, err
 		}
@@ -407,8 +427,8 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		j := &entity.Job{
 			VersionID:   v.ID,
 			FileID:      &latestFile.ID,
-			Type:        spec.jobType,
-			Description: entity.JobDescriptions[spec.jobType],
+			Type:        spec.setupJobType,
+			Description: entity.JobDescriptions[spec.setupJobType],
 			Payload:     &rp,
 			Status:      entity.JobStatusPending,
 			CreatedAt:   now,
@@ -421,6 +441,40 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 	}
 
 	return &ReleaseResult{Version: *v, Jobs: createdJobs}, nil
+}
+
+// enqueueRemoveBlastJob enqueues a job to remove a BLAST database for a file
+// type this version doesn't have, unless a non-failed job of that type
+// already exists for this version (idempotent per version, mirroring the
+// dedup check for SETUP_BLAST jobs above).
+func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID uint64, versionName string, removeJobType string) (*entity.Job, error) {
+	exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, versionID, removeJobType)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, nil
+	}
+
+	rawPayload, err := json.Marshal(jobpayload.RemoveBlastPayload{VersionName: versionName})
+	if err != nil {
+		return nil, err
+	}
+	rp := json.RawMessage(rawPayload)
+	now := time.Now().UTC()
+	j := &entity.Job{
+		VersionID:   versionID,
+		Type:        removeJobType,
+		Description: entity.JobDescriptions[removeJobType],
+		Payload:     &rp,
+		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := uc.jobRepo.Create(ctx, j); err != nil {
+		return nil, err
+	}
+	return j, nil
 }
 
 func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Version, error) {
