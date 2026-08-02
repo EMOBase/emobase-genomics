@@ -104,10 +104,13 @@ if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
     # One clean ternary avoids nested-ternary precedence pitfalls.
     GUARD="feature.${ATTR_KEY,,} && split('' + feature.${ATTR_KEY,,},'${DB_NAME}:')[1]"
     EXTRACT="split(split('' + feature.${ATTR_KEY,,},'${DB_NAME}:')[1],',')[0]"
-    # Apply trim via subseq(str, start, end) which wraps String.slice().
-    # -0 == 0 in JS so omit end entirely when suffix trim is 0.
+    # Apply trim via slice(str, start, end), JBrowse2's JEXL wrapper around
+    # String.slice(). -0 == 0 in JS so omit end entirely when suffix trim is 0.
+    # The negative end argument must be parenthesized: JEXL's grammar rejects
+    # a bare "-N" as a function argument right after a comma (parse error),
+    # so slice(x,3,-2) fails outright but slice(x,3,(-2)) parses and works.
     if [ "$TRIM_SUFFIX" -gt 0 ]; then
-      TRIMMED="slice(${EXTRACT},${TRIM_PREFIX},-${TRIM_SUFFIX})"
+      TRIMMED="slice(${EXTRACT},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
     else
       TRIMMED="slice(${EXTRACT},${TRIM_PREFIX})"
     fi
@@ -115,7 +118,7 @@ if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
   else
     ID_EXPR="feature.${GENE_ID_KEY,,}"
     if [ "$TRIM_SUFFIX" -gt 0 ]; then
-      TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX},-${TRIM_SUFFIX})"
+      TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
     else
       TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX})"
     fi
