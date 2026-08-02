@@ -577,18 +577,23 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 		return nil, fmt.Errorf("failed to look up %s job for file: %w", entity.JobTypeGenomicGFF, err)
 	}
 	var geneIDKey string
+	var trimPrefixChars, trimSuffixChars int
 	if gffJob != nil && gffJob.Payload != nil {
 		var p jobpayload.GenomicGFFPayload
 		if err := json.Unmarshal(*gffJob.Payload, &p); err == nil {
 			geneIDKey = p.GeneIDKey
+			trimPrefixChars = p.TrimPrefixChars
+			trimSuffixChars = p.TrimSuffixChars
 		}
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
-		VersionName:    versionName,
-		GenomicGFFPath: gffFilePath,
-		GeneIDKey:      geneIDKey,
-		GeneLinkBase:   uc.geneLinkBase,
+		VersionName:     versionName,
+		GenomicGFFPath:  gffFilePath,
+		GeneIDKey:       geneIDKey,
+		GeneLinkBase:    uc.geneLinkBase,
+		TrimPrefixChars: trimPrefixChars,
+		TrimSuffixChars: trimSuffixChars,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)

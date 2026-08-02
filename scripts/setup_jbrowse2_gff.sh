@@ -116,13 +116,21 @@ if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
     fi
     JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
   else
-    ID_EXPR="feature.${GENE_ID_KEY,,}"
+    # feature.<key> is an array even for single-valued GFF3 attributes (see
+    # @gmod/gff's parseAttributes, which always wraps attribute values in an
+    # array) — slice() on the raw array truncates by index, not by
+    # character, silently producing an empty result. Coerce to a string
+    # before slicing, same as the nested branch above already does for its
+    # EXTRACT. GUARD stays uncoerced: '' + undefined is the truthy string
+    # "undefined", which would break the missing-attribute guard.
+    GUARD="feature.${GENE_ID_KEY,,}"
+    STR_EXPR="('' + feature.${GENE_ID_KEY,,})"
     if [ "$TRIM_SUFFIX" -gt 0 ]; then
-      TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
+      TRIMMED="slice(${STR_EXPR},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
     else
-      TRIMMED="slice(${ID_EXPR},${TRIM_PREFIX})"
+      TRIMMED="slice(${STR_EXPR},${TRIM_PREFIX})"
     fi
-    JEXL_EXPR="jexl:{emobase_link:${ID_EXPR} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
+    JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
   fi
 
   MATCHED=$(jq --arg name "${VERSION} Annotations" '[.tracks[] | select(.name == $name)] | length' /web/data/config.json)
