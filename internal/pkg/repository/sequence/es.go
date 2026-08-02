@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esbulk"
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
@@ -67,14 +68,8 @@ func (r *ElasticSearchRepository) bulkIndex(
 		return fmt.Errorf("elasticsearch bulk request failed: %s", res.String())
 	}
 
-	var result struct {
-		Errors bool `json:"errors"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
-		return fmt.Errorf("failed to decode bulk response: %w", err)
-	}
-	if result.Errors {
-		return fmt.Errorf("elasticsearch bulk index had partial failures for index %q", indexName)
+	if err := esbulk.DecodeResponse(res.Body, indexName); err != nil {
+		return err
 	}
 
 	return nil

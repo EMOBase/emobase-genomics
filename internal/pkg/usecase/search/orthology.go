@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 )
 
 type OrthologItem struct {
@@ -24,7 +26,7 @@ func (uc *UseCase) GetOrthologyBySpecies(ctx context.Context, species, genes, so
 	if err != nil {
 		return nil, err
 	}
-	orthologyIndex := fmt.Sprintf("%s-orthology-%s", uc.indexPrefix, strings.ToLower(version.Name))
+	orthologyIndex := fmt.Sprintf("%s-orthology-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 
 	geneList := splitAndTrim(genes)
 	queries := make([]string, len(geneList))

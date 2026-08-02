@@ -19,6 +19,12 @@ echo "Indexing FASTA..."
 samtools faidx "$TMPDIR/${VERSION}.genomic.fna"
 
 echo "Adding JBrowse2 assembly for version ${VERSION}..."
+# This is the first script in the pipeline to ever touch /web/data, so guard
+# against the setup-jbrowse2-web migrate step ("jbrowse create /web") not
+# having populated it yet — exec below would fail with "No such file or
+# directory" on a missing parent dir rather than just creating the lock file.
+mkdir -p /web/data
+
 # Serialize access to the shared config.json: multiple JBrowse2 setup/track/
 # delete scripts can run concurrently (see docker-compose worker replicas),
 # and each does a non-atomic read-modify-write of that file.

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 )
@@ -63,7 +63,7 @@ func (h *DeleteSynonymHandler) Handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("version %d not found", f.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
 
 	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {

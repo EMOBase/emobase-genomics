@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
 	"github.com/rs/zerolog/log"
@@ -60,7 +61,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	// Use version.CreatedAt.Unix() instead of time.Now().Unix() to fix the index name,
 	// so multiple synonym files uploaded for the same version will be indexed into the same ES index.
 	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
@@ -117,7 +118,7 @@ func (h *SynonymHandler) OnFailure(ctx context.Context, job entity.Job, _ error)
 		return nil
 	}
 
-	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
 
 	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 )
@@ -69,7 +69,7 @@ func (h *DeleteOrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) 
 	}
 
 	indexName := fmt.Sprintf("%s-orthology-%s-%d",
-		h.indexPrefix, strings.ToLower(version.Name), version.CreatedAt.Unix())
+		h.indexPrefix, indexname.FromVersionName(version.Name), version.CreatedAt.Unix())
 
 	if err := h.orthologyRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		return nil, fmt.Errorf("failed to delete orthology records: %w", err)

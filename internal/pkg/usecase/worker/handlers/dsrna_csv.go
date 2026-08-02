@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 )
@@ -64,7 +64,7 @@ func (h *DsRNACSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawM
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("%s-dsrna-%s", h.indexPrefix, strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-dsrna-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
 
 	f, err := os.Open(payload.FilePath)

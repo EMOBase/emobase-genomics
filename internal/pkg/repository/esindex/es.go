@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
@@ -26,7 +26,7 @@ func New(esClient *elasticsearch.Client, prefix string) *Repository {
 // expressions in DELETE. We resolve wildcards with a GET first, then delete by
 // explicit name.
 func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName string) error {
-	vn := strings.ToLower(versionName)
+	vn := indexname.FromVersionName(versionName)
 	p := r.prefix + "-"
 	patterns := []string{
 		p + "genomiclocation-" + vn + "-*",

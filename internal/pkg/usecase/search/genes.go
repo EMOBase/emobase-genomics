@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	ucsequence "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/sequence"
 )
 
@@ -40,7 +41,7 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, symbol, 
 		return nil, err
 	}
 
-	versionLower := strings.ToLower(version.Name)
+	versionLower := indexname.FromVersionName(version.Name)
 	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, versionLower)
 	sequenceIndex := fmt.Sprintf("%s-sequence-%s", uc.indexPrefix, versionLower)
 	genomicIndex := fmt.Sprintf("%s-genomiclocation-%s", uc.indexPrefix, versionLower)

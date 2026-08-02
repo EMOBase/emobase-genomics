@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/versionresolver"
 )
 
@@ -81,7 +82,7 @@ func (uc *UseCase) Suggest(ctx context.Context, prefix, versionName string) ([]s
 	if err != nil {
 		return nil, err
 	}
-	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, strings.ToLower(version.Name))
+	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 	return uc.synonymRepo.Suggest(ctx, synonymIndex, prefix)
 }
 
@@ -91,8 +92,8 @@ func (uc *UseCase) Search(ctx context.Context, query, versionName string) (*Sear
 		return nil, err
 	}
 
-	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, strings.ToLower(version.Name))
-	orthologyIndex := fmt.Sprintf("%s-orthology-%s", uc.indexPrefix, strings.ToLower(version.Name))
+	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
+	orthologyIndex := fmt.Sprintf("%s-orthology-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 
 	allSynonyms, err := uc.synonymRepo.FindBySynonymRelaxed(ctx, synonymIndex, query)
 	if err != nil {
@@ -218,8 +219,8 @@ func (uc *UseCase) GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, 
 	if err != nil {
 		return nil, err
 	}
-	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, strings.ToLower(version.Name))
-	dsrnaIndex := fmt.Sprintf("%s-dsrna-%s", uc.indexPrefix, strings.ToLower(version.Name))
+	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
+	dsrnaIndex := fmt.Sprintf("%s-dsrna-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 
 	if len(ids) > 0 {
 		return uc.getSilencingSeqsByIDs(ctx, ids, synonymIndex, dsrnaIndex)

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 )
 
@@ -43,7 +43,7 @@ func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
-	aliasName := fmt.Sprintf("%s-sequence-%s", h.indexPrefix, strings.ToLower(version.Name))
+	aliasName := fmt.Sprintf("%s-sequence-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	// Use version.CreatedAt.Unix() so all sequence files (RNA, CDS, protein) for the same
 	// version share one index. Using time.Now() caused each upload to displace the previous.
 	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
