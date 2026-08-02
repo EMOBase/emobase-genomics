@@ -91,47 +91,41 @@ echo "Annotation track added to default session."
 if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
   echo "Patching config.json with formatDetails for track '${VERSION} Annotations'..."
 
+  # @gmod/gff's parseAttributes always wraps GFF3 attribute values in an
+  # array, even single-valued ones — slice() on the raw array truncates by
+  # index, not by character, silently producing an empty result. So every
+  # VALUE_EXPR below coerces to a string ('' + feature.x) before any
+  # split()/slice(). GUARD is deliberately left uncoerced: '' + undefined is
+  # the truthy string "undefined", which would break the missing-attribute
+  # check. JBrowse2 lowercases feature attribute names, hence ${KEY,,}.
   if echo "$GENE_ID_KEY" | grep -q '\.'; then
     ATTR_KEY="${GENE_ID_KEY%%.*}"
     DB_NAME="${GENE_ID_KEY#*.}"
-    # JBrowse2 lowercases feature attribute names; DB_NAME stays as-is since
-    # it matches against the string content of the attribute value.
-    # feature.dbxref can be a string (single value) or array (multiple values);
-    # '' + feature.dbxref normalises both to a comma-separated string.
+    # DB_NAME stays as-is (not lowercased): it matches against the string
+    # content of the attribute value, not a feature attribute key.
+    STR_EXPR="('' + feature.${ATTR_KEY,,})"
     # GUARD: short-circuits when the attribute is absent (non-gene features)
     # or when DB_NAME prefix is not found (split()[1] would be undefined).
-    # EXTRACT: safe to evaluate when GUARD is truthy.
-    # One clean ternary avoids nested-ternary precedence pitfalls.
-    GUARD="feature.${ATTR_KEY,,} && split('' + feature.${ATTR_KEY,,},'${DB_NAME}:')[1]"
-    EXTRACT="split(split('' + feature.${ATTR_KEY,,},'${DB_NAME}:')[1],',')[0]"
-    # Apply trim via slice(str, start, end), JBrowse2's JEXL wrapper around
-    # String.slice(). -0 == 0 in JS so omit end entirely when suffix trim is 0.
-    # The negative end argument must be parenthesized: JEXL's grammar rejects
-    # a bare "-N" as a function argument right after a comma (parse error),
-    # so slice(x,3,-2) fails outright but slice(x,3,(-2)) parses and works.
-    if [ "$TRIM_SUFFIX" -gt 0 ]; then
-      TRIMMED="slice(${EXTRACT},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
-    else
-      TRIMMED="slice(${EXTRACT},${TRIM_PREFIX})"
-    fi
-    JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
+    # VALUE_EXPR: safe to evaluate when GUARD is truthy. One clean ternary
+    # avoids nested-ternary precedence pitfalls (see JEXL_EXPR below).
+    GUARD="feature.${ATTR_KEY,,} && split(${STR_EXPR},'${DB_NAME}:')[1]"
+    VALUE_EXPR="split(split(${STR_EXPR},'${DB_NAME}:')[1],',')[0]"
   else
-    # feature.<key> is an array even for single-valued GFF3 attributes (see
-    # @gmod/gff's parseAttributes, which always wraps attribute values in an
-    # array) — slice() on the raw array truncates by index, not by
-    # character, silently producing an empty result. Coerce to a string
-    # before slicing, same as the nested branch above already does for its
-    # EXTRACT. GUARD stays uncoerced: '' + undefined is the truthy string
-    # "undefined", which would break the missing-attribute guard.
     GUARD="feature.${GENE_ID_KEY,,}"
-    STR_EXPR="('' + feature.${GENE_ID_KEY,,})"
-    if [ "$TRIM_SUFFIX" -gt 0 ]; then
-      TRIMMED="slice(${STR_EXPR},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
-    else
-      TRIMMED="slice(${STR_EXPR},${TRIM_PREFIX})"
-    fi
-    JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
+    VALUE_EXPR="('' + feature.${GENE_ID_KEY,,})"
   fi
+
+  # Apply trim via slice(str, start, end), JBrowse2's JEXL wrapper around
+  # String.slice(). -0 == 0 in JS so omit end entirely when suffix trim is 0.
+  # The negative end argument must be parenthesized: JEXL's grammar rejects
+  # a bare "-N" as a function argument right after a comma (parse error),
+  # so slice(x,3,-2) fails outright but slice(x,3,(-2)) parses and works.
+  if [ "$TRIM_SUFFIX" -gt 0 ]; then
+    TRIMMED="slice(${VALUE_EXPR},${TRIM_PREFIX},(-${TRIM_SUFFIX}))"
+  else
+    TRIMMED="slice(${VALUE_EXPR},${TRIM_PREFIX})"
+  fi
+  JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
 
   MATCHED=$(jq --arg name "${VERSION} Annotations" '[.tracks[] | select(.name == $name)] | length' /web/data/config.json)
   if [ "$MATCHED" -eq 0 ]; then
