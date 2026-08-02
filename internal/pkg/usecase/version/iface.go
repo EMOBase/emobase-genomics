@@ -24,7 +24,7 @@ type IJobRepository interface {
 	StatusCountsByVersionID(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error)
 	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
 	Create(ctx context.Context, j *entity.Job) error
-	HasNonFailedJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
+	HasInFlightJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
 	HasNonDoneJobsForFile(ctx context.Context, fileID string) (bool, error)
 	HasActiveJobsByVersionID(ctx context.Context, versionID uint64) (bool, error)
 	DeleteByVersionID(ctx context.Context, versionID uint64) error

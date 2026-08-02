@@ -410,11 +410,16 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		}
 
 		// TODO: seems like a N+1 query problem. Can we batch this?
-		exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, v.ID, spec.setupJobType)
+		// Only skip if one is already in flight (guards against a
+		// double-clicked release) — a past DONE job must not block a fresh
+		// one, since BLAST DB paths are global and re-releasing this version
+		// (e.g. after a different version's release overwrote them) needs to
+		// rebuild them from this version's own files again.
+		inFlight, err := uc.jobRepo.HasInFlightJobOfType(ctx, v.ID, spec.setupJobType)
 		if err != nil {
 			return nil, err
 		}
-		if exists {
+		if inFlight {
 			continue
 		}
 
@@ -444,15 +449,15 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 }
 
 // enqueueRemoveBlastJob enqueues a job to remove a BLAST database for a file
-// type this version doesn't have, unless a non-failed job of that type
-// already exists for this version (idempotent per version, mirroring the
-// dedup check for SETUP_BLAST jobs above).
+// type this version doesn't have, unless one is already in flight for this
+// version (mirroring the in-flight-only dedup check for SETUP_BLAST jobs
+// above — a past DONE job must not block a fresh one, for the same reason).
 func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID uint64, versionName string, removeJobType string) (*entity.Job, error) {
-	exists, err := uc.jobRepo.HasNonFailedJobOfType(ctx, versionID, removeJobType)
+	inFlight, err := uc.jobRepo.HasInFlightJobOfType(ctx, versionID, removeJobType)
 	if err != nil {
 		return nil, err
 	}
-	if exists {
+	if inFlight {
 		return nil, nil
 	}
 

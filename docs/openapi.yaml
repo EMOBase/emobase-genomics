@@ -1433,6 +1433,13 @@ paths:
         session so it is what JBrowse2 opens by default (older assemblies remain available but no
         longer take priority).
 
+        Blast jobs are re-enqueued on every release call, even if this version was already fully
+        released before — BLAST DB paths are global, not per-version, so releasing this version
+        again (e.g. to switch the active default back to it after a different version's release
+        overwrote the databases) always rebuilds them from this version's own files. Only a job
+        that's still in-flight (`PENDING`/`RUNNING`) for this version is skipped, to avoid enqueuing
+        a duplicate from a repeated request.
+
         **Preconditions** (returns 422 if not met):
         - `genomic.fna` must have at least one completed upload.
         - All jobs generated from the latest completed file of every uploaded type must be in `DONE` state.

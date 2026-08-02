@@ -231,14 +231,19 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 	return jobs, rows.Err()
 }
 
-// HasNonFailedJobOfType returns true if a PENDING, RUNNING, or DONE job of the
-// given type exists for the version. Used to prevent duplicate enqueuing.
-func (r *MySQLRepository) HasNonFailedJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
+// HasInFlightJobOfType returns true if a PENDING or RUNNING job of the given
+// type exists for the version. Used to prevent duplicate concurrent
+// enqueuing (e.g. a double-clicked release) — deliberately ignores DONE jobs
+// so a version can be released again later (e.g. BLAST DB paths are global,
+// not per-version, so switching the active default back to an
+// already-released version must rebuild them from that version's files
+// again, not skip on the grounds that a same-typed job ran before).
+func (r *MySQLRepository) HasInFlightJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM jobs
-		 WHERE version_id = ? AND type = ? AND status IN (?, ?, ?)`,
-		versionID, jobType, entity.JobStatusPending, entity.JobStatusRunning, entity.JobStatusDone,
+		 WHERE version_id = ? AND type = ? AND status IN (?, ?)`,
+		versionID, jobType, entity.JobStatusPending, entity.JobStatusRunning,
 	).Scan(&count)
 	if err != nil {
 		return false, err
