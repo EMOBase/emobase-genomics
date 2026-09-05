@@ -74,16 +74,22 @@ var JobDescriptions = map[string]string{
 }
 
 type Job struct {
-	ID             uint64           `db:"id"`
-	VersionID      uint64           `db:"version_id"`
-	FileID         *string          `db:"file_id"`
-	Type           string           `db:"type"`
-	Description    string           `db:"description"`
-	Payload        *json.RawMessage `db:"payload"`
-	Status         JobStatus        `db:"status"`
-	ResultMetadata *json.RawMessage `db:"result_metadata"`
-	CreatedAt      time.Time        `db:"created_at"`
-	UpdatedAt      time.Time        `db:"updated_at"`
-	StartedAt      *time.Time       `db:"started_at"`
-	CompletedAt    *time.Time       `db:"completed_at"`
+	ID uint64 `db:"id"`
+	// VersionID scopes the job to a Database Version and is always set.
+	VersionID uint64 `db:"version_id"`
+	// AssemblyVersionID scopes the job to one species within that Database
+	// Version. It is nil for job types that are shared across every species
+	// in the version rather than owned by one assembly (currently only
+	// ORTHOLOGY.TSV and its delete variant).
+	AssemblyVersionID *uint64          `db:"assembly_version_id"`
+	FileID            *string          `db:"file_id"`
+	Type              string           `db:"type"`
+	Description       string           `db:"description"`
+	Payload           *json.RawMessage `db:"payload"`
+	Status            JobStatus        `db:"status"`
+	ResultMetadata    *json.RawMessage `db:"result_metadata"`
+	CreatedAt         time.Time        `db:"created_at"`
+	UpdatedAt         time.Time        `db:"updated_at"`
+	StartedAt         *time.Time       `db:"started_at"`
+	CompletedAt       *time.Time       `db:"completed_at"`
 }
