@@ -54,7 +54,7 @@ components:
 
     VersionPublicItem:
       type: object
-      required: [id, name, createdAt]
+      required: [id, name, isDefault, status, createdAt]
       properties:
         id:
           type: integer
@@ -63,6 +63,15 @@ components:
         name:
           type: string
           example: dmel_r6.54
+        isDefault:
+          type: boolean
+          example: true
+          description: Whether this version is the currently active default version.
+        status:
+          type: string
+          enum: [DRAFT, PROCESSING, ERROR, READY, MISSING_REQUIRED_FILE]
+          example: READY
+          description: Computed readiness/lifecycle status of the version.
         createdAt:
           type: string
           format: date-time
@@ -1189,7 +1198,15 @@ paths:
       summary: List versions (public)
       operationId: listVersionsPublic
       tags: [Versions]
-      description: Returns a lightweight list of all versions (id, name, createdAt), sorted by createdAt descending. No authentication required. Capped at 100 results.
+      description: Returns a lightweight list of all versions (id, name, status, isDefault, createdAt), sorted by createdAt descending. No authentication required. Capped at 100 results.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [DRAFT, PROCESSING, ERROR, READY, MISSING_REQUIRED_FILE]
+          description: Optional filter. When set, only versions whose computed status matches are returned (e.g. READY to only show user-selectable versions). Omitted to return all versions.
       responses:
         '200':
           description: List of versions.
