@@ -48,6 +48,7 @@ type VersionList struct {
 type VersionPublicItem struct {
 	ID        uint64    `json:"id"`
 	Name      string    `json:"name"`
+	IsDefault bool      `json:"isDefault"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -56,9 +57,18 @@ func (uc *UseCase) ListVersionsPublic(ctx context.Context) ([]VersionPublicItem,
 	if err != nil {
 		return nil, err
 	}
+	defaultVersionID, err := uc.appSettingsRepo.GetDefaultVersionID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]VersionPublicItem, len(versions))
 	for i, v := range versions {
-		items[i] = VersionPublicItem{ID: v.ID, Name: v.Name, CreatedAt: v.CreatedAt}
+		items[i] = VersionPublicItem{
+			ID:        v.ID,
+			Name:      v.Name,
+			IsDefault: defaultVersionID != nil && *defaultVersionID == v.ID,
+			CreatedAt: v.CreatedAt,
+		}
 	}
 	return items, nil
 }

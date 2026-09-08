@@ -54,7 +54,7 @@ components:
 
     VersionPublicItem:
       type: object
-      required: [id, name, createdAt]
+      required: [id, name, isDefault, createdAt]
       properties:
         id:
           type: integer
@@ -63,6 +63,10 @@ components:
         name:
           type: string
           example: dmel_r6.54
+        isDefault:
+          type: boolean
+          example: true
+          description: Whether this version is the currently active default version.
         createdAt:
           type: string
           format: date-time
