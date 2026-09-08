@@ -17,7 +17,7 @@ type versionUseCase interface {
 	DeleteVersion(ctx context.Context, name string) error
 	ReleaseVersion(ctx context.Context, name string) (*ucversion.ReleaseResult, error)
 	ListVersions(ctx context.Context, page, pageSize int) (*ucversion.VersionList, error)
-	ListVersionsPublic(ctx context.Context) ([]ucversion.VersionPublicItem, error)
+	ListVersionsPublic(ctx context.Context, status string) ([]ucversion.VersionPublicItem, error)
 	GetVersionDetail(ctx context.Context, name string) (*ucversion.VersionDetail, error)
 }
 
@@ -110,7 +110,12 @@ func (h *VersionHandler) Delete(c *gin.Context) {
 }
 
 func (h *VersionHandler) ListPublic(c *gin.Context) {
-	items, err := h.uc.ListVersionsPublic(c.Request.Context())
+	status := c.Query("status")
+	if status != "" && !ucversion.IsValidVersionStatus(status) {
+		apires.Fail(c, http.StatusBadRequest, "invalid status filter")
+		return
+	}
+	items, err := h.uc.ListVersionsPublic(c.Request.Context(), status)
 	if err != nil {
 		panic(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
@@ -44,15 +45,40 @@ type VersionList struct {
 	PageSize int           `json:"pageSize"`
 }
 
+// Version statuses, also used to filter /public/versions.
+const (
+	VersionStatusDraft               = "DRAFT"
+	VersionStatusProcessing          = "PROCESSING"
+	VersionStatusError               = "ERROR"
+	VersionStatusReady               = "READY"
+	VersionStatusMissingRequiredFile = "MISSING_REQUIRED_FILE"
+)
+
+// ValidVersionStatuses lists every valid version status; used to validate the
+// optional status filter on the public versions endpoint.
+var ValidVersionStatuses = []string{
+	VersionStatusDraft,
+	VersionStatusProcessing,
+	VersionStatusError,
+	VersionStatusReady,
+	VersionStatusMissingRequiredFile,
+}
+
+// IsValidVersionStatus reports whether the given status is a valid filter value.
+func IsValidVersionStatus(status string) bool {
+	return slices.Contains(ValidVersionStatuses, status)
+}
+
 // VersionPublicItem is the limited version data returned by the public endpoint.
 type VersionPublicItem struct {
 	ID        uint64    `json:"id"`
 	Name      string    `json:"name"`
 	IsDefault bool      `json:"isDefault"`
+	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-func (uc *UseCase) ListVersionsPublic(ctx context.Context) ([]VersionPublicItem, error) {
+func (uc *UseCase) ListVersionsPublic(ctx context.Context, status string) ([]VersionPublicItem, error) {
 	versions, err := uc.versionRepo.ListPublic(ctx)
 	if err != nil {
 		return nil, err
@@ -61,14 +87,36 @@ func (uc *UseCase) ListVersionsPublic(ctx context.Context) ([]VersionPublicItem,
 	if err != nil {
 		return nil, err
 	}
-	items := make([]VersionPublicItem, len(versions))
-	for i, v := range versions {
-		items[i] = VersionPublicItem{
+	// TODO: N+1 queries as in ListVersions; status is derived from jobs and
+	// upload files. Optimize (e.g. cache) if this becomes a bottleneck.
+	items := make([]VersionPublicItem, 0, len(versions))
+	for _, v := range versions {
+		statusCounts, err := uc.jobRepo.StatusCountsByVersionID(ctx, v.ID)
+		if err != nil {
+			return nil, err
+		}
+		completedFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByVersionID(ctx, v.ID)
+		if err != nil {
+			return nil, err
+		}
+		hasFNA := false
+		for _, f := range completedFiles {
+			if f.FileType == entity.FileTypeGenomicFNA {
+				hasFNA = true
+				break
+			}
+		}
+		itemStatus := computeVersionStatus(statusCounts, hasFNA)
+		if status != "" && itemStatus != status {
+			continue
+		}
+		items = append(items, VersionPublicItem{
 			ID:        v.ID,
 			Name:      v.Name,
 			IsDefault: defaultVersionID != nil && *defaultVersionID == v.ID,
+			Status:    itemStatus,
 			CreatedAt: v.CreatedAt,
-		}
+		})
 	}
 	return items, nil
 }
@@ -323,18 +371,18 @@ func toJobSummary(j entity.Job) JobSummary {
 func computeVersionStatus(c entity.JobStatusCounts, hasRequiredFiles bool) string {
 	pendingCount := c.TotalCount - c.RunningCount - c.FailedCount - c.DoneCount
 	if c.RunningCount > 0 || pendingCount > 0 {
-		return "PROCESSING"
+		return VersionStatusProcessing
 	}
 	if c.FailedCount > 0 {
-		return "ERROR"
+		return VersionStatusError
 	}
 	if !hasRequiredFiles {
-		return "MISSING_REQUIRED_FILE"
+		return VersionStatusMissingRequiredFile
 	}
 	if c.TotalCount > 0 && c.DoneCount == c.TotalCount {
-		return "READY"
+		return VersionStatusReady
 	}
-	return "DRAFT"
+	return VersionStatusDraft
 }
 
 // ReleaseResult is the response for POST /versions/{name}/release.
