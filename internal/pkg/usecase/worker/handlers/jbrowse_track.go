@@ -43,7 +43,7 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 	cmd := exec.CommandContext(ctx, addJBrowseTrackScript,
 		payload.FilePath,
 		payload.TrackName,
-		payload.VersionName,
+		payload.AssemblyID,
 		trackID,
 		payload.Category,
 		strconv.FormatBool(payload.SelectInDefaultSession),
@@ -56,7 +56,7 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
 		Str("trackId", trackID).
-		Str("version", payload.VersionName).
+		Str("assemblyID", payload.AssemblyID).
 		Bool("selectInDefaultSession", payload.SelectInDefaultSession).
 		Str("scriptOutput", string(out)).
 		Msgf("%s completed successfully", entity.JobTypeJBrowseTrack)

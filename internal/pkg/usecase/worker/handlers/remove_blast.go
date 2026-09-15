@@ -13,36 +13,51 @@ import (
 
 const removeBlastScript = "/app/scripts/remove_blast.sh"
 
-// RemoveBlastHandler deletes a BLAST database that a released version no
+// RemoveBlastHandler deletes a BLAST database that a released assembly no
 // longer has a source file for, so the blast server never keeps serving data
-// from an older, superseded version (see ReleaseVersion).
+// for a file type an assembly no longer has (see ReleaseVersion).
 type RemoveBlastHandler struct {
-	out             string
-	containerName   string
-	jobRepo         IJobRepository
-	appSettingsRepo IAppSettingsRepository
+	dbSuffix            string // e.g. "protein", "rna" — for the -out filename
+	blastDBPath         string
+	containerName       string
+	jobRepo             IJobRepository
+	appSettingsRepo     IAppSettingsRepository
+	assemblyVersionRepo IAssemblyVersionRepository
 }
 
-func NewRemoveBlastHandler(out, containerName string, jobRepo IJobRepository, appSettingsRepo IAppSettingsRepository) *RemoveBlastHandler {
+func NewRemoveBlastHandler(
+	dbSuffix, blastDBPath, containerName string,
+	jobRepo IJobRepository,
+	appSettingsRepo IAppSettingsRepository,
+	assemblyVersionRepo IAssemblyVersionRepository,
+) *RemoveBlastHandler {
 	return &RemoveBlastHandler{
-		out:             out,
-		containerName:   containerName,
-		jobRepo:         jobRepo,
-		appSettingsRepo: appSettingsRepo,
+		dbSuffix:            dbSuffix,
+		blastDBPath:         blastDBPath,
+		containerName:       containerName,
+		jobRepo:             jobRepo,
+		appSettingsRepo:     appSettingsRepo,
+		assemblyVersionRepo: assemblyVersionRepo,
 	}
 }
 
 func (h *RemoveBlastHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
-	cmd := exec.CommandContext(ctx, removeBlastScript, h.out)
+	var payload jobpayload.RemoveBlastPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal remove_blast payload: %w", err)
+	}
 
-	out, err := cmd.CombinedOutput()
+	out := fmt.Sprintf("%s/%s-%s", h.blastDBPath, payload.AssemblyID, h.dbSuffix)
+	cmd := exec.CommandContext(ctx, removeBlastScript, out)
+
+	cmdOut, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("remove_blast script failed: %w\noutput: %s", err, out)
+		return nil, fmt.Errorf("remove_blast script failed: %w\noutput: %s", err, cmdOut)
 	}
 
 	log.Ctx(ctx).Info().
 		Str("jobType", job.Type).
-		Str("out", h.out).
+		Str("out", out).
 		Msg("stale blast database removed")
 
 	return nil, nil
@@ -56,5 +71,5 @@ func (h *RemoveBlastHandler) OnComplete(ctx context.Context, job entity.Job, _ j
 		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal remove_blast payload in OnComplete")
 		return nil
 	}
-	return finalizeBlastRelease(ctx, h.jobRepo, h.appSettingsRepo, job.VersionID, payload.VersionName, h.containerName)
+	return finalizeBlastRelease(ctx, h.jobRepo, h.appSettingsRepo, h.assemblyVersionRepo, job.VersionID, payload.VersionName, h.containerName, h.blastDBPath)
 }

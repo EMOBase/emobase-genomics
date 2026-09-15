@@ -328,6 +328,46 @@ func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, version
 	return jobs, rows.Err()
 }
 
+// FindDoneByAssemblyVersionAndTypes returns DONE jobs matching any of the
+// given types for the specified Assembly Version. Used to check prerequisite
+// job completion scoped to one species, not the whole Database Version.
+func (r *MySQLRepository) FindDoneByAssemblyVersionAndTypes(ctx context.Context, assemblyVersionID uint64, jobTypes []string) ([]entity.Job, error) {
+	if len(jobTypes) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]byte, 0, len(jobTypes)*2-1)
+	args := make([]any, 0, len(jobTypes)+2)
+	args = append(args, assemblyVersionID, entity.JobStatusDone)
+	for i, t := range jobTypes {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, t)
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, file_id, type, payload FROM jobs
+		 WHERE assembly_version_id = ? AND status = ? AND type IN (`+string(placeholders)+`)`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var jobs []entity.Job
+	for rows.Next() {
+		var j entity.Job
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Payload); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 // HasInFlightJobOfType returns true if a PENDING or RUNNING job of the given
 // type exists for the version. Used to prevent duplicate concurrent
 // enqueuing (e.g. a double-clicked release) — deliberately ignores DONE jobs

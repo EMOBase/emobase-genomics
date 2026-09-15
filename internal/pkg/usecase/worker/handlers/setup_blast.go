@@ -14,24 +14,39 @@ import (
 const setupBlastScript = "/app/scripts/setup_blast.sh"
 
 // SetupBlastHandler runs makeblastdb to build a SequenceServer-compatible
-// BLAST database from an uploaded file.
+// BLAST database from an uploaded file. Output paths and titles are computed
+// per job from the payload's AssemblyID/AssemblyName — BLAST DB filenames are
+// flat, per-(assembly, type) names under one shared blastDBPath, not 3 fixed
+// global slots, since every assembly under the default version is
+// simultaneously BLASTable.
 type SetupBlastHandler struct {
-	dbType          string
-	title           string
-	out             string
-	containerName   string
-	jobRepo         IJobRepository
-	appSettingsRepo IAppSettingsRepository
+	dbType              string // makeblastdb -dbtype: "nucl" or "prot"
+	typeLabel           string // e.g. "Genome", "Protein", "RNA" — for the -title
+	dbSuffix            string // e.g. "genome", "protein", "rna" — for the -out filename
+	blastDBPath         string
+	blastTitle          string
+	containerName       string
+	jobRepo             IJobRepository
+	appSettingsRepo     IAppSettingsRepository
+	assemblyVersionRepo IAssemblyVersionRepository
 }
 
-func NewSetupBlastHandler(dbType, title, out, containerName string, jobRepo IJobRepository, appSettingsRepo IAppSettingsRepository) *SetupBlastHandler {
+func NewSetupBlastHandler(
+	dbType, typeLabel, dbSuffix, blastDBPath, blastTitle, containerName string,
+	jobRepo IJobRepository,
+	appSettingsRepo IAppSettingsRepository,
+	assemblyVersionRepo IAssemblyVersionRepository,
+) *SetupBlastHandler {
 	return &SetupBlastHandler{
-		dbType:          dbType,
-		title:           title,
-		out:             out,
-		containerName:   containerName,
-		jobRepo:         jobRepo,
-		appSettingsRepo: appSettingsRepo,
+		dbType:              dbType,
+		typeLabel:           typeLabel,
+		dbSuffix:            dbSuffix,
+		blastDBPath:         blastDBPath,
+		blastTitle:          blastTitle,
+		containerName:       containerName,
+		jobRepo:             jobRepo,
+		appSettingsRepo:     appSettingsRepo,
+		assemblyVersionRepo: assemblyVersionRepo,
 	}
 }
 
@@ -41,18 +56,21 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) (json.Ra
 		return nil, fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
 	}
 
+	out := fmt.Sprintf("%s/%s-%s", h.blastDBPath, payload.AssemblyID, h.dbSuffix)
+	title := fmt.Sprintf("%s %s %s", h.blastTitle, payload.AssemblyName, h.typeLabel)
+
 	cmd := exec.CommandContext(ctx, setupBlastScript,
-		payload.FilePath, h.dbType, h.title, h.out,
+		payload.FilePath, h.dbType, title, out,
 	)
 
-	out, err := cmd.CombinedOutput()
+	cmdOut, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("setup_blast script failed: %w\noutput: %s", err, out)
+		return nil, fmt.Errorf("setup_blast script failed: %w\noutput: %s", err, cmdOut)
 	}
 
 	log.Ctx(ctx).Info().
 		Str("jobType", job.Type).
-		Str("out", h.out).
+		Str("out", out).
 		Msg("makeblastdb completed successfully")
 
 	return nil, nil
@@ -67,5 +85,5 @@ func (h *SetupBlastHandler) OnComplete(ctx context.Context, job entity.Job, _ js
 		log.Ctx(ctx).Warn().Err(err).Msg("failed to unmarshal setup_blast payload in OnComplete")
 		return nil
 	}
-	return finalizeBlastRelease(ctx, h.jobRepo, h.appSettingsRepo, job.VersionID, payload.VersionName, h.containerName)
+	return finalizeBlastRelease(ctx, h.jobRepo, h.appSettingsRepo, h.assemblyVersionRepo, job.VersionID, payload.VersionName, h.containerName, h.blastDBPath)
 }

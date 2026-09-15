@@ -10,6 +10,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
+	repoassemblyversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/assemblyversion"
 	repodsrna "github.com/EMOBase/emobase-genomics/internal/pkg/repository/dsrna"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
 	repojob "github.com/EMOBase/emobase-genomics/internal/pkg/repository/job"
@@ -73,6 +74,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	blastContainerName := config.Blast.ContainerName
 	indexPrefix := config.Elasticsearch.IndexPrefix
 	appSettingsRepo := repoappsettings.New(db)
+	assemblyVersionRepo := repoassemblyversion.New(db)
 
 	synonymHandler := handlers.NewSynonymHandler(versionRepo, synonymUC, synonymRepo, indexPrefix)
 
@@ -90,19 +92,19 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 			config.Uploads.Dir, uploadFileRepo, versionRepo, jobRepo, synonymRepo, indexPrefix,
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, appSettingsRepo,
+			"nucl", "Genome", "genome", blastDBPath, blastTitle, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
 		entity.JobTypeProteinFAASetupBlast: handlers.NewSetupBlastHandler(
-			"prot", blastTitle+" Proteins", blastDBPath+"/protein", blastContainerName, jobRepo, appSettingsRepo,
+			"prot", "Protein", "protein", blastDBPath, blastTitle, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
 		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
-			"nucl", blastTitle+" RNAs", blastDBPath+"/rna", blastContainerName, jobRepo, appSettingsRepo,
+			"nucl", "RNA", "rna", blastDBPath, blastTitle, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
 		entity.JobTypeProteinFAARemoveBlast: handlers.NewRemoveBlastHandler(
-			blastDBPath+"/protein", blastContainerName, jobRepo, appSettingsRepo,
+			"protein", blastDBPath, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
 		entity.JobTypeRNAFNARemoveBlast: handlers.NewRemoveBlastHandler(
-			blastDBPath+"/rna", blastContainerName, jobRepo, appSettingsRepo,
+			"rna", blastDBPath, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
 		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo, config.JBrowse2.GeneLinkBase),
 		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(config.JBrowse2.GeneLinkBase),

@@ -680,7 +680,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 					continue
 				}
 
-				j, err := uc.enqueueRemoveBlastJob(ctx, v.ID, asm.ID, v.Name, spec.removeJobType)
+				j, err := uc.enqueueRemoveBlastJob(ctx, v.ID, asm.ID, asm.AssemblyID(), v.Name, spec.removeJobType)
 				if err != nil {
 					return nil, err
 				}
@@ -704,7 +704,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 				continue
 			}
 
-			rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath, AssemblyID: asm.AssemblyID(), VersionName: v.Name})
+			rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath, AssemblyID: asm.AssemblyID(), AssemblyName: asm.Name, VersionName: v.Name})
 			if err != nil {
 				return nil, err
 			}
@@ -736,7 +736,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 // type this assembly doesn't have, unless one is already in flight for this
 // assembly (mirroring the in-flight-only dedup check for SETUP_BLAST jobs
 // above — a past DONE job must not block a fresh one, for the same reason).
-func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assemblyVersionID uint64, versionName string, removeJobType string) (*entity.Job, error) {
+func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assemblyVersionID uint64, assemblyID, versionName string, removeJobType string) (*entity.Job, error) {
 	inFlight, err := uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(ctx, assemblyVersionID, removeJobType)
 	if err != nil {
 		return nil, err
@@ -745,7 +745,7 @@ func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assembl
 		return nil, nil
 	}
 
-	rawPayload, err := json.Marshal(jobpayload.RemoveBlastPayload{VersionName: versionName})
+	rawPayload, err := json.Marshal(jobpayload.RemoveBlastPayload{AssemblyID: assemblyID, VersionName: versionName})
 	if err != nil {
 		return nil, err
 	}
@@ -814,8 +814,14 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		return ErrVersionHasActiveJobs
 	}
 
-	// Collect file paths before deleting records so we can remove them from disk.
+	// Collect file paths and assemblies before deleting records: files so we
+	// can remove them from disk, assemblies so we can clean up each one's
+	// JBrowse2 data (below) after their MySQL rows are gone.
 	files, err := uc.uploadFileRepo.ListByVersionID(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	assemblies, err := uc.assemblyVersionRepo.ListByVersionID(ctx, v.ID)
 	if err != nil {
 		return err
 	}
@@ -849,9 +855,14 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to delete ES indexes during version delete")
 	}
 
-	if out, err := exec.CommandContext(ctx, deleteJBrowseVersionScript, v.Name).CombinedOutput(); err != nil {
-		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("scriptOutput", string(out)).
-			Msg("failed to clean up JBrowse2 data during version delete")
+	// Every assembly gets its own JBrowse2 assembly/tracks (§5 of the design
+	// doc); deleting a whole Database Version means running the same
+	// single-assembly delete script once per assembly it had.
+	for _, asm := range assemblies {
+		if out, err := exec.CommandContext(ctx, deleteJBrowseVersionScript, asm.AssemblyID()).CombinedOutput(); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("assemblyID", asm.AssemblyID()).Str("scriptOutput", string(out)).
+				Msg("failed to clean up JBrowse2 data during version delete")
+		}
 	}
 
 	return uc.versionRepo.Delete(ctx, v.ID)

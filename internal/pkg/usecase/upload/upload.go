@@ -224,13 +224,14 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 
 	// Propagate versionID/assemblyVersionID through metadata so the
 	// CreatedUploads handler can use them without a second DB roundtrip.
-	newMeta := make(tusd.MetaData, len(meta)+3)
+	newMeta := make(tusd.MetaData, len(meta)+4)
 	maps.Copy(newMeta, meta)
 	newMeta["_versionID"] = strconv.FormatUint(version.ID, 10)
 	if assemblyVersion != nil {
 		newMeta["_assemblyVersionID"] = strconv.FormatUint(assemblyVersion.ID, 10)
 		newMeta["_assemblySpecies"] = assemblyVersion.Species
 		newMeta["_assemblyID"] = assemblyVersion.AssemblyID()
+		newMeta["_assemblyName"] = assemblyVersion.Name
 	}
 
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{MetaData: newMeta}, nil
@@ -364,6 +365,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	}
 	assemblySpecies := meta["_assemblySpecies"]
 	assemblyID := meta["_assemblyID"]
+	displayLabel := meta["version"] + " — " + meta["_assemblyName"]
 
 	fileType := meta["fileType"]
 
@@ -458,6 +460,8 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			VersionID:       versionID,
 			FilePath:        filePath,
 			Species:         assemblySpecies,
+			AssemblyID:      assemblyID,
+			DisplayLabel:    displayLabel,
 			GeneIDKey:       strings.TrimSpace(meta["geneIDKey"]),
 			TrimPrefixChars: trimPrefixChars,
 			TrimSuffixChars: trimSuffixChars,
@@ -523,7 +527,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		jobs = append(jobs, synonymJob)
 
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
-		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, assemblyVersionID, meta["version"], assemblyID, uploadID, filePath); err != nil {
+		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, assemblyVersionID, meta["version"], assemblyID, displayLabel, uploadID, filePath); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
 		} else if gffSetupJob != nil {
 			jobs = append(jobs, *gffSetupJob)
@@ -613,7 +617,7 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 // tryEnqueueGFFSetupJBrowse2 creates a GENOMIC.GFF:SETUP_JBROWSE2 job if
 // GENOMIC.FNA:SETUP_JBROWSE2 is done and no non-failed job exists for this GFF file.
 // GeneIDKey is read from the GENOMIC.GFF job's payload to keep a single source of truth.
-func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, assemblyVersionID *uint64, versionName, assemblyID, gffFileID, gffFilePath string) (*entity.Job, error) {
+func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, assemblyVersionID *uint64, versionName, assemblyID, displayLabel, gffFileID, gffFilePath string) (*entity.Job, error) {
 	if assemblyVersionID == nil {
 		return nil, nil
 	}
@@ -658,6 +662,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
 		VersionName:     versionName,
 		AssemblyID:      assemblyID,
+		DisplayLabel:    displayLabel,
 		GenomicGFFPath:  gffFilePath,
 		GeneIDKey:       geneIDKey,
 		GeneLinkBase:    uc.geneLinkBase,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
@@ -11,6 +12,13 @@ import (
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/rs/zerolog/log"
 )
+
+// deleteJBrowseVersionScript removes one assembly's JBrowse2 assembly,
+// tracks, text-search entries, and default-session views, keyed by its
+// opaque AssemblyID — despite the "version" in its name (shared with
+// usecase/version, which loops it once per assembly for a whole-Database-
+// Version delete), it always operates on exactly one assembly identifier.
+const deleteJBrowseVersionScript = "/app/scripts/delete_jbrowse_version.sh"
 
 var (
 	ErrVersionNotFound              = ucversion.ErrVersionNotFound
@@ -147,14 +155,11 @@ func (uc *UseCase) GetAssemblyVersionDetail(ctx context.Context, versionName, sp
 }
 
 // DeleteAssemblyVersion deletes one species from a Database Version: its
-// jobs, upload file rows and on-disk files, ES indexes, and the
-// assembly_versions row itself. There is no orthology-related guard —
-// deleting an assembly never touches the Database Version's shared
-// orthology.tsv data, since orthology belongs to no single assembly (§2 of
-// the design doc).
-//
-// JBrowse2 assembly removal lands in Phase 4 of the design and is not yet
-// wired in here.
+// jobs, upload file rows and on-disk files, ES indexes, its JBrowse2
+// assembly/tracks, and the assembly_versions row itself. There is no
+// orthology-related guard — deleting an assembly never touches the Database
+// Version's shared orthology.tsv data, since orthology belongs to no single
+// assembly (§2 of the design doc).
 func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, species string) error {
 	v, err := uc.versionRepo.FindByName(ctx, versionName)
 	if err != nil {
@@ -200,6 +205,11 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, speci
 
 	if err := uc.esRepo.DeleteIndexesByAssemblyVersion(ctx, v.Name, asm.Species); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("species", asm.Species).Msg("failed to delete ES indexes during assembly version delete")
+	}
+
+	if out, err := exec.CommandContext(ctx, deleteJBrowseVersionScript, asm.AssemblyID()).CombinedOutput(); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("assemblyID", asm.AssemblyID()).Str("scriptOutput", string(out)).
+			Msg("failed to clean up JBrowse2 data during assembly version delete")
 	}
 
 	for _, f := range files {
