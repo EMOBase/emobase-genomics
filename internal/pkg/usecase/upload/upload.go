@@ -24,14 +24,15 @@ import (
 )
 
 type UseCase struct {
-	Handler      http.Handler
-	tusHandler   *tusd.Handler
-	uploadDir    string
-	geneLinkBase string
-	mainSpecies  string
-	versionRepo  IVersionRepository
-	jobRepo      IJobRepository
-	uploadRepo   IUploadFileRepository
+	Handler             http.Handler
+	tusHandler          *tusd.Handler
+	uploadDir           string
+	geneLinkBase        string
+	mainSpecies         string
+	versionRepo         IVersionRepository
+	assemblyVersionRepo IAssemblyVersionRepository
+	jobRepo             IJobRepository
+	uploadRepo          IUploadFileRepository
 }
 
 func New(
@@ -41,6 +42,7 @@ func New(
 	mainSpecies string,
 	staleUploadAge time.Duration,
 	versionRepo IVersionRepository,
+	assemblyVersionRepo IAssemblyVersionRepository,
 	jobRepo IJobRepository,
 	uploadRepo IUploadFileRepository,
 ) (*UseCase, error) {
@@ -52,12 +54,13 @@ func New(
 	locker.UseIn(composer)
 
 	uc := &UseCase{
-		uploadDir:    uploadDir,
-		geneLinkBase: geneLinkBase,
-		mainSpecies:  mainSpecies,
-		versionRepo:  versionRepo,
-		jobRepo:      jobRepo,
-		uploadRepo:   uploadRepo,
+		uploadDir:           uploadDir,
+		geneLinkBase:        geneLinkBase,
+		mainSpecies:         mainSpecies,
+		versionRepo:         versionRepo,
+		assemblyVersionRepo: assemblyVersionRepo,
+		jobRepo:             jobRepo,
+		uploadRepo:          uploadRepo,
 	}
 
 	handler, err := tusd.NewHandler(tusd.Config{
@@ -100,20 +103,14 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			fmt.Sprintf("invalid fileType %q, must be one of: %s", fileType, strings.Join(allowed, ", ")))
 	}
 
-	// 2. Species-restricted file types.
-	if fileType == entity.FileTypeDsRNACSV && uc.mainSpecies != entity.SpeciesTcas {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-			"dsrna.csv uploads are only supported when main_species is \"Tcas\"")
-	}
-
-	// 3. Validate fileName.
+	// 2. Validate fileName.
 	fileName := meta["fileName"]
 	if !fileNamePattern.MatchString(fileName) {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 			"invalid fileName: must be 1–255 characters and must not contain path separators or control characters")
 	}
 
-	// 4. Reject non-gzip files by extension before any data is stored.
+	// 3. Reject non-gzip files by extension before any data is stored.
 	lower := strings.ToLower(fileName)
 	if !strings.HasSuffix(lower, ".gz") && !strings.HasSuffix(lower, ".gzip") {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
@@ -162,7 +159,15 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		}
 	}
 
-	// 5. Check version exists.
+	// 5. Every file type requires an "assembly" metadata field (the target
+	// Assembly Version's species code) except orthology.tsv, which is shared
+	// across every species in the Database Version rather than owned by one.
+	if fileType != entity.FileTypeOrthologyTSV && strings.TrimSpace(meta["assembly"]) == "" {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			fmt.Sprintf("%q uploads require an \"assembly\" metadata field", fileType))
+	}
+
+	// 6. Check version exists.
 	version, err := uc.versionRepo.FindByName(hook.Context, meta["version"])
 	if err != nil {
 		log.Ctx(hook.Context).Err(err).Msg("version lookup failed in pre-upload hook")
@@ -173,10 +178,40 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			fmt.Sprintf("version %q not found", meta["version"]))
 	}
 
-	// 6. Reject if an active job of the same type already exists for this version.
-	// jbrowse.track is exempt: a version may have multiple tracks processing concurrently.
+	// 7. Resolve the Assembly Version (species) this upload belongs to, unless
+	// this is a shared orthology.tsv upload.
+	var assemblyVersion *entity.AssemblyVersion
+	if fileType != entity.FileTypeOrthologyTSV {
+		assemblyVersion, err = uc.assemblyVersionRepo.FindBySpecies(hook.Context, version.ID, meta["assembly"])
+		if err != nil {
+			log.Ctx(hook.Context).Err(err).Msg("assembly version lookup failed in pre-upload hook")
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
+		}
+		if assemblyVersion == nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				fmt.Sprintf("assembly %q not found in version %q", meta["assembly"], meta["version"]))
+		}
+	}
+
+	// 8. Species-restricted file types — scoped to the resolved assembly's own
+	// species (assemblyVersion is always non-nil here since dsrna.csv is not
+	// orthology.tsv, so it always goes through step 7 above).
+	if fileType == entity.FileTypeDsRNACSV && assemblyVersion.Species != entity.SpeciesTcas {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			"dsrna.csv uploads are only supported for the \"Tcas\" species")
+	}
+
+	// 9. Reject if an active job of the same type already exists for this
+	// assembly — or, for the shared orthology.tsv, for the whole Database
+	// Version, exactly as before. jbrowse.track is exempt: a version may have
+	// multiple tracks processing concurrently.
 	if fileType != entity.FileTypeJBrowseTrack {
-		hasActive, err := uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
+		var hasActive bool
+		if fileType == entity.FileTypeOrthologyTSV {
+			hasActive, err = uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
+		} else {
+			hasActive, err = uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(hook.Context, assemblyVersion.ID, fileType)
+		}
 		if err != nil {
 			log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
@@ -187,11 +222,16 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		}
 	}
 
-	// Propagate versionID through metadata so the CreatedUploads handler can
-	// use it without a second DB roundtrip.
-	newMeta := make(tusd.MetaData, len(meta)+1)
+	// Propagate versionID/assemblyVersionID through metadata so the
+	// CreatedUploads handler can use them without a second DB roundtrip.
+	newMeta := make(tusd.MetaData, len(meta)+3)
 	maps.Copy(newMeta, meta)
 	newMeta["_versionID"] = strconv.FormatUint(version.ID, 10)
+	if assemblyVersion != nil {
+		newMeta["_assemblyVersionID"] = strconv.FormatUint(assemblyVersion.ID, 10)
+		newMeta["_assemblySpecies"] = assemblyVersion.Species
+		newMeta["_assemblyID"] = assemblyVersion.AssemblyID()
+	}
 
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{MetaData: newMeta}, nil
 }
@@ -212,16 +252,25 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 		return
 	}
 
+	assemblyVersionID, err := parseOptionalAssemblyVersionID(upload.MetaData)
+	if err != nil {
+		log.Error().Err(err).Str("uploadID", upload.ID).Msg("invalid _assemblyVersionID in upload metadata")
+		uc.removeUploadFiles(upload.ID)
+		return
+	}
+
 	creator := auth.UsernameFromContext(event.Context)
 
+	dstDir := uc.uploadDirFor(upload.MetaData["version"], upload.MetaData["_assemblySpecies"])
 	f := &entity.UploadFile{
-		ID:           upload.ID,
-		VersionID:    versionID,
-		FilePath:     filepath.Join(uc.uploadDir, upload.MetaData["version"], filepath.Base(upload.MetaData["fileName"])),
-		FileType:     upload.MetaData["fileType"],
-		FileSize:     upload.Size,
-		UploadStatus: entity.UploadStatusUploading,
-		CreatedBy:    creator,
+		ID:                upload.ID,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		FilePath:          filepath.Join(dstDir, filepath.Base(upload.MetaData["fileName"])),
+		FileType:          upload.MetaData["fileType"],
+		FileSize:          upload.Size,
+		UploadStatus:      entity.UploadStatusUploading,
+		CreatedBy:         creator,
 	}
 
 	if err := uc.uploadRepo.Create(context.Background(), f); err != nil {
@@ -257,7 +306,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	}
 
 	version := upload.MetaData["version"]
-	dstDir := filepath.Join(uc.uploadDir, version)
+	dstDir := uc.uploadDirFor(version, upload.MetaData["_assemblySpecies"])
 	dstPath := filepath.Join(dstDir, filepath.Base(fileName))
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
@@ -309,11 +358,18 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		return nil, fmt.Errorf("failed to parse _versionID for job creation: %w", err)
 	}
 
+	assemblyVersionID, err := parseOptionalAssemblyVersionID(meta)
+	if err != nil {
+		return nil, err
+	}
+	assemblySpecies := meta["_assemblySpecies"]
+	assemblyID := meta["_assemblyID"]
+
 	fileType := meta["fileType"]
 
 	// genomic.fna has no parsing step; enqueue only the JBrowse2 assembly setup.
 	if fileType == entity.FileTypeGenomicFNA {
-		job, err := uc.enqueueFNASetupJBrowse2Job(ctx, versionID, uploadID, meta["version"], filePath)
+		job, err := uc.enqueueFNASetupJBrowse2Job(ctx, versionID, assemblyVersionID, uploadID, meta["version"], assemblyID, filePath)
 		if err != nil {
 			return nil, err
 		}
@@ -334,14 +390,15 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		p := json.RawMessage(rawPayload)
 		now := time.Now().UTC()
 		job := &entity.Job{
-			VersionID:   versionID,
-			FileID:      &uploadID,
-			Type:        entity.JobTypeSpeciesSynonym,
-			Description: entity.JobDescriptions[entity.JobTypeSpeciesSynonym],
-			Payload:     &p,
-			Status:      entity.JobStatusPending,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			VersionID:         versionID,
+			AssemblyVersionID: assemblyVersionID,
+			FileID:            &uploadID,
+			Type:              entity.JobTypeSpeciesSynonym,
+			Description:       entity.JobDescriptions[entity.JobTypeSpeciesSynonym],
+			Payload:           &p,
+			Status:            entity.JobStatusPending,
+			CreatedAt:         now,
+			UpdatedAt:         now,
 		}
 		if err := uc.jobRepo.Create(ctx, job); err != nil {
 			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeSpeciesSynonym, err)
@@ -358,6 +415,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		selectInDefaultSession, _ := strconv.ParseBool(meta["selectInDefaultSession"])
 		rawPayload, err := json.Marshal(jobpayload.JBrowseTrackPayload{
 			VersionName:            meta["version"],
+			AssemblyID:             assemblyID,
 			FilePath:               filePath,
 			TrackName:              strings.TrimSpace(meta["trackName"]),
 			FileID:                 uploadID,
@@ -370,14 +428,15 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		p := json.RawMessage(rawPayload)
 		now := time.Now().UTC()
 		job := &entity.Job{
-			VersionID:   versionID,
-			FileID:      &uploadID,
-			Type:        entity.JobTypeJBrowseTrack,
-			Description: entity.JobDescriptions[entity.JobTypeJBrowseTrack],
-			Payload:     &p,
-			Status:      entity.JobStatusPending,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			VersionID:         versionID,
+			AssemblyVersionID: assemblyVersionID,
+			FileID:            &uploadID,
+			Type:              entity.JobTypeJBrowseTrack,
+			Description:       entity.JobDescriptions[entity.JobTypeJBrowseTrack],
+			Payload:           &p,
+			Status:            entity.JobStatusPending,
+			CreatedAt:         now,
+			UpdatedAt:         now,
 		}
 		if err := uc.jobRepo.Create(ctx, job); err != nil {
 			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeJBrowseTrack, err)
@@ -427,14 +486,15 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	jobType := strings.ToUpper(fileType)
 	now := time.Now().UTC()
 	job := &entity.Job{
-		VersionID:   versionID,
-		FileID:      &uploadID,
-		Type:        jobType,
-		Description: entity.JobDescriptions[jobType],
-		Payload:     &payload,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		FileID:            &uploadID,
+		Type:              jobType,
+		Description:       entity.JobDescriptions[jobType],
+		Payload:           &payload,
+		Status:            entity.JobStatusPending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {
@@ -452,8 +512,8 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	if fileType == entity.FileTypeGenomicGFF {
 		trimPrefixChars, _ := strconv.Atoi(meta["trimPrefixChars"])
 		trimSuffixChars, _ := strconv.Atoi(meta["trimSuffixChars"])
-		synonymJob, err := uc.enqueueSpeciesSynonymJob(ctx, versionID, uploadID, filePath,
-			uc.mainSpecies, strings.TrimSpace(meta["geneIDKey"]),
+		synonymJob, err := uc.enqueueSpeciesSynonymJob(ctx, versionID, assemblyVersionID, uploadID, filePath,
+			assemblySpecies, strings.TrimSpace(meta["geneIDKey"]),
 			trimPrefixChars, trimSuffixChars, parseCommaSeparated(meta["oldGeneIDKeys"]))
 		if err != nil {
 			return nil, err
@@ -461,7 +521,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		jobs = append(jobs, synonymJob)
 
 		// If GENOMIC.FNA:SETUP_JBROWSE2 is already done, enqueue GFF setup immediately.
-		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, meta["version"], uploadID, filePath); err != nil {
+		if gffSetupJob, err := uc.tryEnqueueGFFSetupJBrowse2(ctx, versionID, assemblyVersionID, meta["version"], assemblyID, uploadID, filePath); err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to check/enqueue %s after %s upload", entity.JobTypeGenomicGFFSetupJBrowse2, entity.JobTypeGenomicGFF)
 		} else if gffSetupJob != nil {
 			jobs = append(jobs, *gffSetupJob)
@@ -471,7 +531,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	return jobs, nil
 }
 
-func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint64, uploadID, filePath, species, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
+func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint64, assemblyVersionID *uint64, uploadID, filePath, species, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
 	rawPayload, err := json.Marshal(jobpayload.SpeciesSynonymPayload{
 		UploadFileID:    uploadID,
 		VersionID:       versionID,
@@ -489,14 +549,15 @@ func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint6
 	p := json.RawMessage(rawPayload)
 	now := time.Now().UTC()
 	j := &entity.Job{
-		VersionID:   versionID,
-		FileID:      &uploadID,
-		Type:        entity.JobTypeSpeciesSynonym,
-		Description: entity.JobDescriptions[entity.JobTypeSpeciesSynonym],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		FileID:            &uploadID,
+		Type:              entity.JobTypeSpeciesSynonym,
+		Description:       entity.JobDescriptions[entity.JobTypeSpeciesSynonym],
+		Payload:           &p,
+		Status:            entity.JobStatusPending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -511,9 +572,10 @@ func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint6
 	return *j, nil
 }
 
-func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uint64, uploadID, versionName, filePath string) (entity.Job, error) {
+func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uint64, assemblyVersionID *uint64, uploadID, versionName, assemblyID, filePath string) (entity.Job, error) {
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2FNAPayload{
 		VersionName:    versionName,
+		AssemblyID:     assemblyID,
 		GenomicFNAPath: filePath,
 	})
 	if err != nil {
@@ -523,14 +585,15 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 	p := json.RawMessage(rawPayload)
 	now := time.Now().UTC()
 	j := &entity.Job{
-		VersionID:   versionID,
-		FileID:      &uploadID,
-		Type:        entity.JobTypeGenomicFNASetupJBrowse2,
-		Description: entity.JobDescriptions[entity.JobTypeGenomicFNASetupJBrowse2],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		FileID:            &uploadID,
+		Type:              entity.JobTypeGenomicFNASetupJBrowse2,
+		Description:       entity.JobDescriptions[entity.JobTypeGenomicFNASetupJBrowse2],
+		Payload:           &p,
+		Status:            entity.JobStatusPending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -548,8 +611,11 @@ func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uin
 // tryEnqueueGFFSetupJBrowse2 creates a GENOMIC.GFF:SETUP_JBROWSE2 job if
 // GENOMIC.FNA:SETUP_JBROWSE2 is done and no non-failed job exists for this GFF file.
 // GeneIDKey is read from the GENOMIC.GFF job's payload to keep a single source of truth.
-func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, versionName, gffFileID, gffFilePath string) (*entity.Job, error) {
-	fnaFile, err := uc.uploadRepo.FindLatestCompletedByVersionAndType(ctx, versionID, entity.FileTypeGenomicFNA)
+func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uint64, assemblyVersionID *uint64, versionName, assemblyID, gffFileID, gffFilePath string) (*entity.Job, error) {
+	if assemblyVersionID == nil {
+		return nil, nil
+	}
+	fnaFile, err := uc.uploadRepo.FindLatestCompletedByAssemblyVersionAndType(ctx, *assemblyVersionID, entity.FileTypeGenomicFNA)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find latest %s file: %w", entity.FileTypeGenomicFNA, err)
 	}
@@ -589,6 +655,7 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
 		VersionName:     versionName,
+		AssemblyID:      assemblyID,
 		GenomicGFFPath:  gffFilePath,
 		GeneIDKey:       geneIDKey,
 		GeneLinkBase:    uc.geneLinkBase,
@@ -602,14 +669,15 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 	p := json.RawMessage(rawPayload)
 	now := time.Now().UTC()
 	j := &entity.Job{
-		VersionID:   versionID,
-		FileID:      &gffFileID,
-		Type:        entity.JobTypeGenomicGFFSetupJBrowse2,
-		Description: entity.JobDescriptions[entity.JobTypeGenomicGFFSetupJBrowse2],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		FileID:            &gffFileID,
+		Type:              entity.JobTypeGenomicGFFSetupJBrowse2,
+		Description:       entity.JobDescriptions[entity.JobTypeGenomicGFFSetupJBrowse2],
+		Payload:           &p,
+		Status:            entity.JobStatusPending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, j); err != nil {
@@ -710,14 +778,15 @@ func (uc *UseCase) DeleteFile(ctx context.Context, id string, deletedBy string) 
 	p := json.RawMessage(rawPayload)
 	now := time.Now().UTC()
 	job := &entity.Job{
-		VersionID:   f.VersionID,
-		FileID:      &id,
-		Type:        deleteJobType,
-		Description: entity.JobDescriptions[deleteJobType],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		VersionID:         f.VersionID,
+		AssemblyVersionID: f.AssemblyVersionID,
+		FileID:            &id,
+		Type:              deleteJobType,
+		Description:       entity.JobDescriptions[deleteJobType],
+		Payload:           &p,
+		Status:            entity.JobStatusPending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	if err := uc.jobRepo.Create(ctx, job); err != nil {
@@ -773,6 +842,32 @@ func (uc *UseCase) cleanStaleUploads(maxAge time.Duration) {
 			log.Error().Err(err).Str("uploadID", uploadID).Msg("stale upload cleanup: failed to update status")
 		}
 	}
+}
+
+// uploadDirFor returns the directory an upload's file should live in:
+// {uploadDir}/{versionName}/{species}, except orthology.tsv (species == "")
+// which keeps the flat {uploadDir}/{versionName} path since it is shared
+// across every assembly in the Database Version rather than owned by one.
+func (uc *UseCase) uploadDirFor(versionName, species string) string {
+	if species == "" {
+		return filepath.Join(uc.uploadDir, versionName)
+	}
+	return filepath.Join(uc.uploadDir, versionName, species)
+}
+
+// parseOptionalAssemblyVersionID reads "_assemblyVersionID" from upload
+// metadata, returning nil if absent (the orthology.tsv case, which has no
+// owning assembly).
+func parseOptionalAssemblyVersionID(meta tusd.MetaData) (*uint64, error) {
+	raw, ok := meta["_assemblyVersionID"]
+	if !ok || raw == "" {
+		return nil, nil
+	}
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse _assemblyVersionID: %w", err)
+	}
+	return &id, nil
 }
 
 func parseCommaSeparated(s string) []string {

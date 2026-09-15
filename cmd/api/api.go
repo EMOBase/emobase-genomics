@@ -83,6 +83,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		config.MainSpecies,
 		config.Uploads.StaleAfter,
 		versionRepo,
+		assemblyVersionRepo,
 		jobRepo,
 		uploadFileRepo,
 	)

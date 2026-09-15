@@ -704,7 +704,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 				continue
 			}
 
-			rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath, VersionName: v.Name})
+			rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath, AssemblyID: asm.AssemblyID(), VersionName: v.Name})
 			if err != nil {
 				return nil, err
 			}
