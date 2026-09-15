@@ -108,3 +108,11 @@ func (r *MySQLRepository) Delete(ctx context.Context, id uint64) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM assembly_versions WHERE id = ?`, id)
 	return err
 }
+
+// DeleteByVersionID deletes every Assembly Version under a Database Version —
+// used when deleting the whole Database Version. Callers must delete any
+// referencing jobs/upload_files rows first (FK constraint).
+func (r *MySQLRepository) DeleteByVersionID(ctx context.Context, versionID uint64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM assembly_versions WHERE version_id = ?`, versionID)
+	return err
+}

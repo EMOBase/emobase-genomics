@@ -286,3 +286,11 @@ func (r *MySQLRepository) HardDeleteByVersionID(ctx context.Context, versionID u
 	_, err := r.db.ExecContext(ctx, `DELETE FROM upload_files WHERE version_id = ?`, versionID)
 	return err
 }
+
+// HardDeleteByAssemblyVersionID is the per-assembly counterpart of
+// HardDeleteByVersionID, used when deleting a single Assembly Version rather
+// than the whole Database Version.
+func (r *MySQLRepository) HardDeleteByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM upload_files WHERE assembly_version_id = ?`, assemblyVersionID)
+	return err
+}

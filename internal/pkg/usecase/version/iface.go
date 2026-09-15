@@ -22,9 +22,12 @@ type IAppSettingsRepository interface {
 
 type IJobRepository interface {
 	StatusCountsByVersionID(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error)
+	StatusCountsByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) (entity.JobStatusCounts, error)
+	StatusCountsForSharedJobs(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error)
 	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
+	FindByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.Job, error)
 	Create(ctx context.Context, j *entity.Job) error
-	HasInFlightJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
+	HasActiveJobOfTypeForAssemblyVersion(ctx context.Context, assemblyVersionID uint64, jobType string) (bool, error)
 	HasNonDoneJobsForFile(ctx context.Context, fileID string) (bool, error)
 	HasActiveJobsByVersionID(ctx context.Context, versionID uint64) (bool, error)
 	DeleteByVersionID(ctx context.Context, versionID uint64) error
@@ -34,7 +37,14 @@ type IUploadFileRepository interface {
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 	FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
+	FindLatestCompletedPerTypeByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
+	ListByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
 	HardDeleteByVersionID(ctx context.Context, versionID uint64) error
+}
+
+type IAssemblyVersionRepository interface {
+	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.AssemblyVersion, error)
+	DeleteByVersionID(ctx context.Context, versionID uint64) error
 }
 
 type IVersionESRepository interface {

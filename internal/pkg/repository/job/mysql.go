@@ -269,6 +269,26 @@ func (r *MySQLRepository) StatusCountsByAssemblyVersionID(ctx context.Context, a
 	return counts, err
 }
 
+// StatusCountsForSharedJobs returns job status counts for a Database
+// Version's jobs that are not owned by any single Assembly Version
+// (currently only ORTHOLOGY.TSV and its delete variant, which never carry an
+// assembly_version_id) — used to fold orthology's own status into the
+// Database-Version-level status rollup.
+func (r *MySQLRepository) StatusCountsForSharedJobs(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error) {
+	var counts entity.JobStatusCounts
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(status = ?), 0) AS running_count,
+		       COALESCE(SUM(status = ?), 0) AS failed_count,
+		       COALESCE(SUM(status = ?), 0) AS done_count,
+		       COUNT(*)                      AS total_count
+		FROM jobs
+		WHERE version_id = ? AND assembly_version_id IS NULL`,
+		entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone,
+		versionID,
+	).Scan(&counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount)
+	return counts, err
+}
+
 // FindDoneByVersionAndTypes returns DONE jobs matching any of the given types
 // for the specified version. Used to check prerequisite job completion.
 func (r *MySQLRepository) FindDoneByVersionAndTypes(ctx context.Context, versionID uint64, jobTypes []string) ([]entity.Job, error) {
@@ -427,5 +447,27 @@ func (r *MySQLRepository) HasActiveJobsByVersionID(ctx context.Context, versionI
 
 func (r *MySQLRepository) DeleteByVersionID(ctx context.Context, versionID uint64) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM jobs WHERE version_id = ?`, versionID)
+	return err
+}
+
+// HasActiveJobsByAssemblyVersionID is the per-assembly counterpart of
+// HasActiveJobsByVersionID, used to guard deleting a single Assembly Version.
+func (r *MySQLRepository) HasActiveJobsByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs WHERE assembly_version_id = ? AND status IN (?, ?)`,
+		assemblyVersionID, entity.JobStatusPending, entity.JobStatusRunning,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// DeleteByAssemblyVersionID is the per-assembly counterpart of
+// DeleteByVersionID, used when deleting a single Assembly Version rather than
+// the whole Database Version.
+func (r *MySQLRepository) DeleteByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM jobs WHERE assembly_version_id = ?`, assemblyVersionID)
 	return err
 }
