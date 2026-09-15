@@ -35,9 +35,31 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 		p + "synonym-" + vn + "-*",
 		p + "dsrna-" + vn + "-*",
 	}
+	return r.deleteByPatterns(ctx, patterns, fmt.Sprintf("version %q", versionName))
+}
 
-	// Step 1: resolve wildcard patterns to concrete index names.
-	// GET supports wildcards regardless of action.destructive_requires_name.
+// DeleteIndexesByAssemblyVersion deletes the ES indexes belonging to one
+// species within a Database Version, across the 4 assembly-scoped index
+// types (genomic, sequence, synonym, dsrna). orthology is deliberately
+// excluded — it is shared across the whole Database Version rather than
+// owned by any single assembly (never deleted by removing one assembly).
+func (r *Repository) DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, species string) error {
+	vn := indexname.FromVersionName(versionName)
+	sp := indexname.FromSpecies(species)
+	p := r.prefix + "-"
+	patterns := []string{
+		p + "genomiclocation-" + vn + "-" + sp + "-*",
+		p + "sequence-" + vn + "-" + sp + "-*",
+		p + "synonym-" + vn + "-" + sp + "-*",
+		p + "dsrna-" + vn + "-" + sp + "-*",
+	}
+	return r.deleteByPatterns(ctx, patterns, fmt.Sprintf("version %q species %q", versionName, species))
+}
+
+// deleteByPatterns resolves the given wildcard index patterns with a GET
+// (ES 8 sets action.destructive_requires_name=true by default, which rejects
+// wildcard expressions in DELETE), then deletes the resolved concrete names.
+func (r *Repository) deleteByPatterns(ctx context.Context, patterns []string, desc string) error {
 	getRes, err := r.esClient.Indices.Get(
 		patterns,
 		r.esClient.Indices.Get.WithContext(ctx),
@@ -45,7 +67,7 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 		r.esClient.Indices.Get.WithIgnoreUnavailable(true),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to list ES indexes for version %q: %w", versionName, err)
+		return fmt.Errorf("failed to list ES indexes for %s: %w", desc, err)
 	}
 	defer func() { _ = getRes.Body.Close() }()
 
@@ -53,18 +75,18 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 		return nil
 	}
 	if getRes.IsError() {
-		return fmt.Errorf("elasticsearch list indexes failed for version %q: %s", versionName, getRes.String())
+		return fmt.Errorf("elasticsearch list indexes failed for %s: %s", desc, getRes.String())
 	}
 
 	var indices map[string]json.RawMessage
 	if err := json.NewDecoder(getRes.Body).Decode(&indices); err != nil {
-		return fmt.Errorf("failed to decode index list for version %q: %w", versionName, err)
+		return fmt.Errorf("failed to decode index list for %s: %w", desc, err)
 	}
 	if len(indices) == 0 {
 		return nil
 	}
 
-	// Step 2: delete by explicit names — no wildcards, safe under any ES security setting.
+	// Delete by explicit names — no wildcards, safe under any ES security setting.
 	names := make([]string, 0, len(indices))
 	for name := range indices {
 		names = append(names, name)
@@ -75,12 +97,12 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 		r.esClient.Indices.Delete.WithContext(ctx),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to delete ES indexes for version %q: %w", versionName, err)
+		return fmt.Errorf("failed to delete ES indexes for %s: %w", desc, err)
 	}
 	defer func() { _ = delRes.Body.Close() }()
 
 	if delRes.IsError() {
-		return fmt.Errorf("elasticsearch delete indexes failed for version %q: %s", versionName, delRes.String())
+		return fmt.Errorf("elasticsearch delete indexes failed for %s: %s", desc, delRes.String())
 	}
 	return nil
 }

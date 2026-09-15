@@ -30,15 +30,17 @@ type UseCase struct {
 	assemblyVersionRepo IAssemblyVersionRepository
 	jobRepo             IJobRepository
 	uploadFileRepo      IUploadFileRepository
+	esRepo              IESRepository
 	uploadDir           string
 }
 
-func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, uploadDir string) *UseCase {
+func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IESRepository, uploadDir string) *UseCase {
 	return &UseCase{
 		versionRepo:         versionRepo,
 		assemblyVersionRepo: assemblyVersionRepo,
 		jobRepo:             jobRepo,
 		uploadFileRepo:      uploadFileRepo,
+		esRepo:              esRepo,
 		uploadDir:           uploadDir,
 	}
 }
@@ -145,15 +147,14 @@ func (uc *UseCase) GetAssemblyVersionDetail(ctx context.Context, versionName, sp
 }
 
 // DeleteAssemblyVersion deletes one species from a Database Version: its
-// jobs, upload file rows and on-disk files, and the assembly_versions row
-// itself. There is no orthology-related guard — deleting an assembly never
-// touches the Database Version's shared orthology.tsv data, since orthology
-// belongs to no single assembly (§2 of the design doc).
+// jobs, upload file rows and on-disk files, ES indexes, and the
+// assembly_versions row itself. There is no orthology-related guard —
+// deleting an assembly never touches the Database Version's shared
+// orthology.tsv data, since orthology belongs to no single assembly (§2 of
+// the design doc).
 //
-// ES index cleanup (esindex.DeleteIndexesByAssemblyVersion) and JBrowse2
-// assembly removal land in Phase 3/4 of the design and are not yet wired in
-// here — this Phase 1 implementation only removes MySQL rows and on-disk
-// upload files.
+// JBrowse2 assembly removal lands in Phase 4 of the design and is not yet
+// wired in here.
 func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, species string) error {
 	v, err := uc.versionRepo.FindByName(ctx, versionName)
 	if err != nil {
@@ -195,6 +196,10 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, speci
 
 	if err := uc.assemblyVersionRepo.Delete(ctx, asm.ID); err != nil {
 		return err
+	}
+
+	if err := uc.esRepo.DeleteIndexesByAssemblyVersion(ctx, v.Name, asm.Species); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("species", asm.Species).Msg("failed to delete ES indexes during assembly version delete")
 	}
 
 	for _, f := range files {

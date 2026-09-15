@@ -33,3 +33,9 @@ type IUploadFileRepository interface {
 	ucversion.IUploadFileRepository
 	HardDeleteByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) error
 }
+
+// IESRepository cleans up one assembly's ES indexes on delete, across the 4
+// assembly-scoped types (orthology is shared and never touched by this).
+type IESRepository interface {
+	DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, species string) error
+}

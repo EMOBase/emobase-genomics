@@ -59,8 +59,9 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	versionRepo := repoversion.New(db)
 	uploadFileRepo := repouploadfile.New(db)
 	assemblyVersionRepo := repoassemblyversion.New(db)
-	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, assemblyVersionRepo, esindex.New(esClient, config.Elasticsearch.IndexPrefix), config.Uploads.Dir)
-	assemblyVersionUC := ucassemblyversion.New(versionRepo, assemblyVersionRepo, jobRepo, uploadFileRepo, config.Uploads.Dir)
+	esIndexRepo := esindex.New(esClient, config.Elasticsearch.IndexPrefix)
+	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, assemblyVersionRepo, esIndexRepo, config.Uploads.Dir)
+	assemblyVersionUC := ucassemblyversion.New(versionRepo, assemblyVersionRepo, jobRepo, uploadFileRepo, esIndexRepo, config.Uploads.Dir)
 
 	jobUC := ucjob.New(jobRepo, versionRepo)
 

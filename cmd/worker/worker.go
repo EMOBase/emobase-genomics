@@ -87,7 +87,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		),
 		entity.JobTypeSpeciesSynonym: synonymHandler,
 		entity.JobTypeSpeciesSynonymDelete: handlers.NewDeleteSynonymHandler(
-			config.Uploads.Dir, uploadFileRepo, versionRepo, synonymRepo, indexPrefix,
+			config.Uploads.Dir, uploadFileRepo, versionRepo, jobRepo, synonymRepo, indexPrefix,
 		),
 		entity.JobTypeGenomicFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", blastTitle+" Genome", blastDBPath+"/genome", blastContainerName, jobRepo, appSettingsRepo,

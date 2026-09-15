@@ -181,12 +181,9 @@ func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string
 	for species, genes := range speciesToGenes {
 		groups = append(groups, GeneGroup{Species: species, Genes: genes})
 	}
+	// Species are fully symmetric now (no per-assembly "default"), so there is
+	// no principled "main species first" anymore — order deterministically.
 	sort.Slice(groups, func(i, j int) bool {
-		iIsMain := groups[i].Species == uc.mainSpecies
-		jIsMain := groups[j].Species == uc.mainSpecies
-		if iIsMain != jIsMain {
-			return iIsMain
-		}
 		return groups[i].Species < groups[j].Species
 	})
 

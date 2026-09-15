@@ -457,6 +457,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			UploadFileID:    uploadID,
 			VersionID:       versionID,
 			FilePath:        filePath,
+			Species:         assemblySpecies,
 			GeneIDKey:       strings.TrimSpace(meta["geneIDKey"]),
 			TrimPrefixChars: trimPrefixChars,
 			TrimSuffixChars: trimSuffixChars,
@@ -476,6 +477,7 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			UploadFileID: uploadID,
 			VersionID:    versionID,
 			FilePath:     filePath,
+			Species:      assemblySpecies,
 		})
 	}
 	if err != nil {

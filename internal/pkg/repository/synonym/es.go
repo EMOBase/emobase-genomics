@@ -95,10 +95,12 @@ func (r *ElasticSearchRepository) DeleteByFileID(ctx context.Context, indexName,
 	return nil
 }
 
-// SetAlias atomically points aliasName to indexName,
-// removing it from any previous index it may have pointed to.
-func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName string) error {
+// SetAlias atomically points aliasName to indexName, removing only this
+// species' previous index (if any) from the alias — sibling assemblies'
+// indexes already attached to aliasName are left untouched.
+func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName, species string) error {
 	actions := []map[string]any{}
+	speciesPrefix := aliasName + "-" + species + "-"
 
 	getRes, err := r.esClient.Indices.GetAlias(
 		r.esClient.Indices.GetAlias.WithContext(ctx),
@@ -119,6 +121,9 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 			return fmt.Errorf("failed to decode alias response: %w", err)
 		}
 		for index := range current {
+			if !strings.HasPrefix(index, speciesPrefix) {
+				continue
+			}
 			actions = append(actions, map[string]any{
 				"remove": map[string]string{"index": index, "alias": aliasName},
 			})
