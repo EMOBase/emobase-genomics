@@ -106,7 +106,7 @@ func (uc *UseCase) ListVersionsPublic(ctx context.Context, status string) ([]Ver
 				break
 			}
 		}
-		itemStatus := computeVersionStatus(statusCounts, hasFNA)
+		itemStatus := ComputeVersionStatus(statusCounts, hasFNA)
 		if status != "" && itemStatus != status {
 			continue
 		}
