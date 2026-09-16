@@ -9,4 +9,5 @@ type JBrowseTrackPayload struct {
 	FileID                 string `json:"file_id"`
 	Category               string `json:"category,omitempty"`
 	SelectInDefaultSession bool   `json:"select_in_default_session,omitempty"`
+	TextIndex              bool   `json:"text_index,omitempty"`
 }

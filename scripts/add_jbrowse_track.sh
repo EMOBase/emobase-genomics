@@ -7,9 +7,10 @@ ASSEMBLY_NAME="$3"
 TRACK_ID="$4"
 CATEGORY="${5:-}"
 SELECT_IN_DEFAULT_SESSION="${6:-false}"
+TEXT_INDEX="${7:-false}"
 
 if [ -z "$TRACK_GZ" ] || [ -z "$TRACK_NAME" ] || [ -z "$ASSEMBLY_NAME" ] || [ -z "$TRACK_ID" ]; then
-  echo "Usage: $0 <track.gz> <track_name> <assembly_name> <track_id> [category] [select_in_default_session]" >&2
+  echo "Usage: $0 <track.gz> <track_name> <assembly_name> <track_id> [category] [select_in_default_session] [text_index]" >&2
   exit 1
 fi
 
@@ -64,6 +65,13 @@ jbrowse add-track "$TRACK_FILE" \
   "${CATEGORY_ARG[@]}"
 
 echo "JBrowse2 track added successfully."
+
+if [ "$TEXT_INDEX" = "true" ]; then
+  # Run before the jq patch below: text-index rewrites config.json and would
+  # overwrite anything injected before it runs (see setup_jbrowse2_gff.sh).
+  echo "Indexing track '${TRACK_ID}' for text search..."
+  jbrowse text-index --tracks="$TRACK_ID" --out "$DATA_DIR"
+fi
 
 if [ "$SELECT_IN_DEFAULT_SESSION" = "true" ]; then
   echo "Selecting track '${TRACK_ID}' by default for assembly '${ASSEMBLY_NAME}'..."

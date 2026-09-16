@@ -1602,6 +1602,7 @@ paths:
         | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
         | `category` | No | Only used when `fileType` is `jbrowse.track`. Comma-separated list of category labels used to group the track in the JBrowse2 track selector (e.g. `Alignments,My Lab`). |
         | `selectInDefaultSession` | No | Only used when `fileType` is `jbrowse.track`. Boolean (`true`/`false`, default `false`). When `true`, the track is added to the assembly's default session (already selected/visible the first time a user opens that assembly in JBrowse2). |
+        | `textIndex` | No | Only used when `fileType` is `jbrowse.track`. Boolean (`true`/`false`, default `false`). When `true`, the track is indexed for JBrowse2's text search (quick search box) after it is added. |
 
         **Accepted `fileType` values:**
         - `genomic.fna`
