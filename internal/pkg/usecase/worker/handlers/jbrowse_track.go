@@ -88,7 +88,18 @@ func (h *DeleteJBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) 
 	// command, then releases the lock — matching the flock usage in
 	// scripts/{add_jbrowse_track,setup_jbrowse2_fna,setup_jbrowse2_gff,
 	// delete_jbrowse_version}.sh, which all touch the same config.json.
-	cmd := exec.CommandContext(ctx, "flock", jbrowseConfigLockFile, jbrowseBin, "remove-track", trackID, "--out", jbrowseOutDir)
+	//
+	// remove-track and the --force text-index rebuild run as one shell
+	// command under that single lock: a track removed here may have been
+	// text-indexed (JBrowseTrackHandler), and text-index itself rewrites
+	// config.json (see setup_jbrowse2_gff.sh), so rebuilding must happen
+	// atomically with the removal or the aggregate search index is left
+	// pointing at a trackId that no longer exists in config.json. trackID is
+	// passed as a positional arg ($2), not interpolated into the script
+	// string, so it can't break out of the shell command.
+	cmd := exec.CommandContext(ctx, "flock", jbrowseConfigLockFile, "sh", "-c",
+		`"$1" remove-track "$2" --out "$3" && "$1" text-index --force --out "$3"`,
+		"sh", jbrowseBin, trackID, jbrowseOutDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %w\noutput: %s", entity.JobTypeJBrowseTrackDelete, err, out)
