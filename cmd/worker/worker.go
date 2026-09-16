@@ -117,6 +117,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		config.Jobs.PollInterval,
 		config.Jobs.StuckInterval,
 		config.Jobs.StuckTimeout,
+		config.Jobs.MaxConcurrent,
 	)
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

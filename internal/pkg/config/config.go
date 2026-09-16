@@ -63,6 +63,9 @@ type JobsConfig struct {
 	PollInterval  time.Duration `mapstructure:"poll_interval"`
 	StuckInterval time.Duration `mapstructure:"stuck_interval"`
 	StuckTimeout  time.Duration `mapstructure:"stuck_timeout"`
+	// MaxConcurrent is the maximum number of jobs this worker process handles
+	// at once. Defaults to 1 (sequential) when unset or <= 0.
+	MaxConcurrent int `mapstructure:"max_concurrent"`
 }
 
 type HTTPConfig struct {

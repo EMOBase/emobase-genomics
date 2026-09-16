@@ -15,6 +15,7 @@ jobs:
   poll_interval: 1s
   stuck_interval: 5m
   stuck_timeout: 30m
+  max_concurrent: 4
 
 keycloak:
   url: http://localhost:3000

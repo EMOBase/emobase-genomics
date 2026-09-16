@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -15,6 +16,7 @@ type Worker struct {
 	pollInterval  time.Duration
 	stuckInterval time.Duration
 	stuckTimeout  time.Duration
+	maxConcurrent int
 }
 
 func New(
@@ -23,28 +25,46 @@ func New(
 	pollInterval time.Duration,
 	stuckInterval time.Duration,
 	stuckTimeout time.Duration,
+	maxConcurrent int,
 ) *Worker {
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
 	return &Worker{
 		jobRepo:       jobRepo,
 		handlers:      handlers,
 		pollInterval:  pollInterval,
 		stuckInterval: stuckInterval,
 		stuckTimeout:  stuckTimeout,
+		maxConcurrent: maxConcurrent,
 	}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
 	go w.runStuckJobRecovery(ctx)
 
+	sem := make(chan struct{}, w.maxConcurrent)
+	var wg sync.WaitGroup
+
 	for {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return nil
+		}
+
 		job, err := w.jobRepo.ClaimNextPending(ctx)
 		if err != nil {
+			<-sem
 			if ctx.Err() != nil {
+				wg.Wait()
 				return nil
 			}
 			log.Error().Err(err).Msg("failed to claim pending job")
 			select {
 			case <-ctx.Done():
+				wg.Wait()
 				return nil
 			case <-time.After(w.pollInterval):
 			}
@@ -52,15 +72,22 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 
 		if job == nil {
+			<-sem
 			select {
 			case <-ctx.Done():
+				wg.Wait()
 				return nil
 			case <-time.After(w.pollInterval):
 			}
 			continue
 		}
 
-		w.processJob(ctx, job)
+		wg.Add(1)
+		go func(job *entity.Job) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			w.processJob(ctx, job)
+		}(job)
 	}
 }
 
