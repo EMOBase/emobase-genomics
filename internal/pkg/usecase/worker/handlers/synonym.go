@@ -22,7 +22,7 @@ type ISynonymUseCase interface {
 }
 
 type ISynonymRepository interface {
-	SetAlias(ctx context.Context, indexName, aliasName string) error
+	SetAlias(ctx context.Context, indexName, aliasName, species string) error
 	DeleteByFileID(ctx context.Context, indexName, fileID string) error
 }
 
@@ -63,8 +63,8 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	// Use version.CreatedAt.Unix() instead of time.Now().Unix() to fix the index name,
-	// so multiple synonym files uploaded for the same version will be indexed into the same ES index.
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	// so multiple synonym files uploaded for the same assembly will be indexed into the same ES index.
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, indexname.FromSpecies(payload.Species), version.CreatedAt.Unix())
 
 	parser := h.parserForFile(payload)
 	if parser == nil {
@@ -75,7 +75,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, err
 	}
 
-	if err := h.synonymRepo.SetAlias(ctx, indexName, aliasName); err != nil {
+	if err := h.synonymRepo.SetAlias(ctx, indexName, aliasName, indexname.FromSpecies(payload.Species)); err != nil {
 		return nil, err
 	}
 
@@ -119,7 +119,7 @@ func (h *SynonymHandler) OnFailure(ctx context.Context, job entity.Job, _ error)
 	}
 
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, indexname.FromSpecies(payload.Species), version.CreatedAt.Unix())
 
 	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).

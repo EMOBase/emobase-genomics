@@ -18,9 +18,9 @@ func New(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, f *entity.UploadFile) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO upload_files (id, version_id, file_path, file_type, file_size, metadata, upload_status, created_by)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		f.ID, f.VersionID, f.FilePath, f.FileType, f.FileSize, f.Metadata, f.UploadStatus, f.CreatedBy,
+		`INSERT INTO upload_files (id, version_id, assembly_version_id, file_path, file_type, file_size, metadata, upload_status, created_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.VersionID, f.AssemblyVersionID, f.FilePath, f.FileType, f.FileSize, f.Metadata, f.UploadStatus, f.CreatedBy,
 	)
 	return err
 }
@@ -110,6 +110,36 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	return files, rows.Err()
 }
 
+// ListByAssemblyVersionID returns every upload file belonging to a single
+// Assembly Version — the per-species counterpart of ListByVersionID. Files
+// shared across a Database Version rather than owned by one assembly (e.g.
+// orthology.tsv) never have an assembly_version_id and so never appear here.
+func (r *MySQLRepository) ListByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, assembly_version_id, file_path, file_type, file_size, metadata, upload_status,
+		        created_at, created_by, completed_at, deleted_at, deleted_by
+		 FROM upload_files WHERE assembly_version_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`,
+		assemblyVersionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var files []entity.UploadFile
+	for rows.Next() {
+		var f entity.UploadFile
+		if err := rows.Scan(
+			&f.ID, &f.VersionID, &f.AssemblyVersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
+			&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
 func (r *MySQLRepository) UpdateStatus(ctx context.Context, id string, status entity.UploadStatus) error {
 	var completedAt *time.Time
 	if status == entity.UploadStatusCompleted || status == entity.UploadStatusFailed {
@@ -182,6 +212,67 @@ func (r *MySQLRepository) FindLatestCompletedByVersionAndType(ctx context.Contex
 	return f, nil
 }
 
+// FindLatestCompletedPerTypeByAssemblyVersionID is the per-assembly counterpart
+// of FindLatestCompletedPerTypeByVersionID, used for per-assembly required-file
+// checks and per-assembly detail views.
+func (r *MySQLRepository) FindLatestCompletedPerTypeByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, assembly_version_id, file_path, file_type, file_size, metadata, upload_status,
+		        created_at, created_by, completed_at, deleted_at, deleted_by
+		 FROM (
+		   SELECT id, version_id, assembly_version_id, file_path, file_type, file_size, metadata, upload_status,
+		          created_at, created_by, completed_at, deleted_at, deleted_by,
+		          ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
+		   FROM upload_files
+		   WHERE assembly_version_id = ? AND upload_status = ? AND deleted_at IS NULL
+		 ) ranked
+		 WHERE rn = 1`,
+		assemblyVersionID, entity.UploadStatusCompleted,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var files []entity.UploadFile
+	for rows.Next() {
+		var f entity.UploadFile
+		if err := rows.Scan(
+			&f.ID, &f.VersionID, &f.AssemblyVersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
+			&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+// FindLatestCompletedByAssemblyVersionAndType is the per-assembly counterpart
+// of FindLatestCompletedByVersionAndType, used to look up e.g. "the" genomic.fna
+// for one assembly rather than for the whole Database Version.
+func (r *MySQLRepository) FindLatestCompletedByAssemblyVersionAndType(ctx context.Context, assemblyVersionID uint64, fileType string) (*entity.UploadFile, error) {
+	f := &entity.UploadFile{}
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, version_id, assembly_version_id, file_path, file_type, file_size, metadata, upload_status,
+		        created_at, created_by, completed_at, deleted_at, deleted_by
+		 FROM upload_files
+		 WHERE assembly_version_id = ? AND file_type = ? AND upload_status = ? AND deleted_at IS NULL
+		 ORDER BY created_at DESC LIMIT 1`,
+		assemblyVersionID, fileType, entity.UploadStatusCompleted,
+	).Scan(
+		&f.ID, &f.VersionID, &f.AssemblyVersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
+		&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 func (r *MySQLRepository) SoftDelete(ctx context.Context, id string, deletedBy string) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,
@@ -193,5 +284,13 @@ func (r *MySQLRepository) SoftDelete(ctx context.Context, id string, deletedBy s
 
 func (r *MySQLRepository) HardDeleteByVersionID(ctx context.Context, versionID uint64) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM upload_files WHERE version_id = ?`, versionID)
+	return err
+}
+
+// HardDeleteByAssemblyVersionID is the per-assembly counterpart of
+// HardDeleteByVersionID, used when deleting a single Assembly Version rather
+// than the whole Database Version.
+func (r *MySQLRepository) HardDeleteByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM upload_files WHERE assembly_version_id = ?`, assemblyVersionID)
 	return err
 }

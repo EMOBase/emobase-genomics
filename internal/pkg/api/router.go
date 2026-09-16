@@ -7,6 +7,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/middleware"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
+	ucassemblyversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/assemblyversion"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	ucsearch "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/search"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
@@ -22,7 +23,7 @@ var skipLogPaths = map[string]struct{}{
 	"/docs/openapi.yaml": {},
 }
 
-func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) *gin.Engine {
+func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		requestid.New(),
@@ -31,12 +32,12 @@ func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *uc
 		middleware.NewCORSMiddleware(),
 	)
 
-	registerRoutes(router, uploadUC, versionUC, jobUC, searchUC, validator)
+	registerRoutes(router, uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator)
 
 	return router
 }
 
-func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) {
+func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) {
 	router.GET("/health", func(c *gin.Context) {
 		apires.OK(c, "OK")
 		c.Abort()
@@ -78,6 +79,12 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		authenticated.POST("/versions", versionHandler.Create)
 		authenticated.DELETE("/versions/:name", versionHandler.Delete)
 		authenticated.POST("/versions/:name/release", versionHandler.Release)
+
+		assemblyVersionHandler := handler.NewAssemblyVersionHandler(assemblyVersionUC)
+		authenticated.GET("/versions/:name/assemblies", assemblyVersionHandler.List)
+		authenticated.POST("/versions/:name/assemblies", assemblyVersionHandler.Create)
+		authenticated.GET("/versions/:name/assemblies/:species", assemblyVersionHandler.Detail)
+		authenticated.DELETE("/versions/:name/assemblies/:species", assemblyVersionHandler.Delete)
 
 		jobHandler := handler.NewJobHandler(jobUC)
 		authenticated.GET("/jobs", jobHandler.ListByVersion)
