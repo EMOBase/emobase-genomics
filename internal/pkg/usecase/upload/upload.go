@@ -28,7 +28,6 @@ type UseCase struct {
 	tusHandler          *tusd.Handler
 	uploadDir           string
 	geneLinkBase        string
-	mainSpecies         string
 	versionRepo         IVersionRepository
 	assemblyVersionRepo IAssemblyVersionRepository
 	jobRepo             IJobRepository
@@ -39,7 +38,6 @@ func New(
 	uploadDir string,
 	tusBasePath string,
 	geneLinkBase string,
-	mainSpecies string,
 	staleUploadAge time.Duration,
 	versionRepo IVersionRepository,
 	assemblyVersionRepo IAssemblyVersionRepository,
@@ -56,7 +54,6 @@ func New(
 	uc := &UseCase{
 		uploadDir:           uploadDir,
 		geneLinkBase:        geneLinkBase,
-		mainSpecies:         mainSpecies,
 		versionRepo:         versionRepo,
 		assemblyVersionRepo: assemblyVersionRepo,
 		jobRepo:             jobRepo,

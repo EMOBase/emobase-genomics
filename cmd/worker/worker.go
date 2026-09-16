@@ -55,10 +55,10 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	batchSize := config.Elasticsearch.BulkBatchSize
 
 	genomicRepo := repogenomic.New(esClient, batchSize)
-	genomicUC := ucgenomic.New(genomicRepo, config.MainSpecies, batchSize)
+	genomicUC := ucgenomic.New(genomicRepo, batchSize)
 
 	sequenceRepo := reposequence.New(esClient, batchSize)
-	sequenceUC := ucsequence.New(sequenceRepo, config.MainSpecies, batchSize)
+	sequenceUC := ucsequence.New(sequenceRepo, batchSize)
 
 	orthologyRepo := repoorthology.New(esClient, batchSize)
 	orthologyUC := ucorthology.New(orthologyRepo, batchSize)
@@ -67,7 +67,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	synonymUC := ucsynonym.New(synonymRepo, batchSize)
 
 	dsrnaRepo := repodsrna.New(esClient, batchSize)
-	dsrnaUC := ucdsrna.New(dsrnaRepo, config.MainSpecies, batchSize)
+	dsrnaUC := ucdsrna.New(dsrnaRepo, batchSize)
 
 	blastDBPath := config.Blast.DBPath
 	blastTitle := config.Blast.DisplayName

@@ -14,9 +14,9 @@ type SequenceUseCase struct {
 	repo   ISequenceRepository
 }
 
-func New(repo ISequenceRepository, mainSpecies string, batchSize int) *SequenceUseCase {
+func New(repo ISequenceRepository, batchSize int) *SequenceUseCase {
 	return &SequenceUseCase{
-		config: Config{MainSpecies: mainSpecies, BatchSize: batchSize},
+		config: Config{BatchSize: batchSize},
 		repo:   repo,
 	}
 }

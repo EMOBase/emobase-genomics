@@ -295,7 +295,7 @@ components:
         dsrna.csv:
           $ref: '#/components/schemas/FileDetail'
           nullable: true
-          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when `main_species` is `tcas`.
+          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when this assembly's species is `Tcas`.
         jbrowse.track:
           type: array
           description: All non-deleted JBrowse2 track files for this assembly.

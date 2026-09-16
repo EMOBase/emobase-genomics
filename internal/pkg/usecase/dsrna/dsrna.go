@@ -12,13 +12,12 @@ import (
 )
 
 type UseCase struct {
-	repo        IDsRNARepository
-	mainSpecies string
-	batchSize   int
+	repo      IDsRNARepository
+	batchSize int
 }
 
-func New(repo IDsRNARepository, mainSpecies string, batchSize int) *UseCase {
-	return &UseCase{repo: repo, mainSpecies: mainSpecies, batchSize: batchSize}
+func New(repo IDsRNARepository, batchSize int) *UseCase {
+	return &UseCase{repo: repo, batchSize: batchSize}
 }
 
 // Load parses a dsrna.csv (CSV format: id, seq, leftPrimer?, rightPrimer?) from r
