@@ -98,13 +98,13 @@ func (r *MySQLRepository) ClaimNextPending(ctx context.Context) (*entity.Job, er
 
 	j := &entity.Job{}
 	err = tx.QueryRowContext(ctx,
-		`SELECT id, version_id, file_id, type, description, payload, status,
+		`SELECT id, version_id, assembly_version_id, file_id, type, description, payload, status,
 		        result_metadata, created_at, updated_at, started_at, completed_at
 		 FROM jobs WHERE status = ?
 		 ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
 		entity.JobStatusPending,
 	).Scan(
-		&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Description, &j.Payload, &j.Status,
+		&j.ID, &j.VersionID, &j.AssemblyVersionID, &j.FileID, &j.Type, &j.Description, &j.Payload, &j.Status,
 		&j.ResultMetadata, &j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
 	)
 	if err == sql.ErrNoRows {
