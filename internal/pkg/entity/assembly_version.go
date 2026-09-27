@@ -26,5 +26,15 @@ type AssemblyVersion struct {
 // guaranteed unique across different Database Versions and can't safely act
 // as a shell/jq delimiter.
 func (a AssemblyVersion) AssemblyID() string {
-	return fmt.Sprintf("v%da%d", a.VersionID, a.ID)
+	return FormatAssemblyID(a.VersionID, a.ID)
+}
+
+// FormatAssemblyID builds the same opaque identifier as AssemblyID from a
+// Database Version's numeric ID and an Assembly Version's own numeric ID.
+// Job payloads that need this identifier carry the two numeric IDs instead
+// of the pre-formatted string — easier to read when inspecting a job's
+// payload directly (e.g. via SQL) — and call this once, right before
+// invoking the JBrowse2/BLAST script that actually needs the opaque form.
+func FormatAssemblyID(versionID, assemblyVersionID uint64) string {
+	return fmt.Sprintf("v%da%d", versionID, assemblyVersionID)
 }

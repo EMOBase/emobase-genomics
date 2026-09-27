@@ -56,7 +56,8 @@ func (h *SetupBlastHandler) Handle(ctx context.Context, job entity.Job) (json.Ra
 		return nil, fmt.Errorf("failed to unmarshal setup_blast payload: %w", err)
 	}
 
-	out := fmt.Sprintf("%s/%s-%s", h.blastDBPath, payload.AssemblyID, h.dbSuffix)
+	assemblyID := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
+	out := fmt.Sprintf("%s/%s-%s", h.blastDBPath, assemblyID, h.dbSuffix)
 	title := fmt.Sprintf("%s %s %s", h.blastTitle, payload.AssemblyName, h.typeLabel)
 
 	cmd := exec.CommandContext(ctx, setupBlastScript,

@@ -47,7 +47,8 @@ func (h *RemoveBlastHandler) Handle(ctx context.Context, job entity.Job) (json.R
 		return nil, fmt.Errorf("failed to unmarshal remove_blast payload: %w", err)
 	}
 
-	out := fmt.Sprintf("%s/%s-%s", h.blastDBPath, payload.AssemblyID, h.dbSuffix)
+	assemblyID := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
+	out := fmt.Sprintf("%s/%s-%s", h.blastDBPath, assemblyID, h.dbSuffix)
 	cmd := exec.CommandContext(ctx, removeBlastScript, out)
 
 	cmdOut, err := cmd.CombinedOutput()

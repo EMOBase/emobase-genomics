@@ -35,7 +35,9 @@ func (h *SetupFNAJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 		return nil, fmt.Errorf("failed to unmarshal %s payload: %w", entity.JobTypeGenomicFNASetupJBrowse2, err)
 	}
 
-	cmd := exec.CommandContext(ctx, setupJBrowse2FNAScript, payload.GenomicFNAPath, payload.AssemblyID)
+	assemblyID := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
+
+	cmd := exec.CommandContext(ctx, setupJBrowse2FNAScript, payload.GenomicFNAPath, assemblyID)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s script failed: %w\noutput: %s", entity.JobTypeGenomicFNASetupJBrowse2, err, out)
@@ -43,7 +45,7 @@ func (h *SetupFNAJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
-		Str("assemblyID", payload.AssemblyID).
+		Str("assemblyID", assemblyID).
 		Str("scriptOutput", string(out)).
 		Msgf("%s completed successfully", entity.JobTypeGenomicFNASetupJBrowse2)
 
@@ -80,9 +82,11 @@ func (h *SetupGFFJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 		return nil, fmt.Errorf("failed to unmarshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)
 	}
 
+	assemblyID := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
+
 	cmd := exec.CommandContext(ctx, setupJBrowse2GFFScript,
 		payload.GenomicGFFPath,
-		payload.AssemblyID,
+		assemblyID,
 		payload.DisplayLabel,
 		payload.GeneIDKey,
 		payload.GeneLinkBase,
@@ -96,7 +100,7 @@ func (h *SetupGFFJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 
 	log.Ctx(ctx).Info().
 		Uint64("jobID", job.ID).
-		Str("assemblyID", payload.AssemblyID).
+		Str("assemblyID", assemblyID).
 		Str("scriptOutput", string(out)).
 		Msgf("%s completed successfully", entity.JobTypeGenomicGFFSetupJBrowse2)
 
@@ -143,13 +147,14 @@ func tryEnqueueGFFSetupJBrowse2(ctx context.Context, jobRepo IJobRepository, ver
 	}
 
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2GFFPayload{
-		AssemblyID:      p.AssemblyID,
-		DisplayLabel:    p.DisplayLabel,
-		GenomicGFFPath:  p.FilePath,
-		GeneIDKey:       p.GeneIDKey,
-		GeneLinkBase:    geneLinkBase,
-		TrimPrefixChars: p.TrimPrefixChars,
-		TrimSuffixChars: p.TrimSuffixChars,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		DisplayLabel:      p.DisplayLabel,
+		GenomicGFFPath:    p.FilePath,
+		GeneIDKey:         p.GeneIDKey,
+		GeneLinkBase:      geneLinkBase,
+		TrimPrefixChars:   p.TrimPrefixChars,
+		TrimSuffixChars:   p.TrimSuffixChars,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicGFFSetupJBrowse2, err)

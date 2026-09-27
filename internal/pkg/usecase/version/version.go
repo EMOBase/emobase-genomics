@@ -680,7 +680,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 					continue
 				}
 
-				j, err := uc.enqueueRemoveBlastJob(ctx, v.ID, asm.ID, asm.AssemblyID(), v.Name, spec.removeJobType)
+				j, err := uc.enqueueRemoveBlastJob(ctx, v.ID, asm.ID, v.Name, spec.removeJobType)
 				if err != nil {
 					return nil, err
 				}
@@ -704,7 +704,13 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 				continue
 			}
 
-			rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{FilePath: latestFile.FilePath, AssemblyID: asm.AssemblyID(), AssemblyName: asm.Name, VersionName: v.Name})
+			rawPayload, err := json.Marshal(jobpayload.SetupBlastPayload{
+				FilePath:          latestFile.FilePath,
+				VersionID:         v.ID,
+				AssemblyVersionID: asm.ID,
+				AssemblyName:      asm.Name,
+				VersionName:       v.Name,
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -736,7 +742,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 // type this assembly doesn't have, unless one is already in flight for this
 // assembly (mirroring the in-flight-only dedup check for SETUP_BLAST jobs
 // above — a past DONE job must not block a fresh one, for the same reason).
-func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assemblyVersionID uint64, assemblyID, versionName string, removeJobType string) (*entity.Job, error) {
+func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assemblyVersionID uint64, versionName string, removeJobType string) (*entity.Job, error) {
 	inFlight, err := uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(ctx, assemblyVersionID, removeJobType)
 	if err != nil {
 		return nil, err
@@ -745,7 +751,11 @@ func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assembl
 		return nil, nil
 	}
 
-	rawPayload, err := json.Marshal(jobpayload.RemoveBlastPayload{AssemblyID: assemblyID, VersionName: versionName})
+	rawPayload, err := json.Marshal(jobpayload.RemoveBlastPayload{
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		VersionName:       versionName,
+	})
 	if err != nil {
 		return nil, err
 	}
