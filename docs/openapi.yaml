@@ -155,6 +155,8 @@ components:
         - DSRNA.CSV
         - JBROWSE.TRACK
         - JBROWSE.TRACK:DELETE
+        - ORTHOLOGY.BUNDLE
+        - JBROWSE.TRACK.BUNDLE
       description: |
         Identifies which file type and pipeline the job processes.
         - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
@@ -174,6 +176,7 @@ components:
         - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
         - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
+        - `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` — validate and extract a bundle archive into independent `orthology.tsv` / `jbrowse.track` upload files, enqueueing one `ORTHOLOGY.TSV` / `JBROWSE.TRACK` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
 
     JobSummary:
       type: object
@@ -1613,6 +1616,16 @@ paths:
         - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files)*
         - `dsrna.csv` *(tcas species only; 1 active per version — re-upload replaces the previous index)*
         - `jbrowse.track` *(multiple tracks allowed per version; requires `trackName` metadata; optional `category`; deletable)*
+        - `orthology.bundle` / `jbrowse.track.bundle` *(many `orthology.tsv` / `jbrowse.track` files in one upload; see below)*
+
+        **Bundle uploads** (`orthology.bundle`, `jbrowse.track.bundle`):
+
+        - The file must be a `.tar.gz` archive. No metadata is needed besides `fileType`, `fileName` and `version`.
+        - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`
+        - Data files may be plain or already gzipped; plain files are gzipped on the server.
+        - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single upload of the child type. In `jbrowse.track.bundle`, `trackName` must be unique within the bundle.
+        - The upload enqueues one `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
+        - On success, each data file becomes an independent upload file (listed, processed and deletable exactly like a single upload). The bundle itself is not listed in `GET /upload-files`.
 
         On success, the `Location` response header contains the URL for subsequent PATCH / HEAD requests.
       operationId: createUpload
@@ -1872,7 +1885,7 @@ paths:
           description: Version name (e.g. `dmel_r6.54`).
       responses:
         '200':
-          description: All non-deleted upload files for the given version, ordered by creation time descending.
+          description: All non-deleted upload files for the given version, ordered by creation time descending. Bundle archives (`orthology.bundle`, `jbrowse.track.bundle`) are not listed; the files extracted from them are.
           content:
             application/json:
               schema:
@@ -1916,6 +1929,59 @@ paths:
                 notFound:
                   value:
                     error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /upload-files/templates/{fileType}:
+    get:
+      summary: Download a bundle manifest template
+      description: |
+        Returns a header-only `manifest.csv` for a bundle upload. Fill in one row per data file in the archive.
+
+        | Bundle `fileType` | Columns |
+        |---|---|
+        | `orthology.bundle` | `fileName`, `order` (integer), `algorithm` |
+        | `jbrowse.track.bundle` | `fileName`, `trackName`, `category` (optional), `selectInDefaultSession` (optional, `true`/`false`) |
+
+        `fileName` is the data file's name inside the archive. The other columns have the same meaning as the matching upload metadata fields (see `POST /uploads`).
+      operationId: getManifestTemplate
+      tags: [Uploads]
+      parameters:
+        - name: fileType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [orthology.bundle, jbrowse.track.bundle]
+      responses:
+        '200':
+          description: Header-only CSV, sent as an attachment named `{fileType}.manifest.csv`.
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                fileName,order,algorithm
+        '400':
+          description: Unknown bundle file type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unknownType:
+                  value:
+                    error: unknown bundle fileType "genomic.gff"
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /upload-files/{id}:

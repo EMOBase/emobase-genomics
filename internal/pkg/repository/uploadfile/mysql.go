@@ -3,6 +3,7 @@ package uploadfile
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -14,6 +15,20 @@ type MySQLRepository struct {
 
 func New(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: db}
+}
+
+// notBundleSQL excludes bundle archive rows. Once extracted, every file in a
+// bundle has its own row, so the archive row is an audit record only and must
+// not show up in file listings or be counted twice in version sizes.
+// Append notBundleArgs() to the query args, in the position of this fragment.
+var notBundleSQL = ` AND file_type NOT IN (?` + strings.Repeat(",?", len(entity.BundleFileTypes)-1) + `)`
+
+func notBundleArgs() []any {
+	args := make([]any, len(entity.BundleFileTypes))
+	for i, t := range entity.BundleFileTypes {
+		args[i] = t
+	}
+	return args
 }
 
 func (r *MySQLRepository) Create(ctx context.Context, f *entity.UploadFile) error {
@@ -43,9 +58,9 @@ func (r *MySQLRepository) TotalFileSizeByVersionIDs(ctx context.Context, version
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT version_id, COALESCE(SUM(file_size), 0)
 		 FROM upload_files
-		 WHERE version_id IN (`+string(placeholders)+`) AND deleted_at IS NULL
+		 WHERE version_id IN (`+string(placeholders)+`) AND deleted_at IS NULL`+notBundleSQL+`
 		 GROUP BY version_id`,
-		args...,
+		append(args, notBundleArgs()...)...,
 	)
 	if err != nil {
 		return nil, err
@@ -88,8 +103,8 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
-		 FROM upload_files WHERE version_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`,
-		versionID,
+		 FROM upload_files WHERE version_id = ? AND deleted_at IS NULL`+notBundleSQL+` ORDER BY created_at DESC`,
+		append([]any{versionID}, notBundleArgs()...)...,
 	)
 	if err != nil {
 		return nil, err
@@ -134,10 +149,10 @@ func (r *MySQLRepository) FindLatestCompletedPerTypeByVersionID(ctx context.Cont
 		          created_at, created_by, completed_at, deleted_at, deleted_by,
 		          ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
 		   FROM upload_files
-		   WHERE version_id = ? AND upload_status = ? AND deleted_at IS NULL
+		   WHERE version_id = ? AND upload_status = ? AND deleted_at IS NULL`+notBundleSQL+`
 		 ) ranked
 		 WHERE rn = 1`,
-		versionID, entity.UploadStatusCompleted,
+		append([]any{versionID, entity.UploadStatusCompleted}, notBundleArgs()...)...,
 	)
 	if err != nil {
 		return nil, err

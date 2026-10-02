@@ -14,7 +14,8 @@ biological data). It also drives a JBrowse2 genome browser instance and BLAST da
 ## Commands
 
 There is no Makefile; everything runs through `go build`/`go run` or Docker Compose.
-There are currently no `_test.go` files in the repository.
+Unit tests are sparse (currently only the bundle extraction/validation logic in
+`usecase/worker/handlers/bundle_test.go`); run them with `go test ./...`.
 
 ```bash
 # Build the single binary (all subcommands are wired into one CLI, see cmd/main.go)
@@ -137,6 +138,21 @@ that waits for every setup/remove job of a version to finish, then promotes it t
 default, restarts the `blast` container, and promotes its JBrowse2 assembly to the
 default view (see below). Both job payloads carry `VersionName` (not just the numeric
 version ID) since the JBrowse2 promotion step needs it.
+
+**Bundles** (`orthology.bundle`, `jbrowse.track.bundle`) upload many files of one
+child type at once: a `.tar.gz` holding the data files plus a `manifest.csv` (one
+row per file, one column per metadata field; header template served at
+`GET /upload-files/templates/:fileType`). The upload enqueues a single `*.BUNDLE`
+job; `handlers/bundle.go` validates the whole archive and manifest before writing
+anything, then extracts into `{uploadDir}/{version}/{bundleID}/` (gzipping plain
+files) and creates one independent child `upload_files` row + child job per file.
+Child IDs are derived from bundle ID + file name, so a requeued bundle job reuses
+what it already created. Per-type metadata validation and child job construction
+live in `internal/pkg/uploadspec`, shared by single uploads and bundles. The bundle
+row is kept as an audit record but excluded from version-level file queries
+(`notBundleSQL` in the uploadfile repo). To support bundles for another type, add
+an `uploadspec.Bundles` entry, its file/job type constants, and register
+`handlers.NewBundleHandler` in `cmd/worker/worker.go`.
 
 When adding a new upload-driven file type: add validation in `handlePreUploadCreate`,
 a payload struct in `jobpayload/`, a job-creation branch in `enqueueProcessJob`, a
