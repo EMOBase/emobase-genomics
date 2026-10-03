@@ -15,7 +15,17 @@ const (
 	FileTypeSpeciesSynonym = "species.synonym"
 	FileTypeDsRNACSV       = "dsrna.csv"
 	FileTypeJBrowseTrack   = "jbrowse.track"
+
+	// Bundle file types: a .tar.gz archive holding many files of one child type
+	// plus a manifest.csv with each file's metadata. A worker job extracts it into
+	// independent child upload files; the bundle row itself is kept for audit only.
+	FileTypeOrthologyBundle    = "orthology.bundle"
+	FileTypeJBrowseTrackBundle = "jbrowse.track.bundle"
 )
+
+// BundleFileTypes lists every bundle file type. Bundle rows are excluded from
+// version-level file queries since their extracted children are counted instead.
+var BundleFileTypes = []string{FileTypeOrthologyBundle, FileTypeJBrowseTrackBundle}
 
 type UploadStatus string
 

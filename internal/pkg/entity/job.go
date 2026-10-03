@@ -31,6 +31,11 @@ const (
 	JobTypeJBrowseTrack       = "JBROWSE.TRACK"
 	JobTypeJBrowseTrackDelete = "JBROWSE.TRACK:DELETE"
 
+	// BUNDLE jobs extract a bundle archive into child upload files and enqueue
+	// one ORTHOLOGY.TSV / JBROWSE.TRACK job per child.
+	JobTypeOrthologyBundle    = "ORTHOLOGY.BUNDLE"
+	JobTypeJBrowseTrackBundle = "JBROWSE.TRACK.BUNDLE"
+
 	// SETUP_BLAST jobs run makeblastdb to build a SequenceServer-compatible
 	// BLAST database from the processed file.
 	JobTypeGenomicFNASetupBlast = "GENOMIC.FNA:SETUP_BLAST"
@@ -64,6 +69,8 @@ var JobDescriptions = map[string]string{
 	JobTypeDsRNACSV:                "Parse dsRNA CSV file",
 	JobTypeJBrowseTrack:            "Add JBrowse2 track",
 	JobTypeJBrowseTrackDelete:      "Remove JBrowse2 track",
+	JobTypeOrthologyBundle:         "Extract orthology bundle",
+	JobTypeJBrowseTrackBundle:      "Extract JBrowse2 track bundle",
 	JobTypeGenomicFNASetupBlast:    "Setup genome BLAST database",
 	JobTypeProteinFAASetupBlast:    "Setup protein BLAST database",
 	JobTypeRNAFNASetupBlast:        "Setup RNA BLAST database",

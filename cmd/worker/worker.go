@@ -18,6 +18,7 @@ import (
 	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/uploadspec"
 	ucdsrna "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/dsrna"
 	ucgenomic "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/genomic"
 	ucorthology "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/orthology"
@@ -109,6 +110,12 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeDsRNACSV:                handlers.NewDsRNACSVHandler(versionRepo, dsrnaUC, dsrnaRepo, indexPrefix),
 		entity.JobTypeJBrowseTrack:            handlers.NewJBrowseTrackHandler(),
 		entity.JobTypeJBrowseTrackDelete:      handlers.NewDeleteJBrowseTrackHandler(uploadFileRepo),
+		entity.JobTypeOrthologyBundle: handlers.NewBundleHandler(
+			uploadspec.Bundles[entity.FileTypeOrthologyBundle], uploadFileRepo, jobRepo, versionRepo,
+		),
+		entity.JobTypeJBrowseTrackBundle: handlers.NewBundleHandler(
+			uploadspec.Bundles[entity.FileTypeJBrowseTrackBundle], uploadFileRepo, jobRepo, versionRepo,
+		),
 	}
 
 	w := ucworker.New(
