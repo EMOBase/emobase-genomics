@@ -7,22 +7,23 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
 
-// The manifest template is only served for bundle types that are wired end to
-// end. The track bundle has no assembly handling yet, so its template must not
-// be published before it is accepted.
+// The manifest template is served only for accepted bundle types. A
+// non-bundle type has no manifest, so asking for one must be refused.
 func TestManifestColumns_OnlyAcceptedBundleTypes(t *testing.T) {
 	uc := &UseCase{}
 
-	cols, err := uc.ManifestColumns(entity.FileTypeOrthologyBundle)
-	if err != nil {
-		t.Fatalf("orthology.bundle: %v", err)
-	}
-	if len(cols) != 3 || cols[0] != "fileName" {
-		t.Errorf("orthology.bundle columns = %v", cols)
+	for _, ft := range []string{entity.FileTypeOrthologyBundle, entity.FileTypeJBrowseTrackBundle} {
+		cols, err := uc.ManifestColumns(ft)
+		if err != nil {
+			t.Fatalf("%s: %v", ft, err)
+		}
+		if len(cols) == 0 || cols[0] != "fileName" {
+			t.Errorf("%s columns = %v", ft, cols)
+		}
 	}
 
-	if _, err := uc.ManifestColumns(entity.FileTypeJBrowseTrackBundle); !errors.Is(err, ErrUnknownBundleType) {
-		t.Errorf("jbrowse.track.bundle: got %v, want ErrUnknownBundleType", err)
+	if _, err := uc.ManifestColumns(entity.FileTypeGenomicGFF); !errors.Is(err, ErrUnknownBundleType) {
+		t.Errorf("genomic.gff: got %v, want ErrUnknownBundleType", err)
 	}
 }
 

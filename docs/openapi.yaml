@@ -156,6 +156,7 @@ components:
         - JBROWSE.TRACK
         - JBROWSE.TRACK:DELETE
         - ORTHOLOGY.BUNDLE
+        - JBROWSE.TRACK.BUNDLE
       description: |
         Identifies which file type and pipeline the job processes.
         - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
@@ -176,6 +177,7 @@ components:
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
         - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
         - `ORTHOLOGY.BUNDLE` — validate and extract an `orthology.bundle` archive into independent `orthology.tsv` upload files, enqueueing one `ORTHOLOGY.TSV` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
+        - `JBROWSE.TRACK.BUNDLE` — validate and extract a `jbrowse.track.bundle` archive into independent `jbrowse.track` upload files of one assembly, enqueueing one `JBROWSE.TRACK` job per file. Same all-or-nothing rules as `ORTHOLOGY.BUNDLE`.
 
     JobSummary:
       type: object
@@ -376,7 +378,7 @@ components:
           example: 1
         fileType:
           type: string
-          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, orthology.bundle, species.synonym, dsrna.csv, jbrowse.track]
+          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, orthology.bundle, species.synonym, dsrna.csv, jbrowse.track, jbrowse.track.bundle]
           example: genomic.gff
         fileSize:
           type: integer
@@ -1961,14 +1963,16 @@ paths:
         - `dsrna.csv` *(only for an assembly whose `species` is `Tcas`; 1 active per assembly — re-upload replaces that assembly's previous index)*
         - `jbrowse.track` *(multiple tracks allowed per assembly; requires `trackName` metadata; optional `category`; deletable)*
         - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
+        - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*
 
-        **Bundle uploads** (`orthology.bundle`):
+        **Bundle uploads** (`orthology.bundle`, `jbrowse.track.bundle`):
 
-        - The file must be a `.tar.gz` archive. No metadata is needed besides `fileType`, `fileName` and `version`. Do not send `assembly`: orthology belongs to the whole version.
+        - The file must be a `.tar.gz` archive. Metadata is `fileType`, `fileName` and `version`, plus `assembly` for `jbrowse.track.bundle` only. Do not send `assembly` for `orthology.bundle`: orthology belongs to the whole version.
+        - `jbrowse.track.bundle` covers exactly one assembly. An unknown `assembly` is rejected at upload with 400, and no archive is stored. Its tracks are stored under that assembly's folder.
         - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`
         - Data files may be plain or already gzipped; plain files are gzipped on the server.
-        - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single `orthology.tsv` upload.
-        - The upload enqueues one `ORTHOLOGY.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
+        - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single upload of the child type. In `jbrowse.track.bundle`, `trackName` must be unique within the bundle.
+        - The upload enqueues one `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
         - On success, each data file becomes an independent upload file (listed, processed and deletable exactly like a single upload). The bundle itself is not listed in `GET /upload-files`.
 
         On success, the `Location` response header contains the URL for subsequent PATCH / HEAD requests.
@@ -2294,6 +2298,7 @@ paths:
         | Bundle `fileType` | Columns |
         |---|---|
         | `orthology.bundle` | `fileName`, `order` (integer), `algorithm` |
+        | `jbrowse.track.bundle` | `fileName`, `trackName`, `category` (optional), `selectInDefaultSession` (optional, `true`/`false`) |
 
         `fileName` is the data file's name inside the archive. The other columns have the same meaning as the matching upload metadata fields (see `POST /uploads`).
       operationId: getManifestTemplate
@@ -2304,7 +2309,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [orthology.bundle]
+            enum: [orthology.bundle, jbrowse.track.bundle]
       responses:
         '200':
           description: Header-only CSV, sent as an attachment named `{fileType}.manifest.csv`.

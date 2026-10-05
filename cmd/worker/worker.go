@@ -115,6 +115,9 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeOrthologyBundle: handlers.NewBundleHandler(
 			uploadspec.Bundles[entity.FileTypeOrthologyBundle], uploadFileRepo, jobRepo, versionRepo,
 		),
+		entity.JobTypeJBrowseTrackBundle: handlers.NewBundleHandler(
+			uploadspec.Bundles[entity.FileTypeJBrowseTrackBundle], uploadFileRepo, jobRepo, versionRepo,
+		),
 	}
 
 	w := ucworker.New(

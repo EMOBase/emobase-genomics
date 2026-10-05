@@ -2,88 +2,28 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
-	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
-	"github.com/EMOBase/emobase-genomics/internal/pkg/uploadspec"
 )
 
-type fakeBundleFiles struct {
-	rows    map[string]*entity.UploadFile
-	created []*entity.UploadFile
-}
-
-func (f *fakeBundleFiles) FindByID(_ context.Context, id string) (*entity.UploadFile, error) {
-	return f.rows[id], nil
-}
-
-func (f *fakeBundleFiles) Create(_ context.Context, u *entity.UploadFile) error {
-	cp := *u
-	f.rows[u.ID] = &cp
-	f.created = append(f.created, &cp)
-	return nil
-}
-
-func (f *fakeBundleFiles) UpdateStatus(_ context.Context, id string, s entity.UploadStatus) error {
-	f.rows[id].UploadStatus = s
-	return nil
-}
-
-type fakeBundleJobs struct {
-	byFile  map[string]*entity.Job
-	created []*entity.Job
-}
-
-func (f *fakeBundleJobs) Create(_ context.Context, j *entity.Job) error {
-	j.ID = uint64(len(f.created) + 1)
-	cp := *j
-	f.created = append(f.created, &cp)
-	if j.FileID != nil {
-		f.byFile[*j.FileID+"/"+j.Type] = &cp
-	}
-	return nil
-}
-
-func (f *fakeBundleJobs) FindLatestByFileAndType(_ context.Context, fileID, jobType string) (*entity.Job, error) {
-	return f.byFile[fileID+"/"+jobType], nil
-}
-
-type fakeBundleVersions struct{}
-
-func (fakeBundleVersions) FindByID(_ context.Context, id uint64) (*entity.Version, error) {
-	return &entity.Version{ID: id, Name: "v1"}, nil
-}
-
-// orthologyBundleFixture returns a handler and the bundle's job for an orthology
-// bundle of two files. The bundle row has no assembly, as for every version-scoped upload.
-func orthologyBundleFixture(t *testing.T) (*BundleHandler, *fakeBundleFiles, *fakeBundleJobs, entity.Job) {
+func orthologyBundle(t *testing.T) (*BundleHandler, *fakeBundleFiles, *fakeBundleJobs, entity.Job) {
 	t.Helper()
-	const bundleID = "bundle-1"
-	archive := writeBundle(t,
-		tarEntry{name: "manifest.csv", body: "fileName,order,algorithm\na.tsv,1,OrthoFinder\nb.tsv.gz,2,Eggnog\n"},
-		tarEntry{name: "a.tsv", body: "group\tHsap:g1"},
-		tarEntry{name: "b.tsv.gz", body: gzipped(t, "group\tMmus:g1")},
-	)
-
-	files := &fakeBundleFiles{rows: map[string]*entity.UploadFile{
-		bundleID: {ID: bundleID, VersionID: 1, FileType: entity.FileTypeOrthologyBundle, CreatedBy: "alice"},
-	}}
-	jobs := &fakeBundleJobs{byFile: map[string]*entity.Job{}}
-	h := NewBundleHandler(uploadspec.Bundles[entity.FileTypeOrthologyBundle], files, jobs, fakeBundleVersions{})
-
-	raw, err := json.Marshal(jobpayload.ProcessPayload{UploadFileID: bundleID, VersionID: 1, FilePath: archive})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload := json.RawMessage(raw)
-	return h, files, jobs, entity.Job{Payload: &payload}
+	h, files, jobs, job, _ := newBundleFixture(t, bundleCase{
+		fileType:   entity.FileTypeOrthologyBundle,
+		archiveDir: "v1",
+		entries: []tarEntry{
+			{name: "manifest.csv", body: "fileName,order,algorithm\na.tsv,1,OrthoFinder\nb.tsv.gz,2,Eggnog\n"},
+			{name: "a.tsv", body: "group\tHsap\tMmus\nog1\tHsap:g1\tMmus:g1"},
+			{name: "b.tsv.gz", body: gzipped(t, "group\tHsap\tMmus\nog2\tHsap:g2\tMmus:g2")},
+		},
+	})
+	return h, files, jobs, job
 }
 
 func TestBundleHandler_OrthologyChildrenCarryNoAssembly(t *testing.T) {
-	h, files, jobs, job := orthologyBundleFixture(t)
+	h, files, jobs, job := orthologyBundle(t)
 	if _, err := h.Handle(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
@@ -117,19 +57,17 @@ func TestBundleHandler_OrthologyChildrenCarryNoAssembly(t *testing.T) {
 		}
 	}
 
-	// The gzipped child's content must match what the worker will read back.
-	child := files.created[0]
-	if got := readGzip(t, child.FilePath); got != "group\tHsap:g1" {
-		t.Errorf("child %s content %q", child.ID, got)
+	if got := readGzip(t, files.created[0].FilePath); got != "group\tHsap\tMmus\nog1\tHsap:g1\tMmus:g1" {
+		t.Errorf("child content %q", got)
 	}
-	if filepath.Dir(child.FilePath) != filepath.Dir(files.created[1].FilePath) {
+	if filepath.Dir(files.created[0].FilePath) != filepath.Dir(files.created[1].FilePath) {
 		t.Error("children of one bundle must share the bundle's folder")
 	}
 }
 
 // A requeued job (stuck-job recovery) must not duplicate children or jobs.
-func TestBundleHandler_RerunCreatesNoDuplicates(t *testing.T) {
-	h, files, jobs, job := orthologyBundleFixture(t)
+func TestBundleHandler_OrthologyRerunCreatesNoDuplicates(t *testing.T) {
+	h, files, jobs, job := orthologyBundle(t)
 	ctx := context.Background()
 	if _, err := h.Handle(ctx, job); err != nil {
 		t.Fatal(err)

@@ -178,11 +178,11 @@ promotes every one of its assemblies' JBrowse2 views to the front (see below).
 
 **Bundles** upload many files of one child type at once: a `.tar.gz` holding the data
 files plus a `manifest.csv` (one row per file, one column per metadata field; header
-template served at `GET /upload-files/templates/:fileType`). Only `orthology.bundle` is
-accepted so far. It is version-scoped and takes no `assembly`, since orthology belongs
-to the whole version. A `jbrowse.track.bundle` is planned, scoped to one assembly; see
-`docs/plans/migrate-bundles-into-multi-species.md`. The upload enqueues a single
-`*.BUNDLE` job; `handlers/bundle.go` validates the whole archive and manifest before
+template served at `GET /upload-files/templates/:fileType`). `orthology.bundle` is
+version-scoped and takes no `assembly`, since orthology belongs to the whole version.
+`jbrowse.track.bundle` covers exactly one assembly, named by the tus `assembly` metadata
+and checked at upload; its tracks are stored under that assembly's folder. The upload
+enqueues a single `*.BUNDLE` job; `handlers/bundle.go` validates the whole archive and manifest before
 writing anything, then extracts into `{uploadDir}/{version}/{bundleID}/` (gzipping
 plain files) and creates one independent child `upload_files` row + child job per file.
 Children inherit the bundle row's assembly, which is nil for orthology.

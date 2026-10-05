@@ -18,7 +18,8 @@ var allowedFileTypes = map[string]struct{}{
 	entity.FileTypeDsRNACSV:       {},
 	entity.FileTypeJBrowseTrack:   {},
 
-	entity.FileTypeOrthologyBundle: {},
+	entity.FileTypeOrthologyBundle:    {},
+	entity.FileTypeJBrowseTrackBundle: {},
 }
 
 // concurrentFileTypes may have several jobs pending/running for the same version,
@@ -27,9 +28,10 @@ var allowedFileTypes = map[string]struct{}{
 // and orthology documents are keyed by file ID inside the version's shared index.
 // Bundles only fan out into those two types.
 var concurrentFileTypes = map[string]struct{}{
-	entity.FileTypeJBrowseTrack:    {},
-	entity.FileTypeOrthologyTSV:    {},
-	entity.FileTypeOrthologyBundle: {},
+	entity.FileTypeJBrowseTrack:       {},
+	entity.FileTypeOrthologyTSV:       {},
+	entity.FileTypeOrthologyBundle:    {},
+	entity.FileTypeJBrowseTrackBundle: {},
 }
 
 // isVersionScoped reports whether a file type belongs to the whole Database Version
