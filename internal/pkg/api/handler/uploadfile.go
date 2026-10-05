@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
@@ -16,6 +19,7 @@ import (
 type uploadFileUseCase interface {
 	DeleteFile(ctx context.Context, id string, deletedBy string) (*entity.Job, error)
 	ListByVersion(ctx context.Context, versionName string) ([]upload.UploadFileSummary, error)
+	ManifestColumns(fileType string) ([]string, error)
 }
 
 type UploadFileHandler struct {
@@ -43,6 +47,29 @@ func (h *UploadFileHandler) List(c *gin.Context) {
 	}
 
 	apires.OK(c, files)
+}
+
+// ManifestTemplate returns a header-only manifest.csv for a bundle file type.
+func (h *UploadFileHandler) ManifestTemplate(c *gin.Context) {
+	fileType := c.Param("fileType")
+	columns, err := h.uc.ManifestColumns(fileType)
+	if err != nil {
+		if errors.Is(err, upload.ErrUnknownBundleType) {
+			apires.Fail(c, http.StatusBadRequest, fmt.Sprintf("unknown bundle fileType %q", fileType))
+			return
+		}
+		panic(err)
+	}
+
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	if err := w.Write(columns); err != nil {
+		panic(err)
+	}
+	w.Flush()
+
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.manifest.csv"`, fileType))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
 }
 
 func (h *UploadFileHandler) Delete(c *gin.Context) {

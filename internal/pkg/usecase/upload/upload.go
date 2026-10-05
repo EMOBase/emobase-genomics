@@ -17,6 +17,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/uploadspec"
 	"github.com/rs/zerolog/log"
 	"github.com/tus/tusd/v2/pkg/filelocker"
 	"github.com/tus/tusd/v2/pkg/filestore"
@@ -114,19 +115,16 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			"only gzip files are accepted (.gz or .gzip)")
 	}
 
+	// Bundles must be tar archives: a plain gzip holds only one file.
+	if _, isBundle := uploadspec.Bundles[fileType]; isBundle && !strings.HasSuffix(lower, ".tar.gz") {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+			fmt.Sprintf("%s uploads must be a .tar.gz archive", fileType))
+	}
+
 	// 4. Validate file-type-specific metadata fields.
 	if fileType == entity.FileTypeOrthologyTSV {
-		if strings.TrimSpace(meta["order"]) == "" {
-			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-				"orthology.tsv uploads require an \"order\" metadata field")
-		}
-		if _, err := strconv.Atoi(meta["order"]); err != nil {
-			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-				"orthology.tsv \"order\" metadata field must be an integer")
-		}
-		if strings.TrimSpace(meta["algorithm"]) == "" {
-			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-				"orthology.tsv uploads require an \"algorithm\" metadata field")
+		if err := uploadspec.ValidateOrthologyMeta(meta); err != nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest, err.Error())
 		}
 	}
 	if fileType == entity.FileTypeGenomicGFF {
@@ -144,9 +142,8 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		}
 	}
 	if fileType == entity.FileTypeJBrowseTrack {
-		if strings.TrimSpace(meta["trackName"]) == "" {
-			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-				"jbrowse.track uploads require a \"trackName\" metadata field")
+		if err := uploadspec.ValidateJBrowseTrackMeta(meta); err != nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest, err.Error())
 		}
 	}
 	if fileType == entity.FileTypeSpeciesSynonym {
@@ -157,9 +154,9 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 5. Every file type requires an "assembly" metadata field (the target
-	// Assembly Version's species code) except orthology.tsv, which is shared
-	// across every species in the Database Version rather than owned by one.
-	if fileType != entity.FileTypeOrthologyTSV && strings.TrimSpace(meta["assembly"]) == "" {
+	// Assembly Version's species code) except the version-scoped orthology types,
+	// which are shared across every species in the Database Version.
+	if !isVersionScoped(fileType) && strings.TrimSpace(meta["assembly"]) == "" {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 			fmt.Sprintf("%q uploads require an \"assembly\" metadata field", fileType))
 	}
@@ -176,9 +173,9 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 7. Resolve the Assembly Version (species) this upload belongs to, unless
-	// this is a shared orthology.tsv upload.
+	// this is a version-scoped orthology upload.
 	var assemblyVersion *entity.AssemblyVersion
-	if fileType != entity.FileTypeOrthologyTSV {
+	if !isVersionScoped(fileType) {
 		assemblyVersion, err = uc.assemblyVersionRepo.FindBySpecies(hook.Context, version.ID, meta["assembly"])
 		if err != nil {
 			log.Ctx(hook.Context).Err(err).Msg("assembly version lookup failed in pre-upload hook")
@@ -199,16 +196,9 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 9. Reject if an active job of the same type already exists for this
-	// assembly — or, for the shared orthology.tsv, for the whole Database
-	// Version, exactly as before. jbrowse.track is exempt: a version may have
-	// multiple tracks processing concurrently.
-	if fileType != entity.FileTypeJBrowseTrack {
-		var hasActive bool
-		if fileType == entity.FileTypeOrthologyTSV {
-			hasActive, err = uc.jobRepo.HasActiveJobOfType(hook.Context, version.ID, fileType)
-		} else {
-			hasActive, err = uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(hook.Context, assemblyVersion.ID, fileType)
-		}
+	// assembly. Types in concurrentFileTypes are exempt (see its doc comment).
+	if _, concurrent := concurrentFileTypes[fileType]; !concurrent {
+		hasActive, err := uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(hook.Context, assemblyVersion.ID, fileType)
 		if err != nil {
 			log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
@@ -445,6 +435,22 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		return []entity.Job{*job}, nil
 	}
 
+	// orthology.tsv: index ortholog groups with the file's order/algorithm.
+	if fileType == entity.FileTypeOrthologyTSV {
+		job, err := uploadspec.NewOrthologyTSVJob(versionID, uploadID, filePath, meta)
+		if err != nil {
+			return nil, err
+		}
+		if err := uc.jobRepo.Create(ctx, job); err != nil {
+			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeOrthologyTSV, err)
+		}
+		log.Ctx(ctx).Info().
+			Str("uploadID", uploadID).
+			Uint64("jobID", job.ID).
+			Msg("orthology.tsv job enqueued")
+		return []entity.Job{*job}, nil
+	}
+
 	var rawPayload []byte
 	switch fileType {
 	case entity.FileTypeGenomicGFF:
@@ -460,15 +466,6 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			TrimPrefixChars: trimPrefixChars,
 			TrimSuffixChars: trimSuffixChars,
 			OldGeneIDKeys:   parseCommaSeparated(meta["oldGeneIDKeys"]),
-		})
-	case entity.FileTypeOrthologyTSV:
-		order, _ := strconv.Atoi(meta["order"])
-		rawPayload, err = json.Marshal(jobpayload.OrthologyTSVPayload{
-			UploadFileID: uploadID,
-			VersionID:    versionID,
-			FilePath:     filePath,
-			Order:        order,
-			Algorithm:    strings.TrimSpace(meta["algorithm"]),
 		})
 	default:
 		rawPayload, err = json.Marshal(jobpayload.ProcessPayload{
@@ -697,6 +694,17 @@ var ErrUploadFileNotFound = errors.New("upload file not found")
 var ErrUploadFileNotDeletable = errors.New("this file type does not support deletion")
 var ErrUploadFileDeletePending = errors.New("a delete job for this file is already pending or running")
 var ErrVersionNotFound = errors.New("version not found")
+
+var ErrUnknownBundleType = errors.New("unknown bundle file type")
+
+// ManifestColumns returns the manifest.csv header for a bundle file type.
+func (uc *UseCase) ManifestColumns(fileType string) ([]string, error) {
+	spec, ok := uploadspec.Bundles[fileType]
+	if _, accepted := allowedFileTypes[fileType]; !ok || !accepted {
+		return nil, ErrUnknownBundleType
+	}
+	return spec.Columns, nil
+}
 
 // UploadFileSummary is the API-facing representation of an upload file.
 type UploadFileSummary struct {

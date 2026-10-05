@@ -16,7 +16,8 @@ Database Version / Assembly Version model described below.
 ## Commands
 
 There is no Makefile; everything runs through `go build`/`go run` or Docker Compose.
-There are currently no `_test.go` files in the repository.
+Unit tests are sparse (currently only the bundle extraction/validation logic in
+`usecase/worker/handlers/bundle_test.go`); run them with `go test ./...`.
 
 ```bash
 # Build the single binary (all subcommands are wired into one CLI, see cmd/main.go)
@@ -174,6 +175,24 @@ the Version to finish, then promotes it to default, removes the *previous* defau
 Version's now-stale `{blast.db_path}/v{oldVersionID}a*` files (paths are no longer 3
 shared slots a re-release overwrites for free), restarts the `blast` container, and
 promotes every one of its assemblies' JBrowse2 views to the front (see below).
+
+**Bundles** upload many files of one child type at once: a `.tar.gz` holding the data
+files plus a `manifest.csv` (one row per file, one column per metadata field; header
+template served at `GET /upload-files/templates/:fileType`). Only `orthology.bundle` is
+accepted so far. It is version-scoped and takes no `assembly`, since orthology belongs
+to the whole version. A `jbrowse.track.bundle` is planned, scoped to one assembly; see
+`docs/plans/migrate-bundles-into-multi-species.md`. The upload enqueues a single
+`*.BUNDLE` job; `handlers/bundle.go` validates the whole archive and manifest before
+writing anything, then extracts into `{uploadDir}/{version}/{bundleID}/` (gzipping
+plain files) and creates one independent child `upload_files` row + child job per file.
+Children inherit the bundle row's assembly, which is nil for orthology.
+Child IDs are derived from bundle ID + file name, so a requeued bundle job reuses
+what it already created. Per-type metadata validation and child job construction
+live in `internal/pkg/uploadspec`, shared by single uploads and bundles. The bundle
+row is kept as an audit record but excluded from version-level file queries
+(`notBundleSQL` in the uploadfile repo). To support bundles for another type, add
+an `uploadspec.Bundles` entry, its file/job type constants, and register
+`handlers.NewBundleHandler` in `cmd/worker/worker.go`.
 
 When adding a new upload-driven file type: add validation in `handlePreUploadCreate`,
 a payload struct in `jobpayload/`, a job-creation branch in `enqueueProcessJob`, a

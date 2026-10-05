@@ -91,6 +91,7 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 
 		uploadFileHandler := handler.NewUploadFileHandler(uploadUC)
 		authenticated.GET("/upload-files", uploadFileHandler.List)
+		authenticated.GET("/upload-files/templates/:fileType", uploadFileHandler.ManifestTemplate)
 		authenticated.DELETE("/upload-files/:id", uploadFileHandler.Delete)
 	}
 }
