@@ -2,10 +2,10 @@
 set -e
 
 GENOMIC_FNA_GZ="$1"
-VERSION="$2"
+ASSEMBLY_ID="$2"
 
-if [ -z "$GENOMIC_FNA_GZ" ] || [ -z "$VERSION" ]; then
-  echo "Usage: $0 <genomic_fna.gz> <version>" >&2
+if [ -z "$GENOMIC_FNA_GZ" ] || [ -z "$ASSEMBLY_ID" ]; then
+  echo "Usage: $0 <genomic_fna.gz> <assembly_id>" >&2
   exit 1
 fi
 
@@ -13,12 +13,12 @@ TMPDIR=$(mktemp -d -p /jbrowse2-tmp)
 trap "rm -rf $TMPDIR" EXIT
 
 echo "Decompressing genomic FASTA..."
-gunzip -c "$GENOMIC_FNA_GZ" > "$TMPDIR/${VERSION}.genomic.fna"
+gunzip -c "$GENOMIC_FNA_GZ" > "$TMPDIR/${ASSEMBLY_ID}.genomic.fna"
 
 echo "Indexing FASTA..."
-samtools faidx "$TMPDIR/${VERSION}.genomic.fna"
+samtools faidx "$TMPDIR/${ASSEMBLY_ID}.genomic.fna"
 
-echo "Adding JBrowse2 assembly for version ${VERSION}..."
+echo "Adding JBrowse2 assembly ${ASSEMBLY_ID}..."
 # This is the first script in the pipeline to ever touch /web/data, so guard
 # against the setup-jbrowse2-web migrate step ("jbrowse create /web") not
 # having populated it yet — exec below would fail with "No such file or
@@ -30,6 +30,6 @@ mkdir -p /web/data
 # and each does a non-atomic read-modify-write of that file.
 exec 200>/web/data/.jbrowse-config.lock
 flock -x 200
-jbrowse add-assembly "$TMPDIR/${VERSION}.genomic.fna" --name "$VERSION" --load copy --out /web/data --force
+jbrowse add-assembly "$TMPDIR/${ASSEMBLY_ID}.genomic.fna" --name "$ASSEMBLY_ID" --load copy --out /web/data --force
 
 echo "JBrowse2 FNA setup complete."

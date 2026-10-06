@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"compress/gzip"
@@ -36,7 +37,7 @@ type IBundleJobRepository interface {
 	FindLatestByFileAndType(ctx context.Context, fileID string, jobType string) (*entity.Job, error)
 }
 
-// BundleHandler extracts a bundle archive (.tar.gz holding data files plus a
+// BundleHandler extracts a bundle archive (.tar.gz or .zip holding data files plus a
 // manifest.csv) into independent child upload files, and enqueues one child
 // job per file — exactly as if each file had been uploaded on its own.
 //
@@ -109,16 +110,19 @@ func (h *BundleHandler) Handle(ctx context.Context, job entity.Job) (json.RawMes
 		return nil, err
 	}
 
+	// Children inherit the bundle's assembly: nil for version-scoped bundles
+	// (orthology), the one assembly the bundle covers otherwise.
+	assemblyVersionID := bundle.AssemblyVersionID
 	var result bundleResult
 	for _, meta := range rows {
 		fileName := meta["fileName"]
 		childID := bundleChildID(payload.UploadFileID, fileName)
 		filePath := filepath.Join(dstDir, storedName(fileName))
 
-		if err := h.ensureChildFile(ctx, childID, filePath, version.ID, bundle.CreatedBy); err != nil {
+		if err := h.ensureChildFile(ctx, childID, filePath, version.ID, assemblyVersionID, bundle.CreatedBy); err != nil {
 			return nil, err
 		}
-		jobID, err := h.ensureChildJob(ctx, childID, filePath, version, meta)
+		jobID, err := h.ensureChildJob(ctx, childID, filePath, version, assemblyVersionID, meta)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +153,7 @@ func (h *BundleHandler) OnComplete(ctx context.Context, job entity.Job, _ json.R
 	return nil
 }
 
-func (h *BundleHandler) ensureChildFile(ctx context.Context, childID, filePath string, versionID uint64, createdBy string) error {
+func (h *BundleHandler) ensureChildFile(ctx context.Context, childID, filePath string, versionID uint64, assemblyVersionID *uint64, createdBy string) error {
 	existing, err := h.uploadFileRepo.FindByID(ctx, childID)
 	if err != nil {
 		return fmt.Errorf("failed to look up child upload file %q: %w", childID, err)
@@ -160,13 +164,14 @@ func (h *BundleHandler) ensureChildFile(ctx context.Context, childID, filePath s
 			return fmt.Errorf("failed to stat extracted file: %w", err)
 		}
 		if err := h.uploadFileRepo.Create(ctx, &entity.UploadFile{
-			ID:           childID,
-			VersionID:    versionID,
-			FilePath:     filePath,
-			FileType:     h.spec.ChildFileType,
-			FileSize:     info.Size(),
-			UploadStatus: entity.UploadStatusUploading,
-			CreatedBy:    createdBy,
+			ID:                childID,
+			VersionID:         versionID,
+			AssemblyVersionID: assemblyVersionID,
+			FilePath:          filePath,
+			FileType:          h.spec.ChildFileType,
+			FileSize:          info.Size(),
+			UploadStatus:      entity.UploadStatusUploading,
+			CreatedBy:         createdBy,
 		}); err != nil {
 			return fmt.Errorf("failed to create child upload file %q: %w", childID, err)
 		}
@@ -180,7 +185,7 @@ func (h *BundleHandler) ensureChildFile(ctx context.Context, childID, filePath s
 	return nil
 }
 
-func (h *BundleHandler) ensureChildJob(ctx context.Context, childID, filePath string, version *entity.Version, meta map[string]string) (uint64, error) {
+func (h *BundleHandler) ensureChildJob(ctx context.Context, childID, filePath string, version *entity.Version, assemblyVersionID *uint64, meta map[string]string) (uint64, error) {
 	existing, err := h.jobRepo.FindLatestByFileAndType(ctx, childID, h.spec.ChildJobType)
 	if err != nil {
 		return 0, fmt.Errorf("failed to look up %s job for %q: %w", h.spec.ChildJobType, childID, err)
@@ -188,7 +193,7 @@ func (h *BundleHandler) ensureChildJob(ctx context.Context, childID, filePath st
 	if existing != nil {
 		return existing.ID, nil
 	}
-	job, err := h.spec.NewJob(version.ID, version.Name, childID, filePath, meta)
+	job, err := h.spec.NewJob(version.ID, assemblyVersionID, childID, filePath, meta)
 	if err != nil {
 		return 0, err
 	}
@@ -228,101 +233,193 @@ func storedName(name string) string {
 	return name + ".gz"
 }
 
-// bundleEntryName returns the validated name of a tar entry, or "" for entries
-// that are skipped (the archive root directory, pax global headers). Only flat
+// memberKind classifies one archive entry, whatever the archive format.
+type memberKind int
+
+const (
+	memberFile    memberKind = iota // a regular file
+	memberDir                       // a folder
+	memberSpecial                   // a link, device, or other non-file entry
+	memberSkip                      // archive metadata, such as a tar pax global header
+)
+
+// bundleMember is one entry of a bundle archive. body is valid only during the
+// callback that receives the member.
+type bundleMember struct {
+	name string
+	kind memberKind
+	body io.Reader
+}
+
+// bundleEntryName returns the validated name of an archive entry, or "" for
+// entries that are skipped (the archive root folder, metadata). Only flat
 // regular files are accepted, so extraction can never write outside dstDir.
-func bundleEntryName(hdr *tar.Header) (string, error) {
-	name := path.Clean(hdr.Name)
-	switch hdr.Typeflag {
-	case tar.TypeXGlobalHeader:
+func bundleEntryName(m bundleMember) (string, error) {
+	name := path.Clean(m.name)
+	switch m.kind {
+	case memberSkip:
 		return "", nil
-	case tar.TypeDir:
+	case memberDir:
 		if name == "." { // "./" from `tar czf bundle.tar.gz -C <folder> .`
 			return "", nil
 		}
-		return "", fmt.Errorf("%q: folders are not supported; put files at the archive root, e.g. `tar czf bundle.tar.gz -C <folder> .`", hdr.Name)
-	case tar.TypeReg:
-	default:
-		return "", fmt.Errorf("%q: only regular files are supported (no links or special files)", hdr.Name)
+		return "", fmt.Errorf("%q: folders are not supported; put files at the archive root, e.g. `tar czf bundle.tar.gz -C <folder> .` or `zip -j bundle.zip <folder>/*`", m.name)
+	case memberSpecial:
+		return "", fmt.Errorf("%q: only regular files are supported (no links or special files)", m.name)
 	}
 	if strings.Contains(name, "/") || name == ".." || name == "." {
-		return "", fmt.Errorf("%q: files must be at the archive root, not inside a folder", hdr.Name)
+		return "", fmt.Errorf("%q: files must be at the archive root, not inside a folder", m.name)
 	}
 	if strings.HasPrefix(name, "._") {
-		return "", fmt.Errorf("%q: macOS metadata file; create the archive with `COPYFILE_DISABLE=1 tar czf ...`", hdr.Name)
+		return "", fmt.Errorf("%q: macOS metadata file; create the archive with `COPYFILE_DISABLE=1 tar czf ...`", m.name)
 	}
 	return name, nil
 }
 
-func openBundle(archivePath string) (*os.File, *gzip.Reader, *tar.Reader, error) {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to open bundle archive %q: %w", archivePath, err)
+// walkBundle calls fn for every entry of the archive, in archive order. The
+// format follows the file name: .zip, otherwise .tar.gz (upload checks the
+// name and the file's signature before the job is enqueued).
+func walkBundle(archivePath string, fn func(bundleMember) error) error {
+	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
+		return walkZip(archivePath, fn)
 	}
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		_ = f.Close()
-		return nil, nil, nil, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	return f, gr, tar.NewReader(gr), nil
+	return walkTarGz(archivePath, fn)
 }
 
-// scanBundle reads the whole archive without writing anything. It returns the
-// set of data file names and the manifest contents, and reports every invalid
-// entry at once.
-func scanBundle(archivePath string) (map[string]bool, []byte, error) {
-	f, gr, tr, err := openBundle(archivePath)
+func walkTarGz(archivePath string, fn func(bundleMember) error) error {
+	f, err := os.Open(archivePath)
 	if err != nil {
-		return nil, nil, err
+		return fmt.Errorf("failed to open bundle archive %q: %w", archivePath, err)
 	}
 	defer func() { _ = f.Close() }()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %w", err)
+	}
 	defer func() { _ = gr.Close() }()
 
-	entries := map[string]bool{}
-	seen := map[string]bool{}
-	stored := map[string]string{} // stored name → entry name
-	var manifest []byte
-	var errs []error
+	tr := tar.NewReader(gr)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read bundle archive: %w", err)
+			return fmt.Errorf("failed to read bundle archive: %w", err)
 		}
-		name, err := bundleEntryName(hdr)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		if err := fn(bundleMember{name: hdr.Name, kind: tarKind(hdr.Typeflag), body: tr}); err != nil {
+			return err
 		}
-		if name == "" {
-			continue
-		}
-		if seen[name] {
-			errs = append(errs, fmt.Errorf("%q appears more than once in the archive", name))
-			continue
-		}
-		seen[name] = true
-
-		if name == uploadspec.ManifestFileName {
-			if manifest, err = io.ReadAll(tr); err != nil {
-				return nil, nil, fmt.Errorf("failed to read %s: %w", uploadspec.ManifestFileName, err)
-			}
-			continue
-		}
-		s := storedName(name)
-		if other, ok := stored[s]; ok {
-			errs = append(errs, fmt.Errorf("%q and %q would both be stored as %q; rename one", other, name, s))
-			continue
-		}
-		stored[s] = name
-		entries[name] = true
 	}
 	// Read to the gzip trailer so a truncated or corrupt archive fails its
 	// checksum here, before anything is written.
 	if _, err := io.Copy(io.Discard, gr); err != nil {
-		return nil, nil, fmt.Errorf("failed to read bundle archive: %w", err)
+		return fmt.Errorf("failed to read bundle archive: %w", err)
+	}
+	return nil
+}
+
+func tarKind(typeflag byte) memberKind {
+	switch typeflag {
+	case tar.TypeXGlobalHeader:
+		return memberSkip
+	case tar.TypeDir:
+		return memberDir
+	case tar.TypeReg:
+		return memberFile
+	default:
+		return memberSpecial
+	}
+}
+
+func walkZip(archivePath string, fn func(bundleMember) error) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("failed to open bundle archive %q: %w", archivePath, err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat bundle archive: %w", err)
+	}
+	zr, err := zip.NewReader(f, info.Size())
+	if err != nil {
+		return fmt.Errorf("failed to read bundle archive: %w", err)
+	}
+	for _, zf := range zr.File {
+		rc, err := zf.Open()
+		if err != nil {
+			return fmt.Errorf("failed to read bundle archive entry %q: %w", zf.Name, err)
+		}
+		err = fn(bundleMember{name: zf.Name, kind: zipKind(zf), body: rc})
+		if err == nil {
+			// Drain the entry even when fn did not read it, so its CRC is checked.
+			_, err = io.Copy(io.Discard, rc)
+			if err != nil {
+				err = fmt.Errorf("failed to read bundle archive entry %q: %w", zf.Name, err)
+			}
+		}
+		_ = rc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func zipKind(zf *zip.File) memberKind {
+	mode := zf.Mode()
+	switch {
+	case mode.IsDir() || strings.HasSuffix(zf.Name, "/"):
+		return memberDir
+	case mode.IsRegular():
+		return memberFile
+	default:
+		return memberSpecial
+	}
+}
+
+// scanBundle reads the whole archive without writing anything. It returns the
+// set of data file names and the manifest contents, and reports every invalid
+// entry at once.
+func scanBundle(archivePath string) (map[string]bool, []byte, error) {
+	entries := map[string]bool{}
+	seen := map[string]bool{}
+	stored := map[string]string{} // stored name → entry name
+	var manifest []byte
+	var errs []error
+	err := walkBundle(archivePath, func(m bundleMember) error {
+		name, err := bundleEntryName(m)
+		if err != nil {
+			errs = append(errs, err)
+			return nil
+		}
+		if name == "" {
+			return nil
+		}
+		if seen[name] {
+			errs = append(errs, fmt.Errorf("%q appears more than once in the archive", name))
+			return nil
+		}
+		seen[name] = true
+
+		if name == uploadspec.ManifestFileName {
+			if manifest, err = io.ReadAll(m.body); err != nil {
+				return fmt.Errorf("failed to read %s: %w", uploadspec.ManifestFileName, err)
+			}
+			return nil
+		}
+		s := storedName(name)
+		if other, ok := stored[s]; ok {
+			errs = append(errs, fmt.Errorf("%q and %q would both be stored as %q; rename one", other, name, s))
+			return nil
+		}
+		stored[s] = name
+		entries[name] = true
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
 	}
 	if manifest == nil {
 		errs = append(errs, fmt.Errorf("archive has no %s at its root", uploadspec.ManifestFileName))
@@ -452,33 +549,19 @@ func extractBundle(archivePath, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundle directory: %w", err)
 	}
-
-	f, gr, tr, err := openBundle(archivePath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	defer func() { _ = gr.Close() }()
-
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read bundle archive: %w", err)
-		}
-		name, err := bundleEntryName(hdr)
+	return walkBundle(archivePath, func(m bundleMember) error {
+		name, err := bundleEntryName(m)
 		if err != nil { // already rejected by scanBundle; checked again for safety
 			return err
 		}
 		if name == "" || name == uploadspec.ManifestFileName {
-			continue
+			return nil
 		}
-		if err := writeGzipped(tr, filepath.Join(dstDir, storedName(name))); err != nil {
+		if err := writeGzipped(m.body, filepath.Join(dstDir, storedName(name))); err != nil {
 			return fmt.Errorf("failed to extract %q: %w", name, err)
 		}
-	}
+		return nil
+	})
 }
 
 func writeGzipped(r io.Reader, dst string) error {

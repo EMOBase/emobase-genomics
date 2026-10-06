@@ -63,8 +63,13 @@ func (h *DeleteSynonymHandler) Handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("version %d not found", f.VersionID)
 	}
 
+	if f.AssemblyVersionID == nil {
+		return nil, fmt.Errorf("upload file %q has no assembly", payload.UploadFileID)
+	}
+	assemblyKey := entity.FormatAssemblyID(f.VersionID, *f.AssemblyVersionID)
+
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, assemblyKey, version.CreatedAt.Unix())
 
 	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		return nil, fmt.Errorf("failed to delete synonym records: %w", err)

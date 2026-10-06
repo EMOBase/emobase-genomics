@@ -14,11 +14,11 @@ import (
 )
 
 type ISequenceUseCase interface {
-	Load(ctx context.Context, f io.Reader, indexName, sequenceType string) error
+	Load(ctx context.Context, f io.Reader, indexName, sequenceType, species string) error
 }
 
 type ISequenceRepository interface {
-	SetAlias(ctx context.Context, indexName, aliasName string) error
+	SetAlias(ctx context.Context, indexName, aliasName, assemblyKey string) error
 }
 
 type sequenceFASTAHandler struct {
@@ -43,10 +43,14 @@ func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
+	if payload.AssemblyVersionID == 0 {
+		return nil, fmt.Errorf("job payload has no assembly_version_id")
+	}
+	assemblyKey := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
 	aliasName := fmt.Sprintf("%s-sequence-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
 	// Use version.CreatedAt.Unix() so all sequence files (RNA, CDS, protein) for the same
-	// version share one index. Using time.Now() caused each upload to displace the previous.
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	// assembly share one index. Using time.Now() caused each upload to displace the previous.
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, assemblyKey, version.CreatedAt.Unix())
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {
@@ -60,9 +64,9 @@ func (h *sequenceFASTAHandler) handle(ctx context.Context, job entity.Job) (json
 	}
 	defer func() { _ = gr.Close() }()
 
-	if err := h.sequenceUC.Load(ctx, gr, indexName, h.sequenceType); err != nil {
+	if err := h.sequenceUC.Load(ctx, gr, indexName, h.sequenceType, payload.Species); err != nil {
 		return nil, err
 	}
 
-	return nil, h.sequenceRepo.SetAlias(ctx, indexName, aliasName)
+	return nil, h.sequenceRepo.SetAlias(ctx, indexName, aliasName, assemblyKey)
 }

@@ -14,14 +14,14 @@ type SequenceUseCase struct {
 	repo   ISequenceRepository
 }
 
-func New(repo ISequenceRepository, mainSpecies string, batchSize int) *SequenceUseCase {
+func New(repo ISequenceRepository, batchSize int) *SequenceUseCase {
 	return &SequenceUseCase{
-		config: Config{MainSpecies: mainSpecies, BatchSize: batchSize},
+		config: Config{BatchSize: batchSize},
 		repo:   repo,
 	}
 }
 
-func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, sequenceType string) error {
+func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, sequenceType, species string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -46,7 +46,7 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, seq
 			Name:     record.Header,
 			Sequence: record.Sequence,
 			Type:     sequenceType,
-			Species:  uc.config.MainSpecies,
+			Species:  species,
 		})
 		if len(batch) >= uc.config.BatchSize {
 			if err := flush(); err != nil {

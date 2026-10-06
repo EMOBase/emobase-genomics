@@ -8,6 +8,5 @@ import (
 
 type ISynonymRepository interface {
 	SaveMany(ctx context.Context, indexName string, synonyms []entity.Synonym) error
-	SetAlias(ctx context.Context, indexName, aliasName string) error
 	DeleteByFileID(ctx context.Context, indexName, fileID string) error
 }

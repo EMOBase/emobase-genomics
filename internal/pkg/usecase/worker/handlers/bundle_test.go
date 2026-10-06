@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"io"
@@ -63,6 +64,40 @@ func gzipped(t *testing.T, s string) string {
 	_, _ = gw.Write([]byte(s))
 	_ = gw.Close()
 	return buf.String()
+}
+
+// writeZipBundle is writeBundle for a .zip archive. Zip has no links, so only
+// regular files and folders can be written.
+func writeZipBundle(t *testing.T, entries ...tarEntry) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range entries {
+		switch e.typeflag {
+		case tar.TypeDir:
+			if _, err := zw.Create(e.name + "/"); err != nil {
+				t.Fatal(err)
+			}
+		case 0, tar.TypeReg:
+			w, err := zw.Create(e.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write([]byte(e.body)); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatalf("zip bundles cannot hold typeflag %q", e.typeflag)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "bundle.zip")
+	if err := os.WriteFile(p, buf.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func readGzip(t *testing.T, p string) string {
