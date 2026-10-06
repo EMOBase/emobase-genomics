@@ -134,7 +134,7 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    `orthology.tsv`, for the whole Version) — except `jbrowse.track`, which allows
    concurrent tracks.
 2. On upload completion (`PreFinishResponseCallback` / `handlePreFinish`), the file is
-   gzip-magic-byte verified, moved from the tus staging dir into
+   signature verified (gzip, or zip for `.zip` bundles), moved from the tus staging dir into
    `{uploadDir}/{version}/{assemblyKey}/{fileName}` (flat `{uploadDir}/{version}/{fileName}`
    for `orthology.tsv`), and one or more `entity.Job` rows are enqueued in MySQL
    (status `PENDING`) via `enqueueProcessJob`, each with `AssemblyVersionID` set
@@ -176,7 +176,7 @@ Version's now-stale `{blast.db_path}/v{oldVersionID}a*` files (paths are no long
 shared slots a re-release overwrites for free), restarts the `blast` container, and
 promotes every one of its assemblies' JBrowse2 views to the front (see below).
 
-**Bundles** upload many files of one child type at once: a `.tar.gz` holding the data
+**Bundles** upload many files of one child type at once: a `.tar.gz` or `.zip` archive holding the data
 files plus a `manifest.csv` (one row per file, one column per metadata field; header
 template served at `GET /upload-files/templates/:fileType`). `orthology.bundle` is
 version-scoped and takes no `assembly`, since orthology belongs to the whole version.

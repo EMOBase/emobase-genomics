@@ -66,6 +66,7 @@ type bundleCase struct {
 	// in. It mirrors where handlePreFinish puts the uploaded archive.
 	archiveDir string
 	entries    []tarEntry
+	zip        bool // write the archive as a .zip instead of a .tar.gz
 }
 
 const testBundleID = "bundle-1"
@@ -80,8 +81,12 @@ func newBundleFixture(t *testing.T, c bundleCase) (h *BundleHandler, files *fake
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	archive := filepath.Join(dir, testBundleID+".tar.gz")
-	if err := os.Rename(writeBundle(t, c.entries...), archive); err != nil {
+	write, ext := writeBundle, ".tar.gz"
+	if c.zip {
+		write, ext = writeZipBundle, ".zip"
+	}
+	archive := filepath.Join(dir, testBundleID+ext)
+	if err := os.Rename(write(t, c.entries...), archive); err != nil {
 		t.Fatal(err)
 	}
 

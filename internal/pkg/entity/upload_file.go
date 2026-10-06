@@ -16,7 +16,7 @@ const (
 	FileTypeDsRNACSV       = "dsrna.csv"
 	FileTypeJBrowseTrack   = "jbrowse.track"
 
-	// Bundle file types: a .tar.gz archive holding many files of one child type
+	// Bundle file types: a .tar.gz or .zip archive holding many files of one child type
 	// plus a manifest.csv with each file's metadata. A worker job extracts it into
 	// independent child upload files; the bundle row itself is kept for audit only.
 	FileTypeOrthologyBundle    = "orthology.bundle"

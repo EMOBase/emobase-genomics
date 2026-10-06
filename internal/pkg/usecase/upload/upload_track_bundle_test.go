@@ -165,3 +165,25 @@ func TestSingleTrackUpload_JobCarriesAssembly(t *testing.T) {
 		t.Errorf("payload ids = (%d, %d), want (1, 7)", p.VersionID, p.AssemblyVersionID)
 	}
 }
+
+// Orthology bundles have no assembly, and reach the same job builder as the
+// per-assembly file types. Building their job must not dereference a nil
+// assembly id.
+func TestOrthologyBundleUpload_EnqueuesWithoutAssembly(t *testing.T) {
+	uc, jobs := newTestUseCase()
+	meta := tusd.MetaData{
+		"fileType":   entity.FileTypeOrthologyBundle,
+		"fileName":   "bundle.zip",
+		"version":    "v1",
+		"_versionID": "1",
+	}
+	if _, err := uc.enqueueProcessJob(context.Background(), "upload-2", meta, "/tmp/bundle.zip"); err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs.created) != 1 {
+		t.Fatalf("created %d jobs, want 1", len(jobs.created))
+	}
+	if jobs.created[0].AssemblyVersionID != nil {
+		t.Errorf("orthology bundle job has assembly %d, want none", *jobs.created[0].AssemblyVersionID)
+	}
+}

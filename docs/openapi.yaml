@@ -1930,7 +1930,7 @@ paths:
         | Key | Required | Description |
         |---|---|---|
         | `fileType` | Yes | One of the accepted file types (see enum below). |
-        | `fileName` | Yes | File name; must end with `.gz` or `.gzip`. |
+        | `fileName` | Yes | File name; must end with `.gz` or `.gzip`, or with `.tar.gz` or `.zip` for bundle file types. |
         | `version` | Yes | Version name. Required for all file types. |
         | `assembly` | Conditional | The target Assembly Version's **`id`** as a decimal integer (e.g. `6`; see `GET /versions/{name}/assemblies`). Not the species code: a species code does not identify an assembly. **Required for every `fileType` except `orthology.tsv`**, which is shared across all species in the Version and takes no `assembly`. The Assembly Version must already exist in `version`. |
         | `order` | Conditional | Required when `fileType` is `orthology.tsv`. |
@@ -1959,9 +1959,9 @@ paths:
 
         **Bundle uploads** (`orthology.bundle`, `jbrowse.track.bundle`):
 
-        - The file must be a `.tar.gz` archive. Metadata is `fileType`, `fileName` and `version`, plus `assembly` for `jbrowse.track.bundle` only. Do not send `assembly` for `orthology.bundle`: orthology belongs to the whole version.
+        - The file must be a `.tar.gz` or `.zip` archive. Metadata is `fileType`, `fileName` and `version`, plus `assembly` for `jbrowse.track.bundle` only. Do not send `assembly` for `orthology.bundle`: orthology belongs to the whole version.
         - `jbrowse.track.bundle` covers exactly one assembly. An unknown `assembly` is rejected at upload with 400, and no archive is stored. Its tracks are stored under that assembly's folder.
-        - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`
+        - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`, or `zip -j bundle.zip <folder>/*` for a .zip (the same rules apply: no folders, and no `__MACOSX` entries from Finder).
         - Data files may be plain or already gzipped; plain files are gzipped on the server.
         - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single upload of the child type. In `jbrowse.track.bundle`, `trackName` must be unique within the bundle.
         - The upload enqueues one `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
@@ -2215,7 +2215,7 @@ paths:
         '404':
           description: Upload not found.
         '422':
-          description: Uploaded file is not a valid gzip archive.
+          description: Uploaded file is not a valid gzip (or, for `.zip` bundles, zip) archive.
           content:
             application/json:
               schema:

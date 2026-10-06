@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -108,17 +109,18 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			"invalid fileName: must be 1–255 characters and must not contain path separators or control characters")
 	}
 
-	// 3. Reject non-gzip files by extension before any data is stored.
+	// 3. Reject files whose extension does not fit the file type before any data
+	// is stored. A bundle is a .tar.gz or .zip archive (a plain gzip holds only
+	// one file); every other type is a single gzip file.
 	lower := strings.ToLower(fileName)
-	if !strings.HasSuffix(lower, ".gz") && !strings.HasSuffix(lower, ".gzip") {
+	if _, isBundle := uploadspec.Bundles[fileType]; isBundle {
+		if !strings.HasSuffix(lower, ".tar.gz") && !strings.HasSuffix(lower, ".zip") {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				fmt.Sprintf("%s uploads must be a .tar.gz or .zip archive", fileType))
+		}
+	} else if !strings.HasSuffix(lower, ".gz") && !strings.HasSuffix(lower, ".gzip") {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 			"only gzip files are accepted (.gz or .gzip)")
-	}
-
-	// Bundles must be tar archives: a plain gzip holds only one file.
-	if _, isBundle := uploadspec.Bundles[fileType]; isBundle && !strings.HasSuffix(lower, ".tar.gz") {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-			fmt.Sprintf("%s uploads must be a .tar.gz archive", fileType))
 	}
 
 	// 4. Validate file-type-specific metadata fields.
@@ -287,7 +289,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	srcPath := filepath.Join(uc.uploadDir, upload.ID)
 	fileName := upload.MetaData["fileName"]
 
-	if ok, err := isGzip(srcPath); err != nil {
+	if ok, err := hasArchiveMagic(srcPath, fileName); err != nil {
 		log.Ctx(ctx).Err(err).Str("uploadID", upload.ID).Msg("failed to read uploaded file for gzip check")
 		uc.removeUploadFiles(upload.ID)
 		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
@@ -296,7 +298,11 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		log.Ctx(ctx).Warn().Str("uploadID", upload.ID).Msg("uploaded file is not gzip, discarding")
 		uc.removeUploadFiles(upload.ID)
 		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
-		return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity, "uploaded file is not a valid gzip")
+		format := "gzip"
+		if isZipName(fileName) {
+			format = "zip"
+		}
+		return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity, fmt.Sprintf("uploaded file is not a valid %s", format))
 	}
 
 	version := upload.MetaData["version"]
@@ -477,11 +483,17 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 			OldGeneIDKeys:     parseCommaSeparated(meta["oldGeneIDKeys"]),
 		})
 	default:
+		// Bundles also reach here. orthology.bundle has no assembly, and the
+		// bundle handler takes its assembly from the bundle row, not this payload.
+		var assemblyID uint64
+		if assemblyVersionID != nil {
+			assemblyID = *assemblyVersionID
+		}
 		rawPayload, err = json.Marshal(jobpayload.ProcessPayload{
 			UploadFileID:      uploadID,
 			VersionID:         versionID,
 			FilePath:          filePath,
-			AssemblyVersionID: *assemblyVersionID,
+			AssemblyVersionID: assemblyID,
 			Species:           assemblySpecies,
 		})
 	}
@@ -905,19 +917,29 @@ func parseCommaSeparated(s string) []string {
 	return result
 }
 
-func isGzip(filePath string) (bool, error) {
+// isZipName reports whether an upload's file name names a zip archive.
+func isZipName(fileName string) bool {
+	return strings.HasSuffix(strings.ToLower(fileName), ".zip")
+}
+
+// hasArchiveMagic reports whether a file starts with the signature of the format
+// its name claims: a zip for .zip bundles, gzip for everything else.
+func hasArchiveMagic(filePath, fileName string) (bool, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = f.Close() }()
 
-	magic := make([]byte, 2)
+	want := []byte{0x1f, 0x8b}
+	if isZipName(fileName) {
+		want = []byte{'P', 'K', 0x03, 0x04}
+	}
+	magic := make([]byte, len(want))
 	if _, err := io.ReadFull(f, magic); err != nil {
 		return false, err
 	}
-
-	return magic[0] == 0x1f && magic[1] == 0x8b, nil
+	return bytes.Equal(magic, want), nil
 }
 
 // uploadError returns a tusd.Error whose HTTPResponse carries the given status
