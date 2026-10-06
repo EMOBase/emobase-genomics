@@ -39,21 +39,20 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 }
 
 // DeleteIndexesByAssemblyVersion deletes the ES indexes belonging to one
-// species within a Database Version, across the 4 assembly-scoped index
+// assembly within a Database Version, across the 4 assembly-scoped index
 // types (genomic, sequence, synonym, dsrna). orthology is deliberately
 // excluded — it is shared across the whole Database Version rather than
 // owned by any single assembly (never deleted by removing one assembly).
-func (r *Repository) DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, species string) error {
+func (r *Repository) DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, assemblyKey string) error {
 	vn := indexname.FromVersionName(versionName)
-	sp := indexname.FromSpecies(species)
 	p := r.prefix + "-"
 	patterns := []string{
-		p + "genomiclocation-" + vn + "-" + sp + "-*",
-		p + "sequence-" + vn + "-" + sp + "-*",
-		p + "synonym-" + vn + "-" + sp + "-*",
-		p + "dsrna-" + vn + "-" + sp + "-*",
+		p + "genomiclocation-" + vn + "-" + assemblyKey + "-*",
+		p + "sequence-" + vn + "-" + assemblyKey + "-*",
+		p + "synonym-" + vn + "-" + assemblyKey + "-*",
+		p + "dsrna-" + vn + "-" + assemblyKey + "-*",
 	}
-	return r.deleteByPatterns(ctx, patterns, fmt.Sprintf("version %q species %q", versionName, species))
+	return r.deleteByPatterns(ctx, patterns, fmt.Sprintf("version %q assembly %q", versionName, assemblyKey))
 }
 
 // deleteByPatterns resolves the given wildcard index patterns with a GET

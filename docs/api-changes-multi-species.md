@@ -1,7 +1,8 @@
 # API changes: single-species → multi-species
 
-A **Version** (Database Version) now holds one or more **Assembly Versions**, one per species.
-An Assembly Version is addressed by its `species` code (e.g. `Hsap`), unique within a Version.
+A **Version** (Database Version) now holds one or more **Assembly Versions**.
+An Assembly Version is addressed by its numeric `id`. Its `species` code (e.g. `Hsap`) describes
+the assembly but does not identify it, so one Version can hold several assemblies of one species.
 `orthology.tsv` is the one exception: it stays shared across the whole Version.
 
 All new/changed endpoints below are admin-only (same auth as today's `/versions/*`).
@@ -11,15 +12,15 @@ All new/changed endpoints below are admin-only (same auth as today's `/versions/
 | Endpoint | Purpose |
 |---|---|
 | `GET /versions/{name}/assemblies` | List assemblies; each item has its own `status`. |
-| `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "species": "Hsap" }` → `201`. `400` if `species` already exists in this Version. |
-| `GET /versions/{name}/assemblies/{species}` | Assembly detail: `status` + per-file-type `files`. |
-| `DELETE /versions/{name}/assemblies/{species}` | `204`. `422` if the assembly has `PENDING`/`RUNNING` jobs. Removes that species' files, jobs, ES indices and JBrowse2 data; never touches the shared `orthology.tsv`. |
+| `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "species": "Hsap" }` → `201`. Several assemblies may share a `species` in one Version. |
+| `GET /versions/{name}/assemblies/{id}` | Assembly detail: `status` + per-file-type `files`. `404` if the id is not in this Version. |
+| `DELETE /versions/{name}/assemblies/{id}` | `204`. `422` if the assembly has `PENDING`/`RUNNING` jobs. `404` if the id is not in this Version. Removes that assembly's files, jobs, ES indices and JBrowse2 data; never touches the shared `orthology.tsv`. |
 
 ## Breaking changes
 
 ### `POST /uploads` (tus) — new required metadata `assembly`
-- `assembly` = the target assembly's `species` code. Required for every `fileType` **except `orthology.tsv`** (which takes none).
-- New `400`s: `"<fileType>" uploads require an "assembly" metadata field`; `assembly "X" not found in version "Y"`.
+- `assembly` = the target assembly's numeric `id` (from `GET /versions/{name}/assemblies`), not its species code. Required for every `fileType` **except `orthology.tsv`** (which takes none).
+- New `400`s: `"<fileType>" uploads require an "assembly" metadata field`; `"assembly" metadata must be an assembly id, got "X"` (for example a species code); `assembly "X" not found in version "Y"` (unknown id, or an id from another Version).
 - The `409` "job already pending or running" check is now per assembly (per Version for `orthology.tsv`), so two species can upload the same file type concurrently.
 - `dsrna.csv` gate is now per assembly: the assembly's `species` must be `Tcas` (was: global `main_species`). Message changed to `dsrna.csv uploads are only supported for the "Tcas" species`.
 - `species.synonym` keeps its own `species` field (which species the file describes) and now also needs `assembly`.

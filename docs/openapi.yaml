@@ -329,7 +329,7 @@ components:
           example: Human / GRCh38
         species:
           type: string
-          description: Short, directly admin-provided species code, unique within the Database Version. Used to address this Assembly Version in URLs and upload metadata instead of its numeric id.
+          description: Admin-provided species code, describing what the assembly is. Not an address: a Database Version can hold several assemblies of one species, so use `id` to address this Assembly Version in URLs and upload metadata.
           example: Hsap
         createdAt:
           type: string
@@ -1678,9 +1678,7 @@ paths:
       tags: [Assembly Versions]
       description: |
         Every Assembly Version is created identically — there is no auto-assigned
-        "primary"/"default" species. `species` must be unique within this Database
-        Version; it addresses this assembly in URLs and upload metadata instead of its
-        numeric id.
+        "primary"/"default" species. Several assemblies may share a `species` within one Database Version. Use the returned `id` to address this assembly in URLs and upload metadata.
       parameters:
         - name: name
           in: path
@@ -1715,17 +1713,11 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name/species, or an assembly with this species already exists in this Database Version.
+          description: Missing name or species.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                alreadyExists:
-                  summary: assembly version already exists
-                  value:
-                    error: assembly version already exists
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
           content:
@@ -1749,7 +1741,7 @@ paths:
                     error: version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
-  /versions/{name}/assemblies/{species}:
+  /versions/{name}/assemblies/{id}:
     get:
       summary: Get Assembly Version detail
       operationId: getAssemblyVersionDetail
@@ -1761,12 +1753,12 @@ paths:
           schema:
             type: string
           description: Database Version name (e.g. `dmel_r6.59`).
-        - name: species
+        - name: id
           in: path
           required: true
           schema:
-            type: string
-          description: Assembly Version species code (e.g. `Hsap`).
+            type: integer
+          description: Assembly Version id (the `id` field from `GET /versions/{name}/assemblies`). Not the species code, since one Database Version can hold several assemblies of the same species. An id from another Database Version returns 404.
       responses:
         '200':
           description: Full detail for the requested assembly.
@@ -1830,12 +1822,12 @@ paths:
           schema:
             type: string
           description: Database Version name (e.g. `dmel_r6.59`).
-        - name: species
+        - name: id
           in: path
           required: true
           schema:
-            type: string
-          description: Assembly Version species code (e.g. `Hsap`).
+            type: integer
+          description: Assembly Version id (the `id` field from `GET /versions/{name}/assemblies`). An id from another Database Version returns 404.
       responses:
         '204':
           description: Assembly version and all related data deleted successfully.
@@ -1940,7 +1932,7 @@ paths:
         | `fileType` | Yes | One of the accepted file types (see enum below). |
         | `fileName` | Yes | File name; must end with `.gz` or `.gzip`. |
         | `version` | Yes | Version name. Required for all file types. |
-        | `assembly` | Conditional | The target Assembly Version's `species` code (e.g. `Hsap`; see `POST /versions/{name}/assemblies`). **Required for every `fileType` except `orthology.tsv`**, which is shared across all species in the Version and takes no `assembly`. The Assembly Version must already exist in `version`. |
+        | `assembly` | Conditional | The target Assembly Version's **`id`** as a decimal integer (e.g. `6`; see `GET /versions/{name}/assemblies`). Not the species code: a species code does not identify an assembly. **Required for every `fileType` except `orthology.tsv`**, which is shared across all species in the Version and takes no `assembly`. The Assembly Version must already exist in `version`. |
         | `order` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `algorithm` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `geneIDKey` | Conditional | Required when `fileType` is `genomic.gff`. GFF3 attribute key used to extract the gene ID. Supports simple keys (e.g. `ID`) and nested dot-notation keys (e.g. `Dbxref.GeneID`) to look up a `dbname:dbvalue` entry inside the attribute. |
@@ -2038,10 +2030,15 @@ paths:
                   value:
                     error: '"genomic.gff" uploads require an "assembly" metadata field'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                assemblyNotFound:
-                  summary: no Assembly Version with this species code in the Version
+                assemblyNotAnID:
+                  summary: assembly given as a species code instead of an id
                   value:
-                    error: 'assembly "Xyzz" not found in version "dmel_r6.99"'
+                    error: '"assembly" metadata must be an assembly id, got "Hsap"'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  summary: no Assembly Version with this id in the Version
+                  value:
+                    error: 'assembly "999" not found in version "dmel_r6.99"'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 missingGeneIDKey:
                   summary: geneIDKey missing for genomic.gff

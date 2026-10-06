@@ -21,11 +21,15 @@ func (fakeUploadVersions) FindByName(_ context.Context, name string) (*entity.Ve
 
 type fakeUploadAssemblies struct{}
 
-func (fakeUploadAssemblies) FindBySpecies(_ context.Context, versionID uint64, species string) (*entity.AssemblyVersion, error) {
-	if species != "Tcas" {
-		return nil, nil
+func (fakeUploadAssemblies) FindByID(_ context.Context, id uint64) (*entity.AssemblyVersion, error) {
+	switch id {
+	case 7:
+		return &entity.AssemblyVersion{ID: 7, VersionID: 1, Species: "Tcas", Name: "Tribolium"}, nil
+	case 8:
+		// Belongs to another Database Version, so it must not resolve for version 1.
+		return &entity.AssemblyVersion{ID: 8, VersionID: 2, Species: "Tcas", Name: "Other"}, nil
 	}
-	return &entity.AssemblyVersion{ID: 7, VersionID: versionID, Species: species, Name: "Tribolium"}, nil
+	return nil, nil
 }
 
 // fakeUploadJobs records created jobs. Every other repository method is unused on
@@ -92,15 +96,31 @@ func TestTrackBundleUpload_RequiresAssembly(t *testing.T) {
 	requireStatus(t, err, http.StatusBadRequest, `"assembly"`)
 }
 
+// A species code does not pick an assembly: one Database Version can hold several
+// assemblies of the same species. The metadata must be the assembly id.
+func TestTrackBundleUpload_RejectsSpeciesCodeAsAssembly(t *testing.T) {
+	uc, _ := newTestUseCase()
+	_, err := preUpload(uc, trackBundleMeta(map[string]string{"assembly": "Tcas"}))
+	requireStatus(t, err, http.StatusBadRequest, "assembly id")
+}
+
 func TestTrackBundleUpload_RejectsUnknownAssembly(t *testing.T) {
 	uc, _ := newTestUseCase()
-	_, err := preUpload(uc, trackBundleMeta(map[string]string{"assembly": "Nope"}))
+	_, err := preUpload(uc, trackBundleMeta(map[string]string{"assembly": "999"}))
+	requireStatus(t, err, http.StatusBadRequest, "not found")
+}
+
+// An assembly id from another Database Version must not resolve, or an upload
+// could file its data under an assembly it does not belong to.
+func TestTrackBundleUpload_RejectsAssemblyFromAnotherVersion(t *testing.T) {
+	uc, _ := newTestUseCase()
+	_, err := preUpload(uc, trackBundleMeta(map[string]string{"assembly": "8"}))
 	requireStatus(t, err, http.StatusBadRequest, "not found")
 }
 
 func TestTrackBundleUpload_ResolvesAssemblyForArchive(t *testing.T) {
 	uc, _ := newTestUseCase()
-	changes, err := preUpload(uc, trackBundleMeta(map[string]string{"assembly": "Tcas"}))
+	changes, err := preUpload(uc, trackBundleMeta(map[string]string{"assembly": "7"}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ type IVersionRepository interface {
 }
 
 type IAssemblyVersionRepository interface {
-	FindBySpecies(ctx context.Context, versionID uint64, species string) (*entity.AssemblyVersion, error)
+	FindByID(ctx context.Context, id uint64) (*entity.AssemblyVersion, error)
 }
 
 type IJobRepository interface {

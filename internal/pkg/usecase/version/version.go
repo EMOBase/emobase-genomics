@@ -161,7 +161,7 @@ type VersionDetailFiles struct {
 
 // AssemblyVersionDetail is the per-assembly (per-species) representation
 // inside VersionDetail, and the response for GET
-// /versions/{name}/assemblies/{species}.
+// /versions/{name}/assemblies/{id}.
 type AssemblyVersionDetail struct {
 	entity.AssemblyVersion
 	Status string             `json:"status"`

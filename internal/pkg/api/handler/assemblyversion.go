@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -15,8 +16,8 @@ import (
 type assemblyVersionUseCase interface {
 	CreateAssemblyVersion(ctx context.Context, versionName, name, species string) (*entity.AssemblyVersion, error)
 	ListAssemblyVersions(ctx context.Context, versionName string) ([]ucassemblyversion.AssemblyVersionItem, error)
-	GetAssemblyVersionDetail(ctx context.Context, versionName, species string) (*ucversion.AssemblyVersionDetail, error)
-	DeleteAssemblyVersion(ctx context.Context, versionName, species string) error
+	GetAssemblyVersionDetail(ctx context.Context, versionName string, assemblyVersionID uint64) (*ucversion.AssemblyVersionDetail, error)
+	DeleteAssemblyVersion(ctx context.Context, versionName string, assemblyVersionID uint64) error
 }
 
 type AssemblyVersionHandler struct {
@@ -45,10 +46,6 @@ func (h *AssemblyVersionHandler) Create(c *gin.Context) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return
 		}
-		if errors.Is(err, ucassemblyversion.ErrAssemblyVersionAlreadyExists) {
-			apires.Fail(c, http.StatusBadRequest, "assembly version already exists")
-			return
-		}
 		panic(err)
 	}
 
@@ -70,11 +67,25 @@ func (h *AssemblyVersionHandler) List(c *gin.Context) {
 	apires.OK(c, items)
 }
 
+// assemblyVersionIDParam reads the `:id` path parameter, replying 400 itself
+// when it is not an integer.
+func assemblyVersionIDParam(c *gin.Context) (uint64, bool) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apires.Fail(c, http.StatusBadRequest, "assembly version id must be an integer")
+		return 0, false
+	}
+	return id, true
+}
+
 func (h *AssemblyVersionHandler) Detail(c *gin.Context) {
 	versionName := c.Param("name")
-	species := c.Param("species")
+	id, ok := assemblyVersionIDParam(c)
+	if !ok {
+		return
+	}
 
-	detail, err := h.uc.GetAssemblyVersionDetail(c.Request.Context(), versionName, species)
+	detail, err := h.uc.GetAssemblyVersionDetail(c.Request.Context(), versionName, id)
 	if err != nil {
 		if errors.Is(err, ucassemblyversion.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
@@ -92,9 +103,12 @@ func (h *AssemblyVersionHandler) Detail(c *gin.Context) {
 
 func (h *AssemblyVersionHandler) Delete(c *gin.Context) {
 	versionName := c.Param("name")
-	species := c.Param("species")
+	id, ok := assemblyVersionIDParam(c)
+	if !ok {
+		return
+	}
 
-	err := h.uc.DeleteAssemblyVersion(c.Request.Context(), versionName, species)
+	err := h.uc.DeleteAssemblyVersion(c.Request.Context(), versionName, id)
 	if err != nil {
 		if errors.Is(err, ucassemblyversion.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")

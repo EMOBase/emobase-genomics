@@ -22,7 +22,6 @@ const deleteJBrowseVersionScript = "/app/scripts/delete_jbrowse_version.sh"
 
 var (
 	ErrVersionNotFound              = ucversion.ErrVersionNotFound
-	ErrAssemblyVersionAlreadyExists = errors.New("assembly version already exists")
 	ErrAssemblyVersionNotFound      = errors.New("assembly version not found")
 	ErrAssemblyVersionHasActiveJobs = errors.New("assembly version has active jobs")
 )
@@ -53,7 +52,7 @@ func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRep
 	}
 }
 
-// CreateAssemblyVersion creates a new species within a Database Version.
+// CreateAssemblyVersion creates an assembly for a species within a Database Version.
 // Every Assembly Version is created identically — there is no auto-assigned
 // "primary"/"default" one (§2 of the design doc).
 func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name, species string) (*entity.AssemblyVersion, error) {
@@ -63,14 +62,6 @@ func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name,
 	}
 	if v == nil {
 		return nil, ErrVersionNotFound
-	}
-
-	existing, err := uc.assemblyVersionRepo.FindBySpecies(ctx, v.ID, species)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return nil, ErrAssemblyVersionAlreadyExists
 	}
 
 	a := &entity.AssemblyVersion{
@@ -134,7 +125,7 @@ func (uc *UseCase) ListAssemblyVersions(ctx context.Context, versionName string)
 // status plus its per-file-type file/job buckets — mirroring
 // usecase/version.GetVersionDetail one level down, and reusing the exact same
 // builder so both stay consistent.
-func (uc *UseCase) GetAssemblyVersionDetail(ctx context.Context, versionName, species string) (*ucversion.AssemblyVersionDetail, error) {
+func (uc *UseCase) GetAssemblyVersionDetail(ctx context.Context, versionName string, assemblyVersionID uint64) (*ucversion.AssemblyVersionDetail, error) {
 	v, err := uc.versionRepo.FindByName(ctx, versionName)
 	if err != nil {
 		return nil, err
@@ -143,24 +134,26 @@ func (uc *UseCase) GetAssemblyVersionDetail(ctx context.Context, versionName, sp
 		return nil, ErrVersionNotFound
 	}
 
-	asm, err := uc.assemblyVersionRepo.FindBySpecies(ctx, v.ID, species)
+	asm, err := uc.assemblyVersionRepo.FindByID(ctx, assemblyVersionID)
 	if err != nil {
 		return nil, err
 	}
-	if asm == nil {
+	// An id from another Database Version is not found here, so the URL cannot
+	// reach across versions.
+	if asm == nil || asm.VersionID != v.ID {
 		return nil, ErrAssemblyVersionNotFound
 	}
 
 	return ucversion.BuildAssemblyVersionDetail(ctx, uc.jobRepo, uc.uploadFileRepo, *asm)
 }
 
-// DeleteAssemblyVersion deletes one species from a Database Version: its
+// DeleteAssemblyVersion deletes one assembly from a Database Version: its
 // jobs, upload file rows and on-disk files, ES indexes, its JBrowse2
 // assembly/tracks, and the assembly_versions row itself. There is no
 // orthology-related guard — deleting an assembly never touches the Database
 // Version's shared orthology.tsv data, since orthology belongs to no single
 // assembly (§2 of the design doc).
-func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, species string) error {
+func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName string, assemblyVersionID uint64) error {
 	v, err := uc.versionRepo.FindByName(ctx, versionName)
 	if err != nil {
 		return err
@@ -169,11 +162,13 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, speci
 		return ErrVersionNotFound
 	}
 
-	asm, err := uc.assemblyVersionRepo.FindBySpecies(ctx, v.ID, species)
+	asm, err := uc.assemblyVersionRepo.FindByID(ctx, assemblyVersionID)
 	if err != nil {
 		return err
 	}
-	if asm == nil {
+	// An id from another Database Version is not found here, so the URL cannot
+	// reach across versions.
+	if asm == nil || asm.VersionID != v.ID {
 		return ErrAssemblyVersionNotFound
 	}
 
@@ -203,8 +198,8 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, speci
 		return err
 	}
 
-	if err := uc.esRepo.DeleteIndexesByAssemblyVersion(ctx, v.Name, asm.Species); err != nil {
-		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("species", asm.Species).Msg("failed to delete ES indexes during assembly version delete")
+	if err := uc.esRepo.DeleteIndexesByAssemblyVersion(ctx, v.Name, asm.AssemblyID()); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Str("assemblyID", asm.AssemblyID()).Msg("failed to delete ES indexes during assembly version delete")
 	}
 
 	if out, err := exec.CommandContext(ctx, deleteJBrowseVersionScript, asm.AssemblyID()).CombinedOutput(); err != nil {
@@ -218,7 +213,7 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName, speci
 		}
 	}
 
-	assemblyDir := filepath.Join(uc.uploadDir, v.Name, asm.Species)
+	assemblyDir := filepath.Join(uc.uploadDir, v.Name, asm.AssemblyID())
 	if err := os.RemoveAll(assemblyDir); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("path", assemblyDir).Msg("failed to remove assembly version directory during delete")
 	}

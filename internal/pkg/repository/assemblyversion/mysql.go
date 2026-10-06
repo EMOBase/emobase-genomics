@@ -54,29 +54,6 @@ func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Asse
 	return a, nil
 }
 
-// FindBySpecies looks up an Assembly Version by its species code, scoped to a
-// single Database Version — the primary lookup used to resolve the upload
-// `assembly` metadata field and the `:species` API path parameter, mirroring
-// repository/version's FindByName.
-func (r *MySQLRepository) FindBySpecies(ctx context.Context, versionID uint64, species string) (*entity.AssemblyVersion, error) {
-	a := &entity.AssemblyVersion{}
-	err := r.db.QueryRowContext(ctx,
-		`SELECT id, version_id, name, species, created_at, created_by, updated_at, updated_by
-		 FROM assembly_versions WHERE version_id = ? AND species = ?`,
-		versionID, species,
-	).Scan(
-		&a.ID, &a.VersionID, &a.Name, &a.Species,
-		&a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return a, nil
-}
-
 // ListByVersionID returns every Assembly Version under a Database Version,
 // ordered by creation time.
 func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64) ([]entity.AssemblyVersion, error) {

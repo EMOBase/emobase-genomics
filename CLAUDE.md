@@ -74,8 +74,8 @@ and explicit in each `Action` function.
   `esindex`). MySQL-backed repos hold structured metadata; the ES-backed repos
   (genomic/sequence/orthology/synonym/dsrna) hold the actual searchable biological data.
   Four of the five (genomic/sequence/synonym/dsrna) key their concrete index names as
-  `{prefix}-{type}-{versionSlug}-{species}-...`, with multiple species' indices sharing
-  one `{prefix}-{type}-{versionSlug}` alias; `orthology` has no species segment (see
+  `{prefix}-{type}-{versionSlug}-{assemblyKey}-...` (`assemblyKey` is `AssemblyID()`, e.g. `v4a6`), with multiple assemblies' indices sharing
+  one `{prefix}-{type}-{versionSlug}` alias; `orthology` has no assembly segment (see
   Assembly Versions below). `esindex` is special: it only manages cross-cutting index
   lifecycle (delete-by-version or delete-by-assembly-version), not documents.
 - `usecase/*` — business logic per domain, each usually takes its repo(s) as
@@ -98,9 +98,8 @@ and explicit in each `Action` function.
 
 A `Version` (MySQL, `entity.Version`) is a named snapshot of the whole dataset (e.g. a
 release) — a "Database Version" in the design doc's terms. Each Version holds one or
-more `AssemblyVersion` rows (MySQL, `entity.AssemblyVersion`), one per species: `species`
-is a short admin-provided code (e.g. `"Hsap"`, unique within the Version, used
-everywhere species are addressed in the API and in upload metadata) and `name` is a
+more `AssemblyVersion` rows (MySQL, `entity.AssemblyVersion`), one per assembly: `species`
+is a short admin-provided code describing the species (e.g. `"Hsap"`); it is not unique within the Version and does not address an assembly, since the API and upload metadata use the numeric `id`. `name` is a
 free-text human label (e.g. `"Human / GRCh38"`). Every Assembly Version is fully
 symmetric — there is no "primary"/"default" one. `upload_files` and `jobs` both keep
 their original `version_id` column (unchanged) and additionally carry a nullable
@@ -128,14 +127,15 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    `genomic.gff`, `order`/`algorithm` for `orthology.tsv`), rejects non-gzip files by
    extension, resolves the target `Version`, then — for every file type except
    `orthology.tsv`, which is shared across the whole Version — resolves a required
-   `assembly` metadata field (the target Assembly Version's `species` code) to a
-   concrete `AssemblyVersion` via `assemblyVersionRepo.FindBySpecies`. Rejects if an
+   `assembly` metadata field (the target Assembly Version's numeric `id`, not its
+   species code) to a concrete `AssemblyVersion` via `assemblyVersionRepo.FindByID`,
+   rejecting ids that belong to another Version. Rejects if an
    active job of the same file type already exists for that assembly (or, for
    `orthology.tsv`, for the whole Version) — except `jbrowse.track`, which allows
    concurrent tracks.
 2. On upload completion (`PreFinishResponseCallback` / `handlePreFinish`), the file is
    gzip-magic-byte verified, moved from the tus staging dir into
-   `{uploadDir}/{version}/{species}/{fileName}` (flat `{uploadDir}/{version}/{fileName}`
+   `{uploadDir}/{version}/{assemblyKey}/{fileName}` (flat `{uploadDir}/{version}/{fileName}`
    for `orthology.tsv`), and one or more `entity.Job` rows are enqueued in MySQL
    (status `PENDING`) via `enqueueProcessJob`, each with `AssemblyVersionID` set
    (`nil` only for `orthology.tsv`). Job payloads are typed structs in
@@ -241,17 +241,13 @@ UI.
   `{prefix}-{type}-*` so any dynamically created index inherits them.
 - Actual indices are per-version, created at ingest time by the relevant repo; for
   `genomic`/`sequence`/`synonym`/`dsrna` (not `orthology`, which stays Version-only)
-  they're additionally per-species, with multiple species' concrete indices coexisting
+  they're additionally per-assembly, with multiple assemblies' concrete indices coexisting
   behind one shared `{prefix}-{type}-{versionSlug}` alias. `SetAlias`/`DeleteStaleIndexes`
-  on these 4 repos take a `species` argument and scope their remove/delete actions to
-  that species' own indices, so uploading one species never evicts or deletes another's
-  — `indexname.FromSpecies` sanitizes species codes into valid (lowercase) index name
-  components, mirroring `indexname.FromVersionName`.
+  on these 4 repos take an `assemblyKey` argument (the assembly's `AssemblyID()`, already lowercase and safe in index names) and scope their remove/delete actions to that assembly's own indices, so uploading one assembly never evicts or deletes another's, even when they share a species.
 - ES 8 rejects wildcard patterns in `Indices.Delete` by default
   (`action.destructive_requires_name`). Always resolve wildcards with `Indices.Get`
   first, then delete by explicit resolved names — see `esindex.DeleteIndexesByVersion`
-  (whole Version, all 5 types) and `esindex.DeleteIndexesByAssemblyVersion` (one
-  species, the 4 assembly-scoped types only) for the reference pattern. Never call
+  (whole Version, all 5 types) and `esindex.DeleteIndexesByAssemblyVersion` (one assembly, the 4 assembly-scoped types only) for the reference pattern. Never call
   `Indices.Delete` with a wildcard string directly.
 
 ### Auth

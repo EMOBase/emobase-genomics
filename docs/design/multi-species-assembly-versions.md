@@ -256,7 +256,7 @@ CREATE TABLE assembly_versions (
     updated_by  VARCHAR(255)                         NOT NULL,
 
     CONSTRAINT fk_assembly_versions_version FOREIGN KEY (version_id) REFERENCES versions(id),
-    UNIQUE KEY uq_assembly_versions_version_species (version_id, species)
+    INDEX idx_assembly_versions_version_id (version_id)
 );
 ```
 
@@ -270,9 +270,9 @@ the existing system (`entity.SpeciesDmel = "Dmel"`, `entity.SpeciesTcas = "Tcas"
 `internal/pkg/entity/species.go`; the `species.synonym` upload's `species` metadata
 field; `orthology.tsv`'s header-row species codes). Unlike the earlier draft's `slug`,
 **`species` is not derived from `name`** — it's a distinct, directly-entered field, so
-there's no sanitization/collapsing logic to design; `UNIQUE(version_id, species)` is a
-plain exact-match uniqueness constraint (case-insensitive by MySQL's default collation),
-not a collision-avoidance scheme for arbitrary free text.
+there's no sanitization/collapsing logic to design.
+
+**`species` describes an assembly; it does not identify one.** A Database Version can hold several assemblies of one species, so assemblies are addressed by their numeric `id` (§3 uploads, §4 API). Several assemblies may share a species within one Database Version (`UNIQUE(version_id, species)` was dropped in migration 000007; see §10, risk 10).
 
 Every Assembly Version row is identical in shape and status to every other — there is no
 `is_primary`, no auto-assignment on creation, no arity-dependent branching anywhere. This
@@ -358,17 +358,14 @@ app_settings.default_version_id ────────────────
 
 ### Upload metadata: new required field — with one exception
 
-Add a required tus metadata field **`assembly`** — the Assembly Version's **`species`
-code** (string, e.g. `"Hsap"`, `"Mmus"`), not its numeric ID, consistent with how the
-existing `version` metadata field is already the Database Version's `name` rather than
-its numeric ID (`upload.go:166`). Not named `assemblyVersion` (avoids stutter) and kept
-distinct from `species.synonym`'s own `species` metadata field even though both now hold
-same-shaped short-code values: `species.synonym`'s field means "which species this
-synonym data *describes*," which can legitimately differ from the assembly it's
-organizationally filed under (e.g. filing Dmel synonym data under the Tcas assembly for
-cross-referencing) — so a separate `assembly` key (meaning "which assembly bucket this
-upload belongs to") stays correct even though it may often equal `species.synonym`'s
-own `species` value in the common case. `species.synonym`'s existing field is unchanged.
+Add a required tus metadata field **`assembly`** — the Assembly Version's **numeric `id`** (e.g.
+`"6"`), not its `species` code. Unlike `version`, which carries the Database Version's `name`
+(`upload.go:166`), `assembly` carries the id, because a species code does not identify an
+assembly: a Database Version can hold several assemblies of the same species (§2). Not named
+`assemblyVersion` (avoids stutter). It is kept distinct from `species.synonym`'s own `species`
+metadata field, which means "which species this synonym data *describes*" and can legitimately
+differ from the assembly it's organizationally filed under (e.g. filing Dmel synonym data under
+the Tcas assembly for cross-referencing). `species.synonym`'s existing field is unchanged.
 
 **`orthology.tsv` is the one exception**: it does **not** take an `assembly` field at
 all — it stays scoped only by `version` (the Database Version), exactly as it behaves
@@ -378,21 +375,20 @@ one more type-conditional branch: require `assembly` for every `fileType` except
 `orthology.tsv`.
 
 `handlePreUploadCreate` (`upload.go:89-197`) gains a step 5b right after today's version
-resolution (166-174), skipped for `orthology.tsv`: resolve `(versionID, assembly code)`
-→ a concrete `assembly_version_id` via a new `assemblyVersionRepo.FindBySpecies(ctx,
-versionID, species)` (the new primary lookup method, mirroring `versionRepo.FindByName`),
-400/404 if missing or belonging to a different Database Version — same shape as today's
-version-not-found check. Stash the resolved numeric `_assemblyVersionID` into metadata
-alongside the existing `_versionID` (left unset for orthology uploads) — the `species`
-code is only ever used for lookup/addressing; every internal FK (jobs, upload_files)
-still stores the stable numeric ID.
+resolution (166-174), skipped for `orthology.tsv`: resolve `(versionID, assembly id)` → a
+concrete `assembly_version_id` via `assemblyVersionRepo.FindByID(ctx, id)`, mirroring
+`versionRepo.FindByName`. A value that is not an integer, an unknown id, or an id belonging to
+a different Database Version returns 400, the same shape as today's version-not-found check.
+Stash the resolved numeric `_assemblyVersionID` into metadata alongside the existing
+`_versionID` (left unset for orthology uploads). Every internal FK (jobs, upload_files)
+stores that numeric ID; the on-disk folder and ES index names use the assembly key.
 
 ### File path / dedup / cross-job re-scoping
 
 - **File path**: `{uploadDir}/{versionName}/{fileName}` becomes
-  `{uploadDir}/{versionName}/{species}/{fileName}` for every type **except
+  `{uploadDir}/{versionName}/{assemblyKey}/{fileName}` for every type **except
   `orthology.tsv`**, which keeps its current flat `{uploadDir}/{versionName}/{fileName}`
-  path unchanged (nothing to disambiguate by species). Both `onCreated` (line 220) and
+  path unchanged (nothing to disambiguate by species). The assembly folder is keyed by the assembly's opaque id, so assemblies of one species never share files. Both `onCreated` (line 220) and
   `handlePreFinish` (259-271, including `os.MkdirAll`) branch on file type for this.
   This also fixes a pre-existing latent collision risk for the assembly-scoped types
   (same-named files from different uploads overwriting each other in one flat version
@@ -483,7 +479,7 @@ upload in flight, so single-species deployments see no behavior change.
 | Level | Examples | Where enforced |
 |---|---|---|
 | **Database-Version-level** | Version name uniqueness; release requires ≥1 assembly; delete blocked if default or has active jobs; orthology.tsv upload/validation (shared, not owned by any assembly) | `usecase/version` |
-| **Assembly-Version-level** | Required `genomic.fna` per assembly before release; species-code uniqueness within a version; delete has no BLAST/orthology-related guard at all — deleting one assembly never touches shared orthology data | `usecase/assemblyversion` (new) |
+| **Assembly-Version-level** | Required `genomic.fna` per assembly before release; delete has no BLAST/orthology-related guard at all — deleting one assembly never touches shared orthology data | `usecase/assemblyversion` (new) |
 | **File-level** | Per-file-type metadata (geneIDKey, order, algorithm, trackName...), gzip check, dsrna Tcas gate, active-job-of-same-type dedup | `usecase/upload` (unchanged shape, re-scoped inputs except orthology.tsv) |
 
 ---
@@ -494,14 +490,13 @@ upload in flight, so single-species deployments see no behavior change.
 
 - `POST /versions/:name/assemblies` — create `{name, species}` → `{id, versionId, name,
   species, createdAt, ...}` — no special/target field; every assembly is created equal.
-  `id` is returned for internal/debugging reference, but every other endpoint below
-  addresses assemblies by **`species`** (the short code), not `id` — consistent with how
-  Database Versions are already addressed by `:name` rather than numeric ID throughout
-  this API.
+  `id` is the address every endpoint below uses. A species code does not identify an
+  assembly (§2), so it is not used for addressing; Database Versions stay addressed by
+  `:name`. An `id` from another Database Version returns 404.
 - `GET /versions/:name/assemblies` — list
-- `GET /versions/:name/assemblies/:species` — detail (mirrors today's `VersionDetail`/
+- `GET /versions/:name/assemblies/:id` — detail (mirrors today's `VersionDetail`/
   `VersionDetailFiles` one level down)
-- `DELETE /versions/:name/assemblies/:species` — delete one species. No special-case guard
+- `DELETE /versions/:name/assemblies/:id` — delete one assembly. No special-case guard
   at all — deleting an assembly removes its own MySQL rows, files, JBrowse2 assembly
   (and, if this Database Version is currently default, its BLAST DB set — see §5), and
   its ES data via one uniform mechanism for all 4 assembly-scoped types: delete that
@@ -516,7 +511,7 @@ automatically.
 
 ### Changed endpoints
 
-- `POST /uploads` (tus) — metadata gains the required `assembly` field. **This is a
+- `POST /uploads` (tus) — metadata gains the required `assembly` field (the Assembly Version's `id`). **This is a
   breaking change** for any existing upload client. Unavoidable given the model change;
   no API versioning scheme exists in this repo (`CLAUDE.md` confirms no `/v1/` prefix
   anywhere), and per the "clean cutover" decision, ship it directly rather than adding
@@ -536,7 +531,7 @@ automatically.
   breakdowns; can now fail with `ErrRequiredFileNotUploaded` (per-assembly, in addition
   to its existing meaning) if any assembly is missing `genomic.fna`.
 - `GET /upload-files?version=` — gains an optional `assembly=` filter param (the
-  assembly's `species` code, same convention as everywhere else); `UploadFileSummary`
+  assembly's numeric `id`, the same address the assembly endpoints and `assembly` upload metadata use); `UploadFileSummary`
   gains `assemblyVersionId`/`species` fields for reference.
 - `GET /silencingseqs` — **explicitly out of scope for this design, deferred by the
   user.** Left unchanged for now (still gated by the global `mainSpecies == "Tcas"`
@@ -638,16 +633,16 @@ decision.
 
 ### Filesystem storage
 
-`{uploadDir}/{versionName}/{fileName}` → `{uploadDir}/{versionName}/{species}/
+`{uploadDir}/{versionName}/{fileName}` → `{uploadDir}/{versionName}/{assemblyKey}/
 {fileName}` for every type except `orthology.tsv`, which keeps its current flat path
 (§3). `DeleteVersion`'s existing `os.RemoveAll(filepath.Join(uploadDir, v.Name))`
 (`version.go:552-555`) needs **no change** — it already recursively removes everything
-under the version directory, which now includes both the per-species subdirectories and
+under the version directory, which now includes both the per-assembly subdirectories and
 the unchanged flat orthology file. A new "delete one assembly" path needs the narrower
-`os.RemoveAll(filepath.Join(uploadDir, v.Name, assembly.Species))` — this naturally
+`os.RemoveAll(filepath.Join(uploadDir, v.Name, assembly.AssemblyID()))` — this naturally
 never touches orthology's file, which lives one level up.
 
-### Elasticsearch — species goes into the index name for all 4 non-shared types; no `species` field needed
+### Elasticsearch — the assembly goes into the index name for all 4 non-shared types; no `species` field needed
 
 **Second correction, from the same re-verification exercise**: the previous draft split
 `genomiclocation`/`dsrna` by species but kept `sequence`/`synonym` sharing one index,
@@ -668,7 +663,7 @@ each handler (`internal/pkg/usecase/worker/handlers/*.go`):**
   write-collision bug lives — `SetAlias`/`DeleteStaleIndexes` wipe out *every* other
   index under the alias, which is fine when there's only ever one species, but destroys
   sibling species' data once there's more than one. **Fix: keep this exact mechanism,
-  just scope it per species** — `{prefix}-{type}-{versionSlug}-{species}-{ts}`, and scope
+  just scope it per assembly** — `{prefix}-{type}-{versionSlug}-{assemblyKey}-{ts}`, and scope
   `SetAlias`/`DeleteStaleIndexes` to only touch index(es) matching that species'
   prefix, leaving siblings alone (unchanged from the previous draft for these two types).
 - `sequence`/`synonym` use `version.CreatedAt.Unix()` — a **fixed value per grouping
@@ -676,31 +671,29 @@ each handler (`internal/pkg/usecase/worker/handlers/*.go`):**
   displacing each other (RNA+CDS+protein for `sequence`; multiple synonym files for
   `synonym` — both have explicit code comments confirming this was a historical fix for
   exactly this displacement problem, just not a species-related one). **Fix: extend the
-  grouping key from `(version)` to `(version, species)`, keeping the same fixed-timestamp
-  trick** — `{prefix}-{type}-{versionSlug}-{species}-{ts}` where `ts` is still
+  grouping key from `(version)` to `(version, assembly)`, keeping the same fixed-timestamp
+  trick** — `{prefix}-{type}-{versionSlug}-{assemblyKey}-{ts}` where `ts` is still
   `version.CreatedAt.Unix()`, not `time.Now()`. Re-uploading RNA then CDS then protein
-  for the *same* species still computes the identical index name every time (safe,
-  accumulates as today) — only a *different* species produces a different index name.
+  for the *same* assembly still computes the identical index name every time (safe,
+  accumulates as today) — only a *different* assembly produces a different index name.
   No `DeleteStaleIndexes` needed for these two, same as today.
-- `orthology` is the only type that stays fully shared, unscoped by species — it's
-  Database-Version-wide by nature, not owned by any one assembly (§2), so there's no
-  species dimension to add to its index name at all.
+- `orthology` is the only type that stays fully shared, unscoped by assembly — it's
+  Database-Version-wide by nature, not owned by any one assembly (§2), so there's no assembly dimension to add to its index name at all.
 
 **Keep the alias version-scoped for all 4** (`{prefix}-{type}-{versionSlug}`,
-byte-identical to today) — only the concrete index name gains the `species` segment.
+byte-identical to today) — only the concrete index name gains the `assemblyKey` segment.
 Querying via the alias still fans out across every species' concrete index for free,
 which is what keeps `/search`, `/orthology/:species`, `/genes/:species` working with no
 handler-level awareness that "assembly" exists (below).
 
 This makes "delete one assembly" **uniform across all 4 types** — always a plain
-`esindex.DeleteIndexesByAssemblyVersion(ctx, versionName, species)` (GET-then-DELETE on
-`{prefix}-{type}-{versionSlug}-{species}-*`, same shape as `DeleteIndexesByVersion`),
+`esindex.DeleteIndexesByAssemblyVersion(ctx, versionName, assemblyKey)` (GET-then-DELETE on
+`{prefix}-{type}-{versionSlug}-{assemblyKey}-*`, same shape as `DeleteIndexesByVersion`),
 never a delete-by-query. `orthology` needs neither — deleting an assembly never touches
 it at all (§2).
 
 **No entity or ES template changes needed anywhere** — `entity.GenomicLocation`,
-`entity.Synonym`, `entity.DsRNA` don't need a new `Species` field, since the index name
-now fully identifies species for these types; `cmd/esmigrate/esmigrate.go`'s templates
+`entity.Synonym`, `entity.DsRNA` don't need a new `Species` field, since the index name now fully identifies the assembly for these types; `cmd/esmigrate/esmigrate.go`'s templates
 are untouched. `sequence`'s pre-existing `species: keyword` field (already in production
 before any of this work) is left exactly as it is — no reason to remove something that
 already exists and works — it's just no longer load-bearing for this design.
@@ -857,7 +850,7 @@ more than the earlier draft assumed:
   check (`config.go:108-110`) is deleted along with the field.
 - One coordination risk outside this repo's control: confirmed this repo has **no**
   upload-client source code (backend-only), so any script/tool that calls `/uploads`
-  today lives elsewhere and will need the new `assembly` metadata field added in
+  today lives elsewhere and will need the new `assembly` metadata field (an id) added in
   lockstep — flagged in §10, not something this design can resolve unilaterally.
 
 ---
@@ -876,8 +869,8 @@ under the new model is:
 2. **Add an Assembly Version / species** — new: `POST /versions/:name/assemblies
    {name, species}`. Every assembly is created equal — none is auto-marked special.
 3. **Upload files** — unchanged tus flow, plus the new required `assembly` metadata
-   field selecting which Assembly Version each upload belongs to.
-4. **Validate an Assembly Version** — `GET /versions/:name/assemblies/:species` shows its
+   field (the Assembly Version's `id`) selecting which one each upload belongs to.
+4. **Validate an Assembly Version** — `GET /versions/:name/assemblies/:id` shows its
    own status (`READY`/`DRAFT`/`MISSING_REQUIRED_FILE`/etc.), same semantics as today's
    whole-version status, now scoped per species.
 5. **Add multiple species to the same Database Version** — repeat steps 2-4 per species;
@@ -898,8 +891,7 @@ to introduce test coverage, since "preserve all existing per-file-type validatio
 rules" is hard to *prove* preserved without one (§10).
 
 **Unit**
-- `species`-code uniqueness rejection: creating a second assembly with an identical
-  `species` value under the same Database Version → 409 (`UNIQUE(version_id, species)`).
+- Two assemblies with the same `species` in one Database Version are both accepted, and get separate ES indices and upload folders (§10, risk 10).
 - Per-assembly BLAST path construction (`{blastDBPath}/{AssemblyID}-{genome,protein,
   rna}`) produces distinct, collision-free flat filenames for every assembly.
 - Per-assembly required-file check; Database-Version rollup status against the exact
@@ -938,7 +930,9 @@ rules" is hard to *prove* preserved without one (§10).
 
 **API**
 - New assembly CRUD endpoints; `/uploads` metadata validation (missing `assembly` → 400;
-  `assembly` belonging to a different Database Version → 400/404).
+  a species code, a non-integer, an unknown id, or an id from a different Database Version
+  → 400). `GET`/`DELETE /versions/:name/assemblies/:id` with an id from a different Database
+  Version → 404.
 - Release validation: partially-incomplete assembly blocks release; zero-assembly
   Database Version blocks release (`ErrRequiredFileNotUploaded` in both cases, §3).
 - Deleting an assembly never removes or touches the Database Version's shared
@@ -1009,12 +1003,12 @@ in parallel. Phase 5 runs last, since it removes the `MainSpecies` fallback enti
   create a genuinely fresh index per upload, so the fix is scoping that existing
   mechanism to species, §5)
 - `internal/pkg/usecase/worker/handlers/{sequence_fasta,synonym}.go` (extend the
-  existing fixed-per-grouping-key index name from `(version)` to `(version, species)` —
+  existing fixed-per-grouping-key index name from `(version)` to `(version, assembly)` —
   same `version.CreatedAt.Unix()` trick already in place, just narrowed; no `SetAlias`/
   `DeleteStaleIndexes` signature change needed for these two, since they never had
   `DeleteStaleIndexes` calls to begin with, §5)
 - `internal/pkg/usecase/worker/handlers/{genomic_gff,dsrna_csv}.go` (2 files —
-  `species`-code segment on the existing `time.Now()`-based concrete index name) —
+  `assemblyKey` segment on the existing `time.Now()`-based concrete index name) —
   `orthology_tsv.go` is **unchanged**, no species dimension at all (§2)
 - **No entity or ES template changes** — `entity.GenomicLocation`/`Synonym`/`DsRNA`
   need no new field, `cmd/esmigrate/esmigrate.go` is fully untouched (§5)
@@ -1069,7 +1063,8 @@ data-migration risk.
    visibility into that client.
 4. **Upload-client coordination** — this repo is backend-only; any script/tool that
    calls `/uploads` today lives elsewhere and needs the new required `assembly`
-   metadata field added in lockstep. Worth confirming what currently drives uploads
+   metadata field, sent as an assembly id, added in lockstep. The `tus-demo` client, outside this
+   repo, already sends ids. Worth confirming what currently drives uploads
    before shipping Phase 2.
 5. **No test suite exists today** (§8) — "preserve existing validation rules" is hard to
    *prove*, not just assert, without one; worth deciding whether this migration is also
@@ -1102,37 +1097,4 @@ data-migration risk.
    because term rarity is judged against a smaller denominator. Mitigable per-query via
    `search_type=dfs_query_then_fetch` (global term stats, one extra round-trip) if it
    ever proves to matter in practice; not something to pre-emptively build against.
-
----
-
-## Critical Files Reference
-
-- `internal/pkg/usecase/upload/upload.go` — upload pipeline, the GFF→SYNONYM cross-job
-  logic, path construction (§3)
-- `internal/pkg/usecase/version/version.go` — release validation, status rollup, delete
-  cascade (§3, §5)
-- `internal/pkg/repository/genomic/es.go` — representative of `genomic`/`dsrna`'s
-  `SetAlias`/`DeleteStaleIndexes`, scoped to species (§5); `usecase/worker/handlers/
-  sequence_fasta.go` and `synonym.go` — representative of the narrower fixed-index-name
-  grouping-key extension for the other 2 assembly-scoped types (§5)
-- `scripts/delete_jbrowse_version.sh` — representative of the 5 JBrowse2 scripts needing
-  the `ASSEMBLY_ID`/`DISPLAY_LABEL` split (§5)
-- `internal/pkg/usecase/search/search.go` — the 6 `mainSpecies` consumption sites (§1);
-  note `/silencingseqs` itself is deferred, out of scope (§4)
-- `cmd/worker/worker.go` — job handler wiring, the 3 global BLAST paths (§1)
-- `migrations/000001_create_versions.up.sql` — schema pattern reference for the new
-  `assembly_versions` migration (§9)
-
-## Verification
-
-This is a design document — there is no code to run. To validate the design itself
-before implementation begins:
-1. Confirm the `assembly` upload-client coordination question (§10, risk 4) with
-   whoever owns the tooling that calls `/uploads` today.
-2. Once Phase 0-2 land, the alias fan-out regression test (§8) is the highest-value
-   single test to write first — it's the direct proof that the ES correction in §5
-   actually prevents cross-assembly data loss, which is the riskiest silent-failure mode
-   in this whole design.
-3. During Phase 4, confirm SequenceServer's picker correctly distinguishes all `3 × N`
-   flat-named BLAST DBs by their `-title` (§5) — low risk given it's the same mechanism
-   already proven by today's 3 fixed DBs, but worth a quick look the first time N > 1.
+10. **Several assemblies per species — resolved.** `UNIQUE(version_id, species)` was dropped (migration 000007), `CreateAssemblyVersion` no longer checks for a duplicate species, and the upload folder, the ES index names, and the ES alias and stale-index scoping are keyed by assembly (`v{versionID}a{assemblyVersionID}`) instead of species. Verified on the compose stack: two Tcas assemblies in one version each got their own genomiclocation and synonym indices, and deleting one removed only its own indices and folder.

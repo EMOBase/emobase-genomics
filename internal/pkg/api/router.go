@@ -83,8 +83,8 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		assemblyVersionHandler := handler.NewAssemblyVersionHandler(assemblyVersionUC)
 		authenticated.GET("/versions/:name/assemblies", assemblyVersionHandler.List)
 		authenticated.POST("/versions/:name/assemblies", assemblyVersionHandler.Create)
-		authenticated.GET("/versions/:name/assemblies/:species", assemblyVersionHandler.Detail)
-		authenticated.DELETE("/versions/:name/assemblies/:species", assemblyVersionHandler.Delete)
+		authenticated.GET("/versions/:name/assemblies/:id", assemblyVersionHandler.Detail)
+		authenticated.DELETE("/versions/:name/assemblies/:id", assemblyVersionHandler.Delete)
 
 		jobHandler := handler.NewJobHandler(jobUC)
 		authenticated.GET("/jobs", jobHandler.ListByVersion)

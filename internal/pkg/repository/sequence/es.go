@@ -125,11 +125,11 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 }
 
 // SetAlias atomically points aliasName to indexName, removing only this
-// species' previous index (if any) from the alias — sibling assemblies'
+// assembly's previous index (if any) from the alias — sibling assemblies'
 // indexes already attached to aliasName are left untouched.
-func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName, species string) error {
+func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName, assemblyKey string) error {
 	actions := []map[string]any{}
-	speciesPrefix := aliasName + "-" + species + "-"
+	assemblyPrefix := aliasName + "-" + assemblyKey + "-"
 
 	getRes, err := r.esClient.Indices.GetAlias(
 		r.esClient.Indices.GetAlias.WithContext(ctx),
@@ -150,7 +150,7 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 			return fmt.Errorf("failed to decode alias response: %w", err)
 		}
 		for index := range current {
-			if !strings.HasPrefix(index, speciesPrefix) {
+			if !strings.HasPrefix(index, assemblyPrefix) {
 				continue
 			}
 			actions = append(actions, map[string]any{

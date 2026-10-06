@@ -154,8 +154,8 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	}
 
 	// 5. Every file type requires an "assembly" metadata field (the target
-	// Assembly Version's species code) except the version-scoped orthology types,
-	// which are shared across every species in the Database Version.
+	// Assembly Version's id) except the version-scoped orthology types, which are
+	// shared across every species in the Database Version.
 	if !isVersionScoped(fileType) && strings.TrimSpace(meta["assembly"]) == "" {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 			fmt.Sprintf("%q uploads require an \"assembly\" metadata field", fileType))
@@ -172,16 +172,22 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 			fmt.Sprintf("version %q not found", meta["version"]))
 	}
 
-	// 7. Resolve the Assembly Version (species) this upload belongs to, unless
-	// this is a version-scoped orthology upload.
+	// 7. Resolve the Assembly Version this upload belongs to, unless this is a
+	// version-scoped orthology upload. The id is used rather than the species
+	// code, because one Database Version can hold several assemblies of a species.
 	var assemblyVersion *entity.AssemblyVersion
 	if !isVersionScoped(fileType) {
-		assemblyVersion, err = uc.assemblyVersionRepo.FindBySpecies(hook.Context, version.ID, meta["assembly"])
+		assemblyVersionID, err := strconv.ParseUint(strings.TrimSpace(meta["assembly"]), 10, 64)
+		if err != nil {
+			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
+				fmt.Sprintf("\"assembly\" metadata must be an assembly id, got %q", meta["assembly"]))
+		}
+		assemblyVersion, err = uc.assemblyVersionRepo.FindByID(hook.Context, assemblyVersionID)
 		if err != nil {
 			log.Ctx(hook.Context).Err(err).Msg("assembly version lookup failed in pre-upload hook")
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
 		}
-		if assemblyVersion == nil {
+		if assemblyVersion == nil || assemblyVersion.VersionID != version.ID {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 				fmt.Sprintf("assembly %q not found in version %q", meta["assembly"], meta["version"]))
 		}
@@ -218,6 +224,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		newMeta["_assemblyVersionID"] = strconv.FormatUint(assemblyVersion.ID, 10)
 		newMeta["_assemblySpecies"] = assemblyVersion.Species
 		newMeta["_assemblyName"] = assemblyVersion.Name
+		newMeta["_assemblyKey"] = entity.FormatAssemblyID(version.ID, assemblyVersion.ID)
 	}
 
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{MetaData: newMeta}, nil
@@ -248,7 +255,7 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 
 	creator := auth.UsernameFromContext(event.Context)
 
-	dstDir := uc.uploadDirFor(upload.MetaData["version"], upload.MetaData["_assemblySpecies"])
+	dstDir := uc.uploadDirFor(upload.MetaData["version"], upload.MetaData["_assemblyKey"])
 	f := &entity.UploadFile{
 		ID:                upload.ID,
 		VersionID:         versionID,
@@ -293,7 +300,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	}
 
 	version := upload.MetaData["version"]
-	dstDir := uc.uploadDirFor(version, upload.MetaData["_assemblySpecies"])
+	dstDir := uc.uploadDirFor(version, upload.MetaData["_assemblyKey"])
 	dstPath := filepath.Join(dstDir, filepath.Base(fileName))
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
@@ -366,10 +373,11 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 	// species_synonym: parse a species-specific FB synonym file.
 	if fileType == entity.FileTypeSpeciesSynonym {
 		rawPayload, err := json.Marshal(jobpayload.SpeciesSynonymPayload{
-			UploadFileID: uploadID,
-			VersionID:    versionID,
-			FilePath:     filePath,
-			Species:      strings.TrimSpace(meta["species"]),
+			UploadFileID:      uploadID,
+			VersionID:         versionID,
+			FilePath:          filePath,
+			AssemblyVersionID: *assemblyVersionID,
+			Species:           strings.TrimSpace(meta["species"]),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
@@ -457,22 +465,24 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		trimPrefixChars, _ := strconv.Atoi(meta["trimPrefixChars"])
 		trimSuffixChars, _ := strconv.Atoi(meta["trimSuffixChars"])
 		rawPayload, err = json.Marshal(jobpayload.GenomicGFFPayload{
-			UploadFileID:    uploadID,
-			VersionID:       versionID,
-			FilePath:        filePath,
-			Species:         assemblySpecies,
-			DisplayLabel:    displayLabel,
-			GeneIDKey:       strings.TrimSpace(meta["geneIDKey"]),
-			TrimPrefixChars: trimPrefixChars,
-			TrimSuffixChars: trimSuffixChars,
-			OldGeneIDKeys:   parseCommaSeparated(meta["oldGeneIDKeys"]),
+			UploadFileID:      uploadID,
+			VersionID:         versionID,
+			FilePath:          filePath,
+			AssemblyVersionID: *assemblyVersionID,
+			Species:           assemblySpecies,
+			DisplayLabel:      displayLabel,
+			GeneIDKey:         strings.TrimSpace(meta["geneIDKey"]),
+			TrimPrefixChars:   trimPrefixChars,
+			TrimSuffixChars:   trimSuffixChars,
+			OldGeneIDKeys:     parseCommaSeparated(meta["oldGeneIDKeys"]),
 		})
 	default:
 		rawPayload, err = json.Marshal(jobpayload.ProcessPayload{
-			UploadFileID: uploadID,
-			VersionID:    versionID,
-			FilePath:     filePath,
-			Species:      assemblySpecies,
+			UploadFileID:      uploadID,
+			VersionID:         versionID,
+			FilePath:          filePath,
+			AssemblyVersionID: *assemblyVersionID,
+			Species:           assemblySpecies,
 		})
 	}
 	if err != nil {
@@ -530,14 +540,15 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint64, assemblyVersionID *uint64, uploadID, filePath, species, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.Job, error) {
 	rawPayload, err := json.Marshal(jobpayload.SpeciesSynonymPayload{
-		UploadFileID:    uploadID,
-		VersionID:       versionID,
-		FilePath:        filePath,
-		Species:         species,
-		GeneIDKey:       geneIDKey,
-		TrimPrefixChars: trimPrefixChars,
-		TrimSuffixChars: trimSuffixChars,
-		OldGeneIDKeys:   oldGeneIDKeys,
+		UploadFileID:      uploadID,
+		VersionID:         versionID,
+		FilePath:          filePath,
+		AssemblyVersionID: *assemblyVersionID,
+		Species:           species,
+		GeneIDKey:         geneIDKey,
+		TrimPrefixChars:   trimPrefixChars,
+		TrimSuffixChars:   trimSuffixChars,
+		OldGeneIDKeys:     oldGeneIDKeys,
 	})
 	if err != nil {
 		return entity.Job{}, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
@@ -854,14 +865,14 @@ func (uc *UseCase) cleanStaleUploads(maxAge time.Duration) {
 }
 
 // uploadDirFor returns the directory an upload's file should live in:
-// {uploadDir}/{versionName}/{species}, except orthology.tsv (species == "")
+// {uploadDir}/{versionName}/{assemblyKey}, except orthology.tsv (assemblyKey == "")
 // which keeps the flat {uploadDir}/{versionName} path since it is shared
 // across every assembly in the Database Version rather than owned by one.
-func (uc *UseCase) uploadDirFor(versionName, species string) string {
-	if species == "" {
+func (uc *UseCase) uploadDirFor(versionName, assemblyKey string) string {
+	if assemblyKey == "" {
 		return filepath.Join(uc.uploadDir, versionName)
 	}
-	return filepath.Join(uc.uploadDir, versionName, species)
+	return filepath.Join(uc.uploadDir, versionName, assemblyKey)
 }
 
 // parseOptionalAssemblyVersionID reads "_assemblyVersionID" from upload

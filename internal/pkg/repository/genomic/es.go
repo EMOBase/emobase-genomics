@@ -124,12 +124,12 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 	return locs, nil
 }
 
-// DeleteStaleIndexes deletes all indexes matching the pattern aliasName-species-*
+// DeleteStaleIndexes deletes all indexes matching the pattern aliasName-assemblyKey-*
 // except liveIndexName, cleaning up old timestamped indexes after a re-upload.
-// Scoping the pattern to this species leaves sibling assemblies' indexes
+// Scoping the pattern to this assembly leaves sibling assemblies' indexes
 // (also attached to aliasName) untouched.
-func (r *ElasticSearchRepository) DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName, species string) error {
-	pattern := aliasName + "-" + species + "-*"
+func (r *ElasticSearchRepository) DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName, assemblyKey string) error {
+	pattern := aliasName + "-" + assemblyKey + "-*"
 
 	getRes, err := r.esClient.Indices.Get(
 		[]string{pattern},
@@ -178,15 +178,15 @@ func (r *ElasticSearchRepository) DeleteStaleIndexes(ctx context.Context, aliasN
 }
 
 // SetAlias atomically points aliasName to indexName, removing only this
-// species' previous index (if any) from the alias — sibling assemblies'
+// assembly's previous index (if any) from the alias — sibling assemblies'
 // indexes already attached to aliasName are left untouched, so multiple
-// species' concrete indexes can coexist behind one shared alias.
-func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName, species string) error {
+// assemblies' concrete indexes can coexist behind one shared alias.
+func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, aliasName, assemblyKey string) error {
 	actions := []map[string]any{}
-	speciesPrefix := aliasName + "-" + species + "-"
+	assemblyPrefix := aliasName + "-" + assemblyKey + "-"
 
 	// Find any existing indices that currently hold the alias so we can
-	// remove this species' own previous one(s) atomically in the same request.
+	// remove this assembly's own previous one(s) atomically in the same request.
 	getRes, err := r.esClient.Indices.GetAlias(
 		r.esClient.Indices.GetAlias.WithContext(ctx),
 		r.esClient.Indices.GetAlias.WithName(aliasName),
@@ -206,7 +206,7 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 			return fmt.Errorf("failed to decode alias response: %w", err)
 		}
 		for index := range current {
-			if !strings.HasPrefix(index, speciesPrefix) {
+			if !strings.HasPrefix(index, assemblyPrefix) {
 				continue
 			}
 			actions = append(actions, map[string]any{

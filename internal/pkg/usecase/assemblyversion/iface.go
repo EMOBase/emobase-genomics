@@ -13,7 +13,7 @@ type IVersionRepository interface {
 
 type IAssemblyVersionRepository interface {
 	Create(ctx context.Context, a *entity.AssemblyVersion) error
-	FindBySpecies(ctx context.Context, versionID uint64, species string) (*entity.AssemblyVersion, error)
+	FindByID(ctx context.Context, id uint64) (*entity.AssemblyVersion, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.AssemblyVersion, error)
 	Delete(ctx context.Context, id uint64) error
 }
@@ -37,5 +37,5 @@ type IUploadFileRepository interface {
 // IESRepository cleans up one assembly's ES indexes on delete, across the 4
 // assembly-scoped types (orthology is shared and never touched by this).
 type IESRepository interface {
-	DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, species string) error
+	DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, assemblyKey string) error
 }
