@@ -329,7 +329,7 @@ components:
           example: Human / GRCh38
         species:
           type: string
-          description: Admin-provided species code, describing what the assembly is. Not an address: a Database Version can hold several assemblies of one species, so use `id` to address this Assembly Version in URLs and upload metadata.
+          description: Admin-provided species code, describing what the assembly is. Not an address — a Database Version can hold several assemblies of one species, so use `id` to address this Assembly Version in URLs and upload metadata.
           example: Hsap
         createdAt:
           type: string
