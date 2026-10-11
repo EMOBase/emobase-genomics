@@ -34,6 +34,12 @@ var concurrentFileTypes = map[string]struct{}{
 	entity.FileTypeJBrowseTrackBundle: {},
 }
 
+// isVersionScoped reports whether a file type belongs to the whole Database Version
+// rather than to one Assembly Version. Such uploads take no "assembly" metadata.
+func isVersionScoped(fileType string) bool {
+	return fileType == entity.FileTypeOrthologyTSV || fileType == entity.FileTypeOrthologyBundle
+}
+
 // fileNamePattern blocks path separators and control characters. Path traversal
 // (names starting with "..") is checked separately in the upload handler.
 var fileNamePattern = regexp.MustCompile(`^[^\x00-\x1f/\\]{1,255}$`)

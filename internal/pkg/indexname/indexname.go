@@ -18,6 +18,10 @@ var invalidChars = regexp.MustCompile(`[\\/*?"<>|,# ]+`)
 // ES-forbidden character collapsed to a single underscore, and leading
 // -/_/+ trimmed since ES also rejects those as the first character.
 func FromVersionName(name string) string {
-	s := invalidChars.ReplaceAllString(strings.ToLower(name), "_")
-	return strings.TrimLeft(s, "-_+")
+	return sanitize(name)
+}
+
+func sanitize(s string) string {
+	out := invalidChars.ReplaceAllString(strings.ToLower(s), "_")
+	return strings.TrimLeft(out, "-_+")
 }

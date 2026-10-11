@@ -2,14 +2,15 @@
 set -e
 
 GENOMIC_GFF_GZ="$1"
-VERSION="$2"
-GENE_ID_KEY="${3:-}"
-LINK_BASE="${4:-}"
-TRIM_PREFIX="${5:-0}"
-TRIM_SUFFIX="${6:-0}"
+ASSEMBLY_ID="$2"
+DISPLAY_LABEL="$3"
+GENE_ID_KEY="${4:-}"
+LINK_BASE="${5:-}"
+TRIM_PREFIX="${6:-0}"
+TRIM_SUFFIX="${7:-0}"
 
-if [ -z "$GENOMIC_GFF_GZ" ] || [ -z "$VERSION" ]; then
-  echo "Usage: $0 <genomic_gff.gz> <version> [gene_id_key] [link_base] [trim_prefix_chars] [trim_suffix_chars]" >&2
+if [ -z "$GENOMIC_GFF_GZ" ] || [ -z "$ASSEMBLY_ID" ] || [ -z "$DISPLAY_LABEL" ]; then
+  echo "Usage: $0 <genomic_gff.gz> <assembly_id> <display_label> [gene_id_key] [link_base] [trim_prefix_chars] [trim_suffix_chars]" >&2
   exit 1
 fi
 
@@ -17,11 +18,11 @@ TMPDIR=$(mktemp -d -p /jbrowse2-tmp)
 trap "rm -rf $TMPDIR" EXIT
 
 echo "Decompressing genomic GFF..."
-gunzip -c "$GENOMIC_GFF_GZ" > "$TMPDIR/${VERSION}.genomic.gff"
+gunzip -c "$GENOMIC_GFF_GZ" > "$TMPDIR/${ASSEMBLY_ID}.genomic.gff"
 
 echo "Sorting and compressing GFF..."
-jbrowse sort-gff "$TMPDIR/${VERSION}.genomic.gff" | bgzip > "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
-tabix "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
+jbrowse sort-gff "$TMPDIR/${ASSEMBLY_ID}.genomic.gff" | bgzip > "$TMPDIR/${ASSEMBLY_ID}.genomic.sorted.gff.gz"
+tabix "$TMPDIR/${ASSEMBLY_ID}.genomic.sorted.gff.gz"
 
 # Serialize access to the shared config.json from here on: multiple JBrowse2
 # setup/track/delete scripts can run concurrently (see docker-compose worker
@@ -32,25 +33,25 @@ tabix "$TMPDIR/${VERSION}.genomic.sorted.gff.gz"
 exec 200>/web/data/.jbrowse-config.lock
 flock -x 200
 
-echo "Adding JBrowse2 annotation track and rebuilding text index for version ${VERSION}..."
-jbrowse add-track "$TMPDIR/${VERSION}.genomic.sorted.gff.gz" --name "${VERSION} Annotations" --assemblyNames "$VERSION" --load copy --out /web/data --force
+echo "Adding JBrowse2 annotation track and rebuilding text index for assembly ${ASSEMBLY_ID}..."
+jbrowse add-track "$TMPDIR/${ASSEMBLY_ID}.genomic.sorted.gff.gz" --name "${DISPLAY_LABEL} Annotations" --assemblyNames "$ASSEMBLY_ID" --load copy --out /web/data --force
 
 # Run text-index before the jq patches below: text-index rewrites config.json
 # and would overwrite anything we inject before it runs.
 jbrowse text-index --out /web/data
 
-echo "Selecting annotation track by default for version ${VERSION}..."
+echo "Selecting annotation track by default for assembly ${ASSEMBLY_ID}..."
 
 # Default the view initial location to the assembly first contig (full
 # length), read from the .fai index written by setup_jbrowse2_fna.sh (that
 # job always completes before this one is enqueued, so the file is present).
-FAI_FILE="/web/data/${VERSION}.genomic.fna.fai"
+FAI_FILE="/web/data/${ASSEMBLY_ID}.genomic.fna.fai"
 LOC=""
 if [ -f "$FAI_FILE" ]; then
   LOC=$(awk -F'\t' 'NR==1{print $1":1-"$2}' "$FAI_FILE")
 fi
 
-jq --arg assembly "$VERSION" --arg trackName "${VERSION} Annotations" --arg loc "$LOC" '
+jq --arg assembly "$ASSEMBLY_ID" --arg trackName "${DISPLAY_LABEL} Annotations" --arg loc "$LOC" '
   (first(.tracks[] | select(.name == $trackName) | .trackId)) as $trackId |
   .defaultSession.views |= (. // []) |
   if (.defaultSession.views | any(.init.assembly == $assembly))
@@ -89,7 +90,7 @@ jq --arg assembly "$VERSION" --arg trackName "${VERSION} Annotations" --arg loc 
 echo "Annotation track added to default session."
 
 if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
-  echo "Patching config.json with formatDetails for track '${VERSION} Annotations'..."
+  echo "Patching config.json with formatDetails for track '${DISPLAY_LABEL} Annotations'..."
 
   # @gmod/gff's parseAttributes always wraps GFF3 attribute values in an
   # array, even single-valued ones — slice() on the raw array truncates by
@@ -127,15 +128,15 @@ if [ -n "$GENE_ID_KEY" ] && [ -n "$LINK_BASE" ]; then
   fi
   JEXL_EXPR="jexl:{emobase_link:${GUARD} ? '<a href=${LINK_BASE}'+${TRIMMED}+'>'+${TRIMMED}+'</a>' : ''}"
 
-  MATCHED=$(jq --arg name "${VERSION} Annotations" '[.tracks[] | select(.name == $name)] | length' /web/data/config.json)
+  MATCHED=$(jq --arg name "${DISPLAY_LABEL} Annotations" '[.tracks[] | select(.name == $name)] | length' /web/data/config.json)
   if [ "$MATCHED" -eq 0 ]; then
-    echo "WARNING: no track named '${VERSION} Annotations' found in config.json — formatDetails not injected" >&2
+    echo "WARNING: no track named '${DISPLAY_LABEL} Annotations' found in config.json — formatDetails not injected" >&2
   else
-    jq --arg name "${VERSION} Annotations" \
+    jq --arg name "${DISPLAY_LABEL} Annotations" \
        --arg jexl "$JEXL_EXPR" \
        '(.tracks[] | select(.name == $name)) |= . + {formatDetails: {feature: $jexl}}' \
        /web/data/config.json > /tmp/_jbrowse_config.json && mv /tmp/_jbrowse_config.json /web/data/config.json
-    echo "formatDetails injected for track '${VERSION} Annotations'."
+    echo "formatDetails injected for track '${DISPLAY_LABEL} Annotations'."
   fi
 else
   if [ -z "$GENE_ID_KEY" ]; then

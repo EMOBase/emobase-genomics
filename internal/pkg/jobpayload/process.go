@@ -3,8 +3,13 @@ package jobpayload
 // ProcessPayload is the JSON payload for simple file processing jobs
 // (RNA.FNA, CDS.FNA, PROTEIN.FAA, DSRNA.CSV) and bundle extraction jobs
 // (ORTHOLOGY.BUNDLE, JBROWSE.TRACK.BUNDLE), where FilePath is the archive.
+// Species is the owning Assembly Version's species code, used as the ES
+// gene-ID prefix. Index names are keyed by AssemblyVersionID instead, since a
+// species code does not identify an assembly.
 type ProcessPayload struct {
-	UploadFileID string `json:"upload_file_id"`
-	VersionID    uint64 `json:"version_id"`
-	FilePath     string `json:"file_path"`
+	UploadFileID      string `json:"upload_file_id"`
+	VersionID         uint64 `json:"version_id"`
+	AssemblyVersionID uint64 `json:"assembly_version_id"`
+	FilePath          string `json:"file_path"`
+	Species           string `json:"species"`
 }

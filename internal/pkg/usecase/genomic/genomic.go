@@ -17,16 +17,15 @@ type GenomicLocationUseCase struct {
 
 func New(
 	repo IGenomicLocationRepository,
-	mainSpecies string,
 	batchSize int,
 ) *GenomicLocationUseCase {
 	return &GenomicLocationUseCase{
-		config: Config{MainSpecies: mainSpecies, BatchSize: batchSize},
+		config: Config{BatchSize: batchSize},
 		repo:   repo,
 	}
 }
 
-func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexName string, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) error {
+func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexName, species, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -52,7 +51,7 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexNa
 			continue
 		}
 
-		loc, err := uc.mapGFF3RecordToGenomicLocation(record, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
+		loc, err := uc.mapGFF3RecordToGenomicLocation(record, species, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 		if err != nil {
 			return fmt.Errorf("line %d: %w", record.Line, err)
 		}
@@ -78,14 +77,14 @@ func (uc *GenomicLocationUseCase) Load(ctx context.Context, f io.Reader, indexNa
 	return nil
 }
 
-func (uc *GenomicLocationUseCase) mapGFF3RecordToGenomicLocation(record gff3.GFF3Record, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.GenomicLocation, error) {
+func (uc *GenomicLocationUseCase) mapGFF3RecordToGenomicLocation(record gff3.GFF3Record, species, geneIDKey string, trimPrefixChars, trimSuffixChars int, oldGeneIDKeys []string) (entity.GenomicLocation, error) {
 	gene, err := gff3.GeneralGeneIDFinder(record, geneIDKey, trimPrefixChars, trimSuffixChars, oldGeneIDKeys)
 	if err != nil {
 		return entity.GenomicLocation{}, err
 	}
 
 	return entity.GenomicLocation{
-		Gene:         uc.config.MainSpecies + ":" + gene.Current,
+		Gene:         species + ":" + gene.Current,
 		ReferenceSeq: record.SeqID,
 		Start:        record.Start,
 		End:          record.End,
