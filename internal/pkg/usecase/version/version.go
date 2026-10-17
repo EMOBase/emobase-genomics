@@ -78,6 +78,10 @@ type VersionPublicItem struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// ListVersionsPublic backs GET /public/versions.
+//
+// Deprecated: only used by the deprecated GET /public/versions; use
+// ListVersions instead. Remove together with that endpoint.
 func (uc *UseCase) ListVersionsPublic(ctx context.Context, status string) ([]VersionPublicItem, error) {
 	versions, err := uc.versionRepo.ListPublic(ctx)
 	if err != nil {
@@ -361,6 +365,74 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 		orthologyTSV = append(orthologyTSV, fd)
 	}
 	return orthologyTSV, nil
+}
+
+// OrthologyFileList is the response for GET /versions/{name}/orthologies.
+type OrthologyFileList struct {
+	Files    []FileDetail `json:"files"`
+	Total    int          `json:"total"`
+	Page     int          `json:"page"`
+	PageSize int          `json:"pageSize"`
+}
+
+// ListOrthologyFiles returns one page of a Database Version's shared
+// orthology.tsv uploads — the same entries as VersionDetail.OrthologyTSV, but
+// paged, since an orthology bundle can add many files to one version.
+func (uc *UseCase) ListOrthologyFiles(ctx context.Context, name string, page, pageSize int) (*OrthologyFileList, error) {
+	v, err := uc.versionRepo.FindByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, ErrVersionNotFound
+	}
+
+	files, err := uc.uploadFileRepo.ListByVersionIDAndType(ctx, v.ID, entity.FileTypeOrthologyTSV, (page-1)*pageSize, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	total, err := uc.uploadFileRepo.CountByVersionIDAndType(ctx, v.ID, entity.FileTypeOrthologyTSV)
+	if err != nil {
+		return nil, err
+	}
+
+	fileIDs := make([]string, len(files))
+	for i, f := range files {
+		fileIDs[i] = f.ID
+	}
+	jobs, err := uc.jobRepo.FindByFileIDs(ctx, fileIDs)
+	if err != nil {
+		return nil, err
+	}
+	jobsByFileID := make(map[string][]JobSummary)
+	for _, j := range jobs {
+		jobsByFileID[*j.FileID] = append(jobsByFileID[*j.FileID], toJobSummary(j))
+	}
+
+	details := make([]FileDetail, len(files))
+	for i, f := range files {
+		details[i] = FileDetail{
+			ID:           f.ID,
+			FilePath:     f.FilePath,
+			FileSize:     f.FileSize,
+			UploadStatus: f.UploadStatus,
+			CreatedAt:    f.CreatedAt,
+			CreatedBy:    f.CreatedBy,
+			CompletedAt:  f.CompletedAt,
+			Jobs:         jobsByFileID[f.ID],
+		}
+		if details[i].Jobs == nil {
+			details[i].Jobs = []JobSummary{}
+		}
+	}
+
+	return &OrthologyFileList{
+		Files:    details,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 // BuildAssemblyVersionDetail builds one Assembly Version's detail view

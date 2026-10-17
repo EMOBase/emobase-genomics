@@ -59,8 +59,15 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 	silencingSeqsHandler := handler.NewSilencingSeqsHandler(searchUC)
 	router.GET("/silencingseqs", silencingSeqsHandler.Get)
 
-	publicVersionHandler := handler.NewVersionHandler(versionUC)
-	router.GET("/public/versions", publicVersionHandler.ListPublic)
+	versionHandler := handler.NewVersionHandler(versionUC)
+	router.GET("/public/versions", versionHandler.ListPublic)
+	router.GET("/versions", versionHandler.List)
+	router.GET("/versions/:name/detail", versionHandler.Detail)
+	router.GET("/versions/:name/orthologies", versionHandler.Orthologies)
+
+	assemblyVersionHandler := handler.NewAssemblyVersionHandler(assemblyVersionUC)
+	router.GET("/versions/:name/assemblies", assemblyVersionHandler.List)
+	router.GET("/versions/:name/assemblies/:id", assemblyVersionHandler.Detail)
 
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
 	uploadHandler := func(c *gin.Context) {
@@ -73,17 +80,11 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		authenticated.POST("/uploads", uploadHandler)
 		authenticated.Any("/uploads/*any", uploadHandler)
 
-		versionHandler := handler.NewVersionHandler(versionUC)
-		authenticated.GET("/versions", versionHandler.List)
-		authenticated.GET("/versions/:name/detail", versionHandler.Detail)
 		authenticated.POST("/versions", versionHandler.Create)
 		authenticated.DELETE("/versions/:name", versionHandler.Delete)
 		authenticated.POST("/versions/:name/release", versionHandler.Release)
 
-		assemblyVersionHandler := handler.NewAssemblyVersionHandler(assemblyVersionUC)
-		authenticated.GET("/versions/:name/assemblies", assemblyVersionHandler.List)
 		authenticated.POST("/versions/:name/assemblies", assemblyVersionHandler.Create)
-		authenticated.GET("/versions/:name/assemblies/:id", assemblyVersionHandler.Detail)
 		authenticated.DELETE("/versions/:name/assemblies/:id", assemblyVersionHandler.Delete)
 
 		jobHandler := handler.NewJobHandler(jobUC)

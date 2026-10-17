@@ -19,6 +19,7 @@ type versionUseCase interface {
 	ListVersions(ctx context.Context, page, pageSize int) (*ucversion.VersionList, error)
 	ListVersionsPublic(ctx context.Context, status string) ([]ucversion.VersionPublicItem, error)
 	GetVersionDetail(ctx context.Context, name string) (*ucversion.VersionDetail, error)
+	ListOrthologyFiles(ctx context.Context, name string, page, pageSize int) (*ucversion.OrthologyFileList, error)
 }
 
 type VersionHandler struct {
@@ -29,9 +30,11 @@ func NewVersionHandler(uc versionUseCase) *VersionHandler {
 	return &VersionHandler{uc: uc}
 }
 
-func (h *VersionHandler) List(c *gin.Context) {
-	page := 1
-	pageSize := 20
+// pageParams reads the `page` and `page_size` query params, falling back to
+// page 1 and 20 per page (max 100) when missing or invalid.
+func pageParams(c *gin.Context) (page, pageSize int) {
+	page = 1
+	pageSize = 20
 
 	if p := c.Query("page"); p != "" {
 		if v, err := strconv.Atoi(p); err == nil && v > 0 {
@@ -43,6 +46,11 @@ func (h *VersionHandler) List(c *gin.Context) {
 			pageSize = v
 		}
 	}
+	return page, pageSize
+}
+
+func (h *VersionHandler) List(c *gin.Context) {
+	page, pageSize := pageParams(c)
 
 	result, err := h.uc.ListVersions(c.Request.Context(), page, pageSize)
 	if err != nil {
@@ -86,6 +94,22 @@ func (h *VersionHandler) Detail(c *gin.Context) {
 	apires.OK(c, detail)
 }
 
+func (h *VersionHandler) Orthologies(c *gin.Context) {
+	name := c.Param("name")
+	page, pageSize := pageParams(c)
+
+	result, err := h.uc.ListOrthologyFiles(c.Request.Context(), name, page, pageSize)
+	if err != nil {
+		if errors.Is(err, ucversion.ErrVersionNotFound) {
+			apires.Fail(c, http.StatusNotFound, "version not found")
+			return
+		}
+		panic(err)
+	}
+
+	apires.OK(c, result)
+}
+
 func (h *VersionHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
 
@@ -109,6 +133,10 @@ func (h *VersionHandler) Delete(c *gin.Context) {
 	apires.NoContent(c)
 }
 
+// ListPublic serves GET /public/versions.
+//
+// Deprecated: GET /versions is now public and returns the same versions with
+// paging. Keep this until the frontend has migrated, then remove it.
 func (h *VersionHandler) ListPublic(c *gin.Context) {
 	status := c.Query("status")
 	if status != "" && !ucversion.IsValidVersionStatus(status) {

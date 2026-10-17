@@ -26,6 +26,7 @@ type IJobRepository interface {
 	StatusCountsForSharedJobs(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error)
 	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
 	FindByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.Job, error)
+	FindByFileIDs(ctx context.Context, fileIDs []string) ([]entity.Job, error)
 	Create(ctx context.Context, j *entity.Job) error
 	HasActiveJobOfTypeForAssemblyVersion(ctx context.Context, assemblyVersionID uint64, jobType string) (bool, error)
 	HasNonDoneJobsForFile(ctx context.Context, fileID string) (bool, error)
@@ -36,6 +37,8 @@ type IJobRepository interface {
 type IUploadFileRepository interface {
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
+	ListByVersionIDAndType(ctx context.Context, versionID uint64, fileType string, offset, limit int) ([]entity.UploadFile, error)
+	CountByVersionIDAndType(ctx context.Context, versionID uint64, fileType string) (int, error)
 	FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 	FindLatestCompletedPerTypeByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
 	ListByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)

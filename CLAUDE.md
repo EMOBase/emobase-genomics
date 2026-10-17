@@ -91,7 +91,9 @@ and explicit in each `Action` function.
   routes and marks the admin-only route group behind `middleware.RequireAdmin`.
   Public (unauthenticated) routes: `/health`, `/docs`, `/docs/openapi.yaml`, `/search`,
   `/search/_suggest`, `/orthology/:species`, `/genes/:species`, `/silencingseqs`,
-  `/public/versions`. Everything else (`/uploads`, `/versions`, `/versions/:name/assemblies`,
+  `/public/versions`, and every `GET` under `/versions` (`/versions`,
+  `/versions/:name/detail`, `/versions/:name/orthologies`, `/versions/:name/assemblies`,
+  `/versions/:name/assemblies/:id`). Everything else (`/uploads`, non-GET `/versions/*`,
   `/jobs`, `/upload-files`) requires Keycloak auth (or dev bypass).
 
 ### Versions and Assembly Versions

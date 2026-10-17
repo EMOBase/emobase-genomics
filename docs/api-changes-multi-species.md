@@ -5,12 +5,15 @@ An Assembly Version is addressed by its numeric `id`. Its `species` code (e.g. `
 the assembly but does not identify it, so one Version can hold several assemblies of one species.
 `orthology.tsv` is the one exception: it stays shared across the whole Version.
 
-All new/changed endpoints below are admin-only (same auth as today's `/versions/*`).
+Every `GET` under `/versions` is public (no token): `GET /versions`, `GET /versions/{name}/detail`,
+`GET /versions/{name}/orthologies`, `GET /versions/{name}/assemblies`, `GET /versions/{name}/assemblies/{id}`.
+All other new/changed endpoints below are admin-only.
 
 ## New endpoints
 
 | Endpoint | Purpose |
 |---|---|
+| `GET /versions/{name}/orthologies?page=&page_size=` | Paged `orthology.tsv` uploads of the Version, newest first: `{ files: FileDetail[], total, page, pageSize }` (defaults `page=1`, `page_size=20`, max 100). Same entries as `orthologyTSV` in `GET /versions/{name}/detail`, which still returns them all for now. |
 | `GET /versions/{name}/assemblies` | List assemblies; each item has its own `status`. |
 | `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "species": "Hsap" }` → `201`. Several assemblies may share a `species` in one Version. |
 | `GET /versions/{name}/assemblies/{id}` | Assembly detail: `status` + per-file-type `files`. `404` if the id is not in this Version. |

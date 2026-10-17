@@ -125,6 +125,44 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	return files, rows.Err()
 }
 
+// ListByVersionIDAndType returns one page of a version's upload files of a
+// single type, newest first.
+func (r *MySQLRepository) ListByVersionIDAndType(ctx context.Context, versionID uint64, fileType string, offset, limit int) ([]entity.UploadFile, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
+		        created_at, created_by, completed_at, deleted_at, deleted_by
+		 FROM upload_files WHERE version_id = ? AND file_type = ? AND deleted_at IS NULL
+		 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+		versionID, fileType, limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var files []entity.UploadFile
+	for rows.Next() {
+		var f entity.UploadFile
+		if err := rows.Scan(
+			&f.ID, &f.VersionID, &f.FilePath, &f.FileType, &f.FileSize, &f.Metadata, &f.UploadStatus,
+			&f.CreatedAt, &f.CreatedBy, &f.CompletedAt, &f.DeletedAt, &f.DeletedBy,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+func (r *MySQLRepository) CountByVersionIDAndType(ctx context.Context, versionID uint64, fileType string) (int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM upload_files WHERE version_id = ? AND file_type = ? AND deleted_at IS NULL`,
+		versionID, fileType,
+	).Scan(&total)
+	return total, err
+}
+
 // ListByAssemblyVersionID returns every upload file belonging to a single
 // Assembly Version — the per-species counterpart of ListByVersionID. Files
 // shared across a Database Version rather than owned by one assembly (e.g.

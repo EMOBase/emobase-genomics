@@ -58,6 +58,40 @@ func (r *MySQLRepository) FindByVersionID(ctx context.Context, versionID uint64)
 	return jobs, rows.Err()
 }
 
+// FindByFileIDs returns all jobs for the given upload files, ordered by
+// creation time.
+func (r *MySQLRepository) FindByFileIDs(ctx context.Context, fileIDs []string) ([]entity.Job, error) {
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+
+	args := make([]any, len(fileIDs))
+	for i, id := range fileIDs {
+		args[i] = id
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, version_id, file_id, type, description, status, payload, result_metadata
+		 FROM jobs WHERE file_id IN (?`+strings.Repeat(",?", len(fileIDs)-1)+`)
+		 ORDER BY created_at ASC`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var jobs []entity.Job
+	for rows.Next() {
+		var j entity.Job
+		if err := rows.Scan(&j.ID, &j.VersionID, &j.FileID, &j.Type, &j.Description, &j.Status, &j.Payload, &j.ResultMetadata); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 // FindByAssemblyVersionID returns all jobs for the given Assembly Version,
 // ordered by creation time — the per-species counterpart of FindByVersionID.
 // Jobs for file types shared across a Database Version rather than owned by
