@@ -8,11 +8,18 @@ import (
 // AssemblyVersion is a single species' assembly within a Database Version
 // (entity.Version). Every Assembly Version is symmetric: there is no
 // "primary"/"default" flag on this entity — nothing here is special-cased.
+//
+// ImagePath is the uploaded assembly image, stored inside the assembly's
+// upload directory and written like UploadFile.FilePath, so nginx serves it at
+// "/" + ImagePath; nil when none was uploaded. InfoURL is an optional external
+// link with more about the assembly.
 type AssemblyVersion struct {
 	ID        uint64    `db:"id"         json:"id"`
 	VersionID uint64    `db:"version_id" json:"versionId"`
 	Name      string    `db:"name"       json:"name"`
 	Species   string    `db:"species"    json:"species"`
+	ImagePath *string   `db:"image_path" json:"imagePath"`
+	InfoURL   *string   `db:"info_url"   json:"infoUrl"`
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
 	CreatedBy string    `db:"created_by" json:"createdBy"`
 	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`

@@ -353,6 +353,20 @@ components:
           type: string
           description: Admin-provided species code, describing what the assembly is. Not an address — a Database Version can hold several assemblies of one species, so use `id` to address this Assembly Version in URLs and upload metadata.
           example: Hsap
+        imagePath:
+          type: string
+          nullable: true
+          description: |
+            Path of the uploaded assembly image, in the same form as `FileDetail.filePath`;
+            nginx serves it at `/{imagePath}`. Set and removed with
+            `PUT`/`DELETE /versions/{name}/assemblies/{id}/image`. Each upload gets a new
+            path. `null` when no image was uploaded.
+          example: public/uploads/dmel_r6.59/v1a7/image-1760659200000000000.png
+        infoUrl:
+          type: string
+          nullable: true
+          description: Optional external link with more about the assembly. Absolute `http`/`https` URL, at most 2048 characters.
+          example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
         createdAt:
           type: string
           format: date-time
@@ -1754,6 +1768,10 @@ paths:
                 species:
                   type: string
                   example: Hsap
+                infoUrl:
+                  type: string
+                  description: Optional. Absolute `http`/`https` URL, at most 2048 characters.
+                  example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
       responses:
         '201':
           description: Assembly version created.
@@ -1767,11 +1785,16 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name or species.
+          description: Missing name or species, or invalid infoUrl.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              examples:
+                invalidInfoUrl:
+                  value:
+                    error: infoUrl must be an absolute http or https URL of at most 2048 characters
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
           content:
@@ -1826,6 +1849,101 @@ paths:
                     $ref: '#/components/schemas/AssemblyVersionDetail'
                   requestId:
                     type: string
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    patch:
+      summary: Update an Assembly Version
+      operationId: updateAssemblyVersion
+      tags: [Assembly Versions]
+      description: |
+        Partial update: only fields present in the body change. `species` cannot be
+        changed, since it is copied into indexed data at upload time; sending it
+        returns 400 (delete and recreate the assembly instead). The image has its own
+        endpoint, `PUT /versions/{name}/assemblies/{id}/image`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id. An id from another Database Version returns 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Must not be empty.
+                  example: Human / GRCh38.p14
+                infoUrl:
+                  type: string
+                  description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link.
+                  example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+      responses:
+        '200':
+          description: The updated assembly.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssemblyVersion'
+                  requestId:
+                    type: string
+        '400':
+          description: Empty name, invalid infoUrl, or `species` sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                speciesReadOnly:
+                  value:
+                    error: species cannot be changed; delete and recreate the assembly instead
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                emptyName:
+                  value:
+                    error: name must not be empty
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidInfoUrl:
+                  value:
+                    error: infoUrl must be an absolute http or https URL of at most 2048 characters
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: Version or assembly version not found.
           content:
@@ -1912,6 +2030,153 @@ paths:
                   summary: Assembly version has active jobs
                   value:
                     error: assembly version has active jobs
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}/assemblies/{id}/image:
+    put:
+      summary: Upload or replace an Assembly Version's image
+      operationId: setAssemblyVersionImage
+      tags: [Assembly Versions]
+      description: |
+        Stores the image in the assembly's upload directory and sets `imagePath`,
+        replacing (and deleting) any previous image. PNG, JPEG or WebP only, detected
+        from the file's content rather than its name or `Content-Type`; at most 5 MiB.
+        Deleting the assembly or its Database Version also deletes the image.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id. An id from another Database Version returns 404.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: The updated assembly, with its new `imagePath`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssemblyVersion'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing `image` field, or not a PNG, JPEG or WebP file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingField:
+                  value:
+                    error: multipart form field "image" is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                unsupportedType:
+                  value:
+                    error: image must be a PNG, JPEG or WebP file
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '413':
+          description: Image larger than 5 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tooLarge:
+                  value:
+                    error: image must be at most 5 MiB
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    delete:
+      summary: Remove an Assembly Version's image
+      operationId: deleteAssemblyVersionImage
+      tags: [Assembly Versions]
+      description: Deletes the image file and sets `imagePath` to `null`. Succeeds when there is no image.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id. An id from another Database Version returns 404.
+      responses:
+        '204':
+          description: Image removed (or there was none).
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /jobs:

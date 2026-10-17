@@ -15,9 +15,16 @@ All other new/changed endpoints below are admin-only.
 |---|---|
 | `GET /versions/{name}/orthologies?page=&page_size=` | Paged `orthology.tsv` uploads of the Version, newest first: `{ files: FileDetail[], total, page, pageSize }` (defaults `page=1`, `page_size=20`, max 100). Same entries as `orthologyTSV` in `GET /versions/{name}/detail`, which still returns them all for now. |
 | `GET /versions/{name}/assemblies` | List assemblies; each item has its own `status`. |
-| `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "species": "Hsap" }` → `201`. Several assemblies may share a `species` in one Version. |
+| `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "species": "Hsap", "infoUrl"?: "https://…" }` → `201`. Several assemblies may share a `species` in one Version. |
 | `GET /versions/{name}/assemblies/{id}` | Assembly detail: `status` + per-file-type `files`. `404` if the id is not in this Version. |
+| `PATCH /versions/{name}/assemblies/{id}` | Partial update of `name` and/or `infoUrl` (`""` removes the link) → `200` with the assembly. `species` cannot be changed (`400`). |
+| `PUT /versions/{name}/assemblies/{id}/image` | `multipart/form-data` field `image`: PNG, JPEG or WebP, max 5 MiB → `200` with the assembly. Replaces any previous image. `400` wrong type, `413` too large. |
+| `DELETE /versions/{name}/assemblies/{id}/image` | `204`. Removes the image (also when there is none). |
 | `DELETE /versions/{name}/assemblies/{id}` | `204`. `422` if the assembly has `PENDING`/`RUNNING` jobs. `404` if the id is not in this Version. Removes that assembly's files, jobs, ES indices and JBrowse2 data; never touches the shared `orthology.tsv`. |
+
+Every assembly object (list, detail, version detail's `assemblies[]`, create/update responses) also has
+`imagePath` (served by nginx at `/{imagePath}`, like `filePath`; new path on each upload) and `infoUrl`,
+both `null` when unset.
 
 ## Breaking changes
 

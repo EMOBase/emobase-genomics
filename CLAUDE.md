@@ -111,6 +111,10 @@ one (its own uploads/jobs/ES index stay Version-scoped only, exactly as before t
 model existed). `entity.AssemblyVersion.AssemblyID()` returns an opaque
 `"v{versionID}a{assemblyID}"` key used wherever JBrowse2/BLAST need a stable,
 shell/filename-safe identifier instead of free-text `name`/`species`.
+`species` is read-only after creation (`PATCH` rejects it): it is copied into indexed ES
+documents at upload time, so changing it would leave them under the old species. An
+assembly's optional image is stored in its own upload directory (`imagePath`, served by
+nginx under `/public/uploads/`), so the assembly/Version directory delete also removes it.
 
 One Version can be marked the "default" via `appsettings` (`GetDefaultVersionID`) — the
 public API and `versionresolver` fall back to it when no version name is given; this is

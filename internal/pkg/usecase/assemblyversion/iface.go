@@ -15,6 +15,8 @@ type IAssemblyVersionRepository interface {
 	Create(ctx context.Context, a *entity.AssemblyVersion) error
 	FindByID(ctx context.Context, id uint64) (*entity.AssemblyVersion, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.AssemblyVersion, error)
+	Update(ctx context.Context, a *entity.AssemblyVersion) error
+	UpdateImagePath(ctx context.Context, id uint64, imagePath *string, updatedBy string) error
 	Delete(ctx context.Context, id uint64) error
 }
 

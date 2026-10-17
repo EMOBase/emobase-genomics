@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -14,7 +15,10 @@ import (
 )
 
 type assemblyVersionUseCase interface {
-	CreateAssemblyVersion(ctx context.Context, versionName, name, species string) (*entity.AssemblyVersion, error)
+	CreateAssemblyVersion(ctx context.Context, versionName, name, species, infoURL string) (*entity.AssemblyVersion, error)
+	UpdateAssemblyVersion(ctx context.Context, versionName string, assemblyVersionID uint64, upd ucassemblyversion.AssemblyVersionUpdate) (*entity.AssemblyVersion, error)
+	SetAssemblyVersionImage(ctx context.Context, versionName string, assemblyVersionID uint64, image io.ReadSeeker, size int64) (*entity.AssemblyVersion, error)
+	DeleteAssemblyVersionImage(ctx context.Context, versionName string, assemblyVersionID uint64) error
 	ListAssemblyVersions(ctx context.Context, versionName string) ([]ucassemblyversion.AssemblyVersionItem, error)
 	GetAssemblyVersionDetail(ctx context.Context, versionName string, assemblyVersionID uint64) (*ucversion.AssemblyVersionDetail, error)
 	DeleteAssemblyVersion(ctx context.Context, versionName string, assemblyVersionID uint64) error
@@ -34,16 +38,21 @@ func (h *AssemblyVersionHandler) Create(c *gin.Context) {
 	var body struct {
 		Name    string `json:"name" binding:"required"`
 		Species string `json:"species" binding:"required"`
+		InfoURL string `json:"infoUrl"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		apires.Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	a, err := h.uc.CreateAssemblyVersion(c.Request.Context(), versionName, body.Name, body.Species)
+	a, err := h.uc.CreateAssemblyVersion(c.Request.Context(), versionName, body.Name, body.Species, body.InfoURL)
 	if err != nil {
 		if errors.Is(err, ucassemblyversion.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
+			return
+		}
+		if errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) {
+			apires.Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		panic(err)
@@ -99,6 +108,122 @@ func (h *AssemblyVersionHandler) Detail(c *gin.Context) {
 	}
 
 	apires.OK(c, detail)
+}
+
+// failAssemblyNotFound replies 404 when err is a version or assembly lookup
+// miss, and reports whether it did.
+func failAssemblyNotFound(c *gin.Context, err error) bool {
+	if errors.Is(err, ucassemblyversion.ErrVersionNotFound) {
+		apires.Fail(c, http.StatusNotFound, "version not found")
+		return true
+	}
+	if errors.Is(err, ucassemblyversion.ErrAssemblyVersionNotFound) {
+		apires.Fail(c, http.StatusNotFound, "assembly version not found")
+		return true
+	}
+	return false
+}
+
+func (h *AssemblyVersionHandler) Update(c *gin.Context) {
+	versionName := c.Param("name")
+	id, ok := assemblyVersionIDParam(c)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Name    *string `json:"name"`
+		Species *string `json:"species"`
+		InfoURL *string `json:"infoUrl"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		apires.Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Rejected rather than ignored, so a client never believes it changed.
+	if body.Species != nil {
+		apires.Fail(c, http.StatusBadRequest, "species cannot be changed; delete and recreate the assembly instead")
+		return
+	}
+
+	a, err := h.uc.UpdateAssemblyVersion(c.Request.Context(), versionName, id, ucassemblyversion.AssemblyVersionUpdate{
+		Name:    body.Name,
+		InfoURL: body.InfoURL,
+	})
+	if err != nil {
+		if failAssemblyNotFound(c, err) {
+			return
+		}
+		if errors.Is(err, ucassemblyversion.ErrEmptyName) || errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) {
+			apires.Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		panic(err)
+	}
+
+	apires.OK(c, a)
+}
+
+func (h *AssemblyVersionHandler) SetImage(c *gin.Context) {
+	versionName := c.Param("name")
+	id, ok := assemblyVersionIDParam(c)
+	if !ok {
+		return
+	}
+
+	// Cut off the request a little above the image limit (room for multipart
+	// overhead) instead of buffering an oversized body to disk.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, ucassemblyversion.MaxImageSize+1<<20)
+	fh, err := c.FormFile("image")
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			apires.Fail(c, http.StatusRequestEntityTooLarge, ucassemblyversion.ErrImageTooLarge.Error())
+			return
+		}
+		apires.Fail(c, http.StatusBadRequest, `multipart form field "image" is required`)
+		return
+	}
+	f, err := fh.Open()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	a, err := h.uc.SetAssemblyVersionImage(c.Request.Context(), versionName, id, f, fh.Size)
+	if err != nil {
+		if failAssemblyNotFound(c, err) {
+			return
+		}
+		if errors.Is(err, ucassemblyversion.ErrImageTooLarge) {
+			apires.Fail(c, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
+		if errors.Is(err, ucassemblyversion.ErrUnsupportedImageType) {
+			apires.Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		panic(err)
+	}
+
+	apires.OK(c, a)
+}
+
+func (h *AssemblyVersionHandler) DeleteImage(c *gin.Context) {
+	versionName := c.Param("name")
+	id, ok := assemblyVersionIDParam(c)
+	if !ok {
+		return
+	}
+
+	if err := h.uc.DeleteAssemblyVersionImage(c.Request.Context(), versionName, id); err != nil {
+		if failAssemblyNotFound(c, err) {
+			return
+		}
+		panic(err)
+	}
+
+	apires.NoContent(c)
 }
 
 func (h *AssemblyVersionHandler) Delete(c *gin.Context) {
