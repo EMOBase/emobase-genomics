@@ -3,11 +3,11 @@
 A **Version** (Database Version) now holds one or more **Assembly Versions**.
 An Assembly Version is addressed by its numeric `id`. Its `species` code (e.g. `Hsap`) describes
 the assembly but does not identify it, so one Version can hold several assemblies of one species.
-`orthology.tsv` is the one exception: it stays shared across the whole Version.
+Orthology is the one exception: `orthology.tsv` and `orthology.bundle` stay shared across the whole Version.
 
 Every `GET` under `/versions` is public (no token): `GET /versions`, `GET /versions/{name}/detail`,
 `GET /versions/{name}/orthologies`, `GET /versions/{name}/assemblies`, `GET /versions/{name}/assemblies/{id}`.
-All other new/changed endpoints below are admin-only.
+Every other new endpoint below is admin-only. Apart from those GETs, endpoints that needed a token before still do.
 
 ## New endpoints
 
@@ -29,18 +29,24 @@ both `null` when unset.
 ## Breaking changes
 
 ### `POST /uploads` (tus) — new required metadata `assembly`
-- `assembly` = the target assembly's numeric `id` (from `GET /versions/{name}/assemblies`), not its species code. Required for every `fileType` **except `orthology.tsv`** (which takes none).
+- `assembly` = the target assembly's numeric `id` (from `GET /versions/{name}/assemblies`), not its species code. Required for every `fileType` **except `orthology.tsv` and `orthology.bundle`** (which take none).
+- `jbrowse.track.bundle` covers exactly one assembly, named by `assembly`; every track in it is filed under that assembly. Its `manifest.csv` columns are unchanged.
 - New `400`s: `"<fileType>" uploads require an "assembly" metadata field`; `"assembly" metadata must be an assembly id, got "X"` (for example a species code); `assembly "X" not found in version "Y"` (unknown id, or an id from another Version).
 - The `409` "job already pending or running" check is now per assembly (per Version for `orthology.tsv`), so two species can upload the same file type concurrently.
 - `dsrna.csv` gate is now per assembly: the assembly's `species` must be `Tcas` (was: global `main_species`). Message changed to `dsrna.csv uploads are only supported for the "Tcas" species`.
 - `species.synonym` keeps its own `species` field (which species the file describes) and now also needs `assembly`.
-- Jobs in the `X-Jobs` response header gain `AssemblyVersionID` (`null` for `orthology.tsv`).
+- Jobs in the `X-Jobs` response header gain `AssemblyVersionID` (`null` for `orthology.tsv` and `orthology.bundle`).
+
+### `POST /uploads` (tus) — bundles may also be `.zip`
+- `orthology.bundle` and `jbrowse.track.bundle` accept a `.zip` archive as well as `.tar.gz`, with the same `manifest.csv` inside.
+- The `400` for a wrong extension now reads `<fileType> uploads must be a .tar.gz or .zip archive`.
+- A `.zip` whose content is not a zip is refused with `422` `uploaded file is not a valid zip`.
 
 ### `GET /versions/{name}/detail` — response reshaped
 | Before | After |
 |---|---|
 | `files: { genomic.fna, …, orthology.tsv[], jbrowse.track[] }` | `files` removed |
-| — | `orthologyTSV: FileDetail[]` (top level, shared) |
+| — | `orthologyTSV: FileDetail[]` (top level, shared). Unpaged; will be removed once the frontend uses `GET /versions/{name}/orthologies` |
 | — | `assemblies: [{ id, versionId, name, species, …, status, files }]` — `files` has the same per-type buckets minus `orthology.tsv`, plus `species.synonym[]` |
 | `status` from the whole Version's jobs | `status` rolled up across every assembly + orthology: `PROCESSING` > `ERROR` > `MISSING_REQUIRED_FILE` > `READY` > `DRAFT`; zero assemblies → `MISSING_REQUIRED_FILE` |
 
@@ -55,9 +61,16 @@ both `null` when unset.
 | Endpoint | Change |
 |---|---|
 | `GET /versions`, `GET /public/versions` | `status` (and the `?status=` filter) uses the rolled-up status above. |
-| `GET /search` | `orthologs` groups are sorted alphabetically by species (was: main species first). |
+| `GET /versions`, `GET /versions/{name}/detail` | No longer need a token (were admin-only). Responses are unchanged, so they include `createdBy`/`updatedBy`, file paths and job errors. |
+| `GET /search` | `orthologs` groups are sorted alphabetically by species (was: main species first). A direct `genes` hit is still only returned for the configured `main_species` (`Tcas`); a hit in any other species comes back as `orthologies` when it is in an orthology file, else as `otherGenes` with its `species` (e.g. `{ "species": "Lyst", "gene": "GSLYS_00000001001" }`). |
 | `DELETE /versions/{name}` | Also cascades to all assemblies and their JBrowse2 data. |
 | `GET /genes/{species}`, `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
+
+## Deprecated
+
+| Endpoint | Use instead |
+|---|---|
+| `GET /public/versions` | `GET /versions` (now public, paged, same `status`). Kept until the frontend has migrated, then removed. |
 
 ## Unchanged
 
