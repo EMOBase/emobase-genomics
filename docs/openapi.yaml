@@ -658,7 +658,7 @@ components:
 
     VersionDetail:
       type: object
-      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, assemblies]
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, orthologyBundles, assemblies]
       properties:
         id:
           type: integer
@@ -698,6 +698,11 @@ components:
         orthologyTSV:
           type: array
           description: All non-deleted orthology.tsv uploads for this Database Version — shared across every species rather than owned by one assembly.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        orthologyBundles:
+          type: array
+          description: Orthology bundle archives with a non-DONE ORTHOLOGY.BUNDLE job (pending/extracting/failed).
           items:
             $ref: '#/components/schemas/FileDetail'
         assemblies:

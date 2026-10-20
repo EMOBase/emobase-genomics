@@ -175,11 +175,12 @@ type AssemblyVersionDetail struct {
 // VersionDetail is the response for GET /versions/{name}/detail.
 type VersionDetail struct {
 	entity.Version
-	IsDefault     bool                    `json:"isDefault"`
-	Status        string                  `json:"status"`
-	TotalFileSize int64                   `json:"totalFileSize"`
-	OrthologyTSV  []FileDetail            `json:"orthologyTSV"`
-	Assemblies    []AssemblyVersionDetail `json:"assemblies"`
+	IsDefault        bool                    `json:"isDefault"`
+	Status           string                  `json:"status"`
+	TotalFileSize    int64                   `json:"totalFileSize"`
+	OrthologyTSV     []FileDetail            `json:"orthologyTSV"`
+	OrthologyBundles []FileDetail            `json:"orthologyBundles"`
+	Assemblies       []AssemblyVersionDetail `json:"assemblies"`
 }
 
 type UseCase struct {
@@ -258,9 +259,7 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 	}, nil
 }
 
-// GetVersionDetail returns full detail for a named Database Version: the
-// shared orthology.tsv uploads (not owned by any assembly), one detail entry
-// per Assembly Version, and an overall status rolled up across all of them.
+// GetVersionDetail returns detail for a version including orthology files, in-flight orthology bundles, and per-assembly details.
 func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionDetail, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {
@@ -276,6 +275,11 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	}
 
 	orthologyTSV, err := uc.listOrthologyFileDetails(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	orthologyBundles, err := uc.listOrthologyBundleDetails(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -313,12 +317,13 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	}
 
 	return &VersionDetail{
-		Version:       *v,
-		IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
-		Status:        status,
-		TotalFileSize: fileSizes[v.ID],
-		OrthologyTSV:  orthologyTSV,
-		Assemblies:    assemblies,
+		Version:          *v,
+		IsDefault:        defaultVersionID != nil && *defaultVersionID == v.ID,
+		Status:           status,
+		TotalFileSize:    fileSizes[v.ID],
+		OrthologyTSV:     orthologyTSV,
+		OrthologyBundles: orthologyBundles,
+		Assemblies:       assemblies,
 	}, nil
 }
 
@@ -365,6 +370,41 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 		orthologyTSV = append(orthologyTSV, fd)
 	}
 	return orthologyTSV, nil
+}
+
+// listOrthologyBundleDetails returns in-flight orthology bundles with their ORTHOLOGY.BUNDLE job attached.
+func (uc *UseCase) listOrthologyBundleDetails(ctx context.Context, versionID uint64) ([]FileDetail, error) {
+	jobs, err := uc.jobRepo.FindByVersionID(ctx, versionID)
+	if err != nil {
+		return nil, err
+	}
+
+	bundles := []FileDetail{}
+	for _, j := range jobs {
+		if j.Type != entity.JobTypeOrthologyBundle || j.FileID == nil || j.Status == entity.JobStatusDone {
+			continue
+		}
+
+		f, err := uc.uploadFileRepo.FindByID(ctx, *j.FileID)
+		if err != nil {
+			return nil, err
+		}
+		if f == nil {
+			continue
+		}
+
+		bundles = append(bundles, FileDetail{
+			ID:           f.ID,
+			FilePath:     f.FilePath,
+			FileSize:     f.FileSize,
+			UploadStatus: f.UploadStatus,
+			CreatedAt:    f.CreatedAt,
+			CreatedBy:    f.CreatedBy,
+			CompletedAt:  f.CompletedAt,
+			Jobs:         []JobSummary{toJobSummary(j)},
+		})
+	}
+	return bundles, nil
 }
 
 // OrthologyFileList is the response for GET /versions/{name}/orthologies.
