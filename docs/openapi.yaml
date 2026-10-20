@@ -702,14 +702,7 @@ components:
             $ref: '#/components/schemas/FileDetail'
         orthologyBundles:
           type: array
-          description: |
-            Orthology bundle archives whose extraction job has not finished yet
-            (PENDING/RUNNING/FAILED). Bundle rows are otherwise kept only as audit
-            records and excluded from `orthologyTSV`, but this gives the UI a row to
-            show between the upload finishing and its extracted orthology.tsv children
-            appearing. Completed bundles are omitted — their children are returned in
-            `orthologyTSV` instead. Each entry's `jobs` contains the single
-            `ORTHOLOGY.BUNDLE` job.
+          description: Orthology bundle archives with a non-DONE ORTHOLOGY.BUNDLE job (pending/extracting/failed).
           items:
             $ref: '#/components/schemas/FileDetail'
         assemblies:

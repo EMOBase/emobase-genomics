@@ -175,16 +175,10 @@ type AssemblyVersionDetail struct {
 // VersionDetail is the response for GET /versions/{name}/detail.
 type VersionDetail struct {
 	entity.Version
-	IsDefault     bool         `json:"isDefault"`
-	Status        string       `json:"status"`
-	TotalFileSize int64        `json:"totalFileSize"`
-	OrthologyTSV  []FileDetail `json:"orthologyTSV"`
-	// OrthologyBundles holds the bundle archives whose extraction job has not
-	// finished yet (PENDING/RUNNING/FAILED). Bundle rows are otherwise kept only
-	// as audit records and excluded from OrthologyTSV, but the UI needs a row to
-	// show while the archive is being extracted into its child orthology.tsv
-	// files. Completed bundles are dropped here — their children appear in
-	// OrthologyTSV instead.
+	IsDefault        bool                    `json:"isDefault"`
+	Status           string                  `json:"status"`
+	TotalFileSize    int64                   `json:"totalFileSize"`
+	OrthologyTSV     []FileDetail            `json:"orthologyTSV"`
 	OrthologyBundles []FileDetail            `json:"orthologyBundles"`
 	Assemblies       []AssemblyVersionDetail `json:"assemblies"`
 }
@@ -265,10 +259,7 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 	}, nil
 }
 
-// GetVersionDetail returns full detail for a named Database Version: the
-// shared orthology.tsv uploads (not owned by any assembly), any orthology
-// bundle archives still being extracted, one detail entry per Assembly Version,
-// and an overall status rolled up across all of them.
+// GetVersionDetail returns detail for a version including orthology files, in-flight orthology bundles, and per-assembly details.
 func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionDetail, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {
@@ -381,13 +372,7 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 	return orthologyTSV, nil
 }
 
-// listOrthologyBundleDetails returns FileDetail entries for the orthology.bundle
-// archives of a Database Version whose extraction job has not finished yet
-// (PENDING/RUNNING/FAILED). Bundle rows are excluded from ListByVersionID
-// (see notBundleSQL) and their ORTHOLOGY.BUNDLE job is not attached to any child
-// file, so without this the UI has nothing to show between the upload finishing
-// and the extracted orthology.tsv children appearing. Completed bundles are
-// skipped — their children are returned by listOrthologyFileDetails instead.
+// listOrthologyBundleDetails returns in-flight orthology bundles with their ORTHOLOGY.BUNDLE job attached.
 func (uc *UseCase) listOrthologyBundleDetails(ctx context.Context, versionID uint64) ([]FileDetail, error) {
 	jobs, err := uc.jobRepo.FindByVersionID(ctx, versionID)
 	if err != nil {
