@@ -658,7 +658,7 @@ components:
 
     VersionDetail:
       type: object
-      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, assemblies]
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, orthologyBundles, assemblies]
       properties:
         id:
           type: integer
@@ -698,6 +698,18 @@ components:
         orthologyTSV:
           type: array
           description: All non-deleted orthology.tsv uploads for this Database Version — shared across every species rather than owned by one assembly.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        orthologyBundles:
+          type: array
+          description: |
+            Orthology bundle archives whose extraction job has not finished yet
+            (PENDING/RUNNING/FAILED). Bundle rows are otherwise kept only as audit
+            records and excluded from `orthologyTSV`, but this gives the UI a row to
+            show between the upload finishing and its extracted orthology.tsv children
+            appearing. Completed bundles are omitted — their children are returned in
+            `orthologyTSV` instead. Each entry's `jobs` contains the single
+            `ORTHOLOGY.BUNDLE` job.
           items:
             $ref: '#/components/schemas/FileDetail'
         assemblies:

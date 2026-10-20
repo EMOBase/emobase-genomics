@@ -36,6 +36,7 @@ type IJobRepository interface {
 
 type IUploadFileRepository interface {
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
+	FindByID(ctx context.Context, id string) (*entity.UploadFile, error)
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 	ListByVersionIDAndType(ctx context.Context, versionID uint64, fileType string, offset, limit int) ([]entity.UploadFile, error)
 	CountByVersionIDAndType(ctx context.Context, versionID uint64, fileType string) (int, error)

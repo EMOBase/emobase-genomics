@@ -175,11 +175,18 @@ type AssemblyVersionDetail struct {
 // VersionDetail is the response for GET /versions/{name}/detail.
 type VersionDetail struct {
 	entity.Version
-	IsDefault     bool                    `json:"isDefault"`
-	Status        string                  `json:"status"`
-	TotalFileSize int64                   `json:"totalFileSize"`
-	OrthologyTSV  []FileDetail            `json:"orthologyTSV"`
-	Assemblies    []AssemblyVersionDetail `json:"assemblies"`
+	IsDefault     bool         `json:"isDefault"`
+	Status        string       `json:"status"`
+	TotalFileSize int64        `json:"totalFileSize"`
+	OrthologyTSV  []FileDetail `json:"orthologyTSV"`
+	// OrthologyBundles holds the bundle archives whose extraction job has not
+	// finished yet (PENDING/RUNNING/FAILED). Bundle rows are otherwise kept only
+	// as audit records and excluded from OrthologyTSV, but the UI needs a row to
+	// show while the archive is being extracted into its child orthology.tsv
+	// files. Completed bundles are dropped here — their children appear in
+	// OrthologyTSV instead.
+	OrthologyBundles []FileDetail            `json:"orthologyBundles"`
+	Assemblies       []AssemblyVersionDetail `json:"assemblies"`
 }
 
 type UseCase struct {
@@ -259,8 +266,9 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 }
 
 // GetVersionDetail returns full detail for a named Database Version: the
-// shared orthology.tsv uploads (not owned by any assembly), one detail entry
-// per Assembly Version, and an overall status rolled up across all of them.
+// shared orthology.tsv uploads (not owned by any assembly), any orthology
+// bundle archives still being extracted, one detail entry per Assembly Version,
+// and an overall status rolled up across all of them.
 func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionDetail, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {
@@ -276,6 +284,11 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	}
 
 	orthologyTSV, err := uc.listOrthologyFileDetails(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	orthologyBundles, err := uc.listOrthologyBundleDetails(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -313,12 +326,13 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	}
 
 	return &VersionDetail{
-		Version:       *v,
-		IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
-		Status:        status,
-		TotalFileSize: fileSizes[v.ID],
-		OrthologyTSV:  orthologyTSV,
-		Assemblies:    assemblies,
+		Version:          *v,
+		IsDefault:        defaultVersionID != nil && *defaultVersionID == v.ID,
+		Status:           status,
+		TotalFileSize:    fileSizes[v.ID],
+		OrthologyTSV:     orthologyTSV,
+		OrthologyBundles: orthologyBundles,
+		Assemblies:       assemblies,
 	}, nil
 }
 
@@ -365,6 +379,47 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 		orthologyTSV = append(orthologyTSV, fd)
 	}
 	return orthologyTSV, nil
+}
+
+// listOrthologyBundleDetails returns FileDetail entries for the orthology.bundle
+// archives of a Database Version whose extraction job has not finished yet
+// (PENDING/RUNNING/FAILED). Bundle rows are excluded from ListByVersionID
+// (see notBundleSQL) and their ORTHOLOGY.BUNDLE job is not attached to any child
+// file, so without this the UI has nothing to show between the upload finishing
+// and the extracted orthology.tsv children appearing. Completed bundles are
+// skipped — their children are returned by listOrthologyFileDetails instead.
+func (uc *UseCase) listOrthologyBundleDetails(ctx context.Context, versionID uint64) ([]FileDetail, error) {
+	jobs, err := uc.jobRepo.FindByVersionID(ctx, versionID)
+	if err != nil {
+		return nil, err
+	}
+
+	bundles := []FileDetail{}
+	for _, j := range jobs {
+		if j.Type != entity.JobTypeOrthologyBundle || j.FileID == nil || j.Status == entity.JobStatusDone {
+			continue
+		}
+
+		f, err := uc.uploadFileRepo.FindByID(ctx, *j.FileID)
+		if err != nil {
+			return nil, err
+		}
+		if f == nil {
+			continue
+		}
+
+		bundles = append(bundles, FileDetail{
+			ID:           f.ID,
+			FilePath:     f.FilePath,
+			FileSize:     f.FileSize,
+			UploadStatus: f.UploadStatus,
+			CreatedAt:    f.CreatedAt,
+			CreatedBy:    f.CreatedBy,
+			CompletedAt:  f.CompletedAt,
+			Jobs:         []JobSummary{toJobSummary(j)},
+		})
+	}
+	return bundles, nil
 }
 
 // OrthologyFileList is the response for GET /versions/{name}/orthologies.
