@@ -259,7 +259,10 @@ func (uc *UseCase) ListVersions(ctx context.Context, page, pageSize int) (*Versi
 	}, nil
 }
 
-// GetVersionDetail returns detail for a version including orthology files, in-flight orthology bundles, and per-assembly details.
+// GetVersionDetail returns full detail for a named Database Version: the
+// shared orthology.tsv uploads (not owned by any assembly), the orthology
+// bundle archives whose ORTHOLOGY.BUNDLE job is not yet DONE, one detail
+// entry per Assembly Version, and an overall status rolled up across all of them.
 func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionDetail, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {
@@ -372,18 +375,32 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 	return orthologyTSV, nil
 }
 
-// listOrthologyBundleDetails returns in-flight orthology bundles with their ORTHOLOGY.BUNDLE job attached.
+// listOrthologyBundleDetails returns the version's orthology.bundle archives
+// whose ORTHOLOGY.BUNDLE job is not yet DONE (pending, running or failed).
+// Bundle archive rows are excluded from ListByVersionID by notBundleSQL, so
+// each file is loaded by ID from the job's file_id.
 func (uc *UseCase) listOrthologyBundleDetails(ctx context.Context, versionID uint64) ([]FileDetail, error) {
 	jobs, err := uc.jobRepo.FindByVersionID(ctx, versionID)
 	if err != nil {
 		return nil, err
 	}
-
-	bundles := []FileDetail{}
+	jobsByFileID := make(map[string][]JobSummary)
 	for _, j := range jobs {
 		if j.Type != entity.JobTypeOrthologyBundle || j.FileID == nil || j.Status == entity.JobStatusDone {
 			continue
 		}
+		jobsByFileID[*j.FileID] = append(jobsByFileID[*j.FileID], toJobSummary(j))
+	}
+
+	// Jobs are ordered by created_at ASC, so bundles appear in the order their
+	// bundle jobs were enqueued; seen keeps one FileDetail per bundle file.
+	seen := make(map[string]bool)
+	bundles := []FileDetail{}
+	for _, j := range jobs {
+		if j.Type != entity.JobTypeOrthologyBundle || j.FileID == nil || j.Status == entity.JobStatusDone || seen[*j.FileID] {
+			continue
+		}
+		seen[*j.FileID] = true
 
 		f, err := uc.uploadFileRepo.FindByID(ctx, *j.FileID)
 		if err != nil {
@@ -401,7 +418,7 @@ func (uc *UseCase) listOrthologyBundleDetails(ctx context.Context, versionID uin
 			CreatedAt:    f.CreatedAt,
 			CreatedBy:    f.CreatedBy,
 			CompletedAt:  f.CompletedAt,
-			Jobs:         []JobSummary{toJobSummary(j)},
+			Jobs:         jobsByFileID[*j.FileID],
 		})
 	}
 	return bundles, nil

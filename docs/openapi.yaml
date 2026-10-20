@@ -702,7 +702,7 @@ components:
             $ref: '#/components/schemas/FileDetail'
         orthologyBundles:
           type: array
-          description: Orthology bundle archives with a non-DONE ORTHOLOGY.BUNDLE job (pending/extracting/failed).
+          description: Orthology bundle archives with a non-DONE ORTHOLOGY.BUNDLE job (PENDING, RUNNING or FAILED).
           items:
             $ref: '#/components/schemas/FileDetail'
         assemblies:
