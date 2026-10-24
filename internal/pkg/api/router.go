@@ -92,6 +92,7 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 
 		jobHandler := handler.NewJobHandler(jobUC)
 		authenticated.GET("/jobs", jobHandler.ListByVersion)
+		authenticated.GET("/jobs/:id", jobHandler.Get)
 
 		uploadFileHandler := handler.NewUploadFileHandler(uploadUC)
 		authenticated.GET("/upload-files", uploadFileHandler.List)

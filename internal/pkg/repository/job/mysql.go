@@ -34,6 +34,27 @@ func (r *MySQLRepository) Create(ctx context.Context, j *entity.Job) error {
 	return nil
 }
 
+// FindByID returns the job with the given ID, or nil if none exists.
+func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Job, error) {
+	var j entity.Job
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, version_id, assembly_version_id, file_id, type, description, payload, status, result_metadata,
+		        created_at, updated_at, started_at, completed_at
+		 FROM jobs WHERE id = ?`,
+		id,
+	).Scan(
+		&j.ID, &j.VersionID, &j.AssemblyVersionID, &j.FileID, &j.Type, &j.Description, &j.Payload, &j.Status, &j.ResultMetadata,
+		&j.CreatedAt, &j.UpdatedAt, &j.StartedAt, &j.CompletedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
 // FindByVersionID returns all jobs for the given version ID, ordered by creation time.
 func (r *MySQLRepository) FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error) {
 	rows, err := r.db.QueryContext(ctx,

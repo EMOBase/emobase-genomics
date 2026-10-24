@@ -236,6 +236,36 @@ components:
           description: Error message from the worker. Present only when `status` is `FAILED`.
           example: failed to open file "/uploads/dmel/genomic.gff.gz"
 
+    JobDetail:
+      description: One job, as returned by `GET /jobs/{id}`.
+      allOf:
+        - $ref: '#/components/schemas/JobSummary'
+        - type: object
+          required: [assemblyVersionId, createdAt, updatedAt, startedAt, completedAt]
+          properties:
+            assemblyVersionId:
+              type: integer
+              format: int64
+              nullable: true
+              description: Assembly Version the job belongs to. `null` for jobs shared across the whole Database Version (`ORTHOLOGY.TSV` and its variants).
+              example: 7
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+            startedAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: When a worker claimed the job. `null` while `PENDING`.
+            completedAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the job reached `DONE` or `FAILED`. `null` until then.
+
     FileDetail:
       type: object
       description: An uploaded file together with all its associated jobs.
@@ -2235,6 +2265,69 @@ paths:
                 forbidden:
                   value:
                     error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /jobs/{id}:
+    get:
+      summary: Get a job
+      operationId: getJob
+      tags: [Jobs]
+      description: |
+        Returns one job by its id, e.g. an id from the `X-Jobs` header of an upload, so a
+        client can poll its status. When `status` is `FAILED`, `error` carries the worker's
+        error message.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Job id.
+      responses:
+        '200':
+          description: The job.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobDetail'
+                  requestId:
+                    type: string
+        '400':
+          description: The id is not an integer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidID:
+                  value:
+                    error: job id must be an integer
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: No job has this id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: job not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /uploads:

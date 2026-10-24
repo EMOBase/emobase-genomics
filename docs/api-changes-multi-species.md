@@ -15,6 +15,7 @@ Every other new endpoint below is admin-only. Apart from those GETs, endpoints t
 | Endpoint | Purpose |
 |---|---|
 | `GET /versions/{name}/orthologies?page=&page_size=` | Paged `orthology.tsv` uploads of the Version, newest first: `{ files: FileDetail[], total, page, pageSize }` (defaults `page=1`, `page_size=20`, max 100). Same entries as `orthologyTSV` in `GET /versions/{name}/detail`, which still returns them all for now. |
+| `GET /jobs/{id}` | One job, e.g. an id from an upload's `X-Jobs` header, for polling: the same fields as a `GET /jobs` item plus `assemblyVersionId` (`null` for orthology), `createdAt`, `updatedAt`, `startedAt`, `completedAt`. `400` non-integer id, `404` unknown id. |
 | `GET /versions/{name}/assemblies` | List assemblies; each item has its own `status`. |
 | `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "speciesName": "Homo sapiens", "infoUrl"?: "https://…" }` → `201`. `speciesCode` is derived: first letter of the first word (uppercased) + first 3 letters of the second (lowercased), e.g. `Tribolium castaneum` → `Tcas`; `400` if `speciesName` is not at least two such words. Several assemblies may share a species in one Version. |
 | `GET /versions/{name}/assemblies/{id}` | Assembly detail: `status` + per-file-type `files`. `404` if the id is not in this Version. |
