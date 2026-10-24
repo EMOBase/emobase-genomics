@@ -105,7 +105,7 @@ func (h *BundleHandler) Handle(ctx context.Context, job entity.Job) (json.RawMes
 	// Pass 2: write each file gzipped into a per-bundle directory, so names
 	// never collide with other uploads of the same version.
 	dstDir := filepath.Join(filepath.Dir(payload.FilePath), payload.UploadFileID)
-	if err := extractBundle(payload.FilePath, dstDir); err != nil {
+	if err := extractBundle(payload.FilePath, dstDir, payload.UploadFileID); err != nil {
 		h.removeDirIfNoChildren(ctx, dstDir, payload.UploadFileID, rows)
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (h *BundleHandler) Handle(ctx context.Context, job entity.Job) (json.RawMes
 	for _, meta := range rows {
 		fileName := meta["fileName"]
 		childID := bundleChildID(payload.UploadFileID, fileName)
-		filePath := filepath.Join(dstDir, storedName(fileName))
+		filePath := filepath.Join(dstDir, childFileName(payload.UploadFileID, fileName))
 
 		if err := h.ensureChildFile(ctx, childID, filePath, version.ID, assemblyVersionID, bundle.CreatedBy); err != nil {
 			return nil, err
@@ -222,7 +222,16 @@ func bundleChildID(bundleID, fileName string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("emobase-bundle:"+bundleID+"/"+fileName)).String()
 }
 
-// storedName is the on-disk name of an extracted file. Child handlers read
+// childFileName is the on-disk name of an extracted file: gzipped (storedName)
+// and tagged with its child upload's ID like any single upload, so files of the
+// same name from two bundles stay distinct wherever they are copied by name
+// (e.g. add_jbrowse_track.sh's copy into the JBrowse2 data folder). The child ID
+// is deterministic, so a rerun reproduces the same name.
+func childFileName(bundleID, name string) string {
+	return uploadspec.StoredFileName(storedName(name), bundleChildID(bundleID, name))
+}
+
+// storedName is the gzipped name of an extracted file. Child handlers read
 // their input through gzip.NewReader, and some (e.g. add_jbrowse_track.sh)
 // strip a .gz/.gzip suffix to recover the original extension.
 func storedName(name string) string {
@@ -542,10 +551,11 @@ func checkManifestHeader(header, columns []string) error {
 }
 
 // extractBundle writes every data file of an already-validated archive into
-// dstDir, gzipping plain files and copying already-gzipped ones unchanged.
-// Each file is written to a temp name and renamed into place, so a rerun never
-// truncates a file that a child job may already be reading.
-func extractBundle(archivePath, dstDir string) error {
+// dstDir under its childFileName, gzipping plain files and copying
+// already-gzipped ones unchanged. Each file is written to a temp name and
+// renamed into place, so a rerun never truncates a file that a child job may
+// already be reading.
+func extractBundle(archivePath, dstDir, bundleID string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundle directory: %w", err)
 	}
@@ -557,7 +567,7 @@ func extractBundle(archivePath, dstDir string) error {
 		if name == "" || name == uploadspec.ManifestFileName {
 			return nil
 		}
-		if err := writeGzipped(m.body, filepath.Join(dstDir, storedName(name))); err != nil {
+		if err := writeGzipped(m.body, filepath.Join(dstDir, childFileName(bundleID, name))); err != nil {
 			return fmt.Errorf("failed to extract %q: %w", name, err)
 		}
 		return nil

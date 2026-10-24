@@ -1,7 +1,7 @@
-// Package uploadspec holds per-file-type metadata validation and job
-// construction shared by single-file uploads (usecase/upload) and bundle
-// extraction (worker BundleHandler), so both paths accept the same metadata
-// and enqueue identical jobs.
+// Package uploadspec holds per-file-type metadata validation, job
+// construction and stored file naming shared by single-file uploads
+// (usecase/upload) and bundle extraction (worker BundleHandler), so both paths
+// accept the same metadata, enqueue identical jobs and name files alike.
 package uploadspec
 
 import (
@@ -126,4 +126,30 @@ var Bundles = map[string]BundleSpec{
 		Validate:      ValidateJBrowseTrackMeta,
 		NewJob:        NewJBrowseTrackJob,
 	},
+}
+
+// storedTagLength is how many characters of the upload ID tag a stored file
+// name. Tags only need to differ between same-named files in one folder, so 8
+// hex characters (32 random bits) are plenty.
+const storedTagLength = 8
+
+// StoredFileName returns the on-disk name of an uploaded file: name with a
+// short tag from the upload's ID inserted before its first dot
+// ("genomic.gff.gz" -> "genomic-1a2b3c4d.gff.gz"). Two uploads of the same
+// name then never share a path, so neither can overwrite or delete the other's
+// file. The tag goes before the extensions, which handlers and scripts use to
+// recognize a file's format, and after the start of the name, which picks the
+// synonym parser.
+func StoredFileName(name, uploadID string) string {
+	tag := strings.ReplaceAll(uploadID, "-", "")
+	if len(tag) > storedTagLength {
+		tag = tag[:storedTagLength]
+	}
+	// Search from index 1 so a leading dot (".hidden.gz") stays in the stem.
+	if len(name) > 1 {
+		if i := strings.IndexByte(name[1:], '.'); i >= 0 {
+			return name[:i+1] + "-" + tag + name[i+1:]
+		}
+	}
+	return name + "-" + tag
 }

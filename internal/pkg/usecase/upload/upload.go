@@ -257,12 +257,11 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 
 	creator := auth.UsernameFromContext(event.Context)
 
-	dstDir := uc.uploadDirFor(upload.MetaData["version"], upload.MetaData["_assemblyKey"])
 	f := &entity.UploadFile{
 		ID:                upload.ID,
 		VersionID:         versionID,
 		AssemblyVersionID: assemblyVersionID,
-		FilePath:          filepath.Join(dstDir, filepath.Base(upload.MetaData["fileName"])),
+		FilePath:          uc.storedPath(upload.ID, upload.MetaData),
 		FileType:          upload.MetaData["fileType"],
 		FileSize:          upload.Size,
 		UploadStatus:      entity.UploadStatusUploading,
@@ -305,12 +304,24 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity, fmt.Sprintf("uploaded file is not a valid %s", format))
 	}
 
-	version := upload.MetaData["version"]
-	dstDir := uc.uploadDirFor(version, upload.MetaData["_assemblyKey"])
-	dstPath := filepath.Join(dstDir, filepath.Base(fileName))
+	dstPath := uc.storedPath(upload.ID, upload.MetaData)
+	dstDir := filepath.Dir(dstPath)
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		log.Ctx(ctx).Err(err).Str("dir", dstDir).Msg("failed to create version directory")
+		return tusd.HTTPResponse{}, err
+	}
+
+	// The upload ID tag makes two same-named uploads clash only by a very
+	// unlikely coincidence; refuse rather than overwrite the other file if one
+	// ever does. Uploading again gets a new ID.
+	if _, err := os.Stat(dstPath); err == nil {
+		log.Ctx(ctx).Error().Str("uploadID", upload.ID).Str("path", dstPath).Msg("stored file name already taken, discarding upload")
+		uc.removeUploadFiles(upload.ID)
+		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
+		return tusd.HTTPResponse{}, uploadError(http.StatusConflict, "another upload is already stored under this name; please upload the file again")
+	} else if !os.IsNotExist(err) {
+		log.Ctx(ctx).Err(err).Str("path", dstPath).Msg("failed to check upload destination")
 		return tusd.HTTPResponse{}, err
 	}
 
@@ -880,6 +891,14 @@ func (uc *UseCase) cleanStaleUploads(maxAge time.Duration) {
 // {uploadDir}/{versionName}/{assemblyKey}, except orthology.tsv (assemblyKey == "")
 // which keeps the flat {uploadDir}/{versionName} path since it is shared
 // across every assembly in the Database Version rather than owned by one.
+// storedPath is where an upload's file lives once complete: its folder plus its
+// name tagged with the upload ID (see uploadspec.StoredFileName). Creating the
+// upload row and moving the finished file must agree, so both call this.
+func (uc *UseCase) storedPath(uploadID string, meta tusd.MetaData) string {
+	dir := uc.uploadDirFor(meta["version"], meta["_assemblyKey"])
+	return filepath.Join(dir, uploadspec.StoredFileName(filepath.Base(meta["fileName"]), uploadID))
+}
+
 func (uc *UseCase) uploadDirFor(versionName, assemblyKey string) string {
 	if assemblyKey == "" {
 		return filepath.Join(uc.uploadDir, versionName)

@@ -277,7 +277,11 @@ components:
           example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
         filePath:
           type: string
-          example: dmel_r6.59/genomic.gff.gz
+          description: |
+            Where the file is stored. The file name is the uploaded name with an 8-character
+            tag from the upload ID inserted before its first dot, so two uploads of the same
+            name never share a file; removing `-` plus the tag gives the original name.
+          example: public/uploads/dmel_r6.59/v1a7/genomic-3fa85f64.gff.gz
         fileSize:
           type: integer
           format: int64

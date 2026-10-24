@@ -266,21 +266,21 @@ func TestExtractBundle_GzipsPlainFilesOnce(t *testing.T) {
 		tarEntry{name: "pre-no-suffix.tsv", body: gzipped(t, "pre-no-suffix-content")},
 	)
 	dst := filepath.Join(t.TempDir(), "bundle-id")
-	if err := extractBundle(p, dst); err != nil {
+	if err := extractBundle(p, dst, "bundle-id"); err != nil {
 		t.Fatal(err)
 	}
 
-	for file, want := range map[string]string{
-		"plain.tsv.gz":         "plain-content",
-		"pre.tsv.gz":           "pre-content",
-		"pre-no-suffix.tsv.gz": "pre-no-suffix-content",
+	for name, want := range map[string]string{
+		"plain.tsv":         "plain-content",
+		"pre.tsv.gz":        "pre-content",
+		"pre-no-suffix.tsv": "pre-no-suffix-content",
 	} {
-		if got := readGzip(t, filepath.Join(dst, file)); got != want {
-			t.Errorf("%s: got %q, want %q", file, got, want)
+		if got := readGzip(t, filepath.Join(dst, childFileName("bundle-id", name))); got != want {
+			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dst, "manifest.csv.gz")); !os.IsNotExist(err) {
-		t.Error("manifest.csv must not be extracted as a data file")
+	if files, _ := os.ReadDir(dst); len(files) != 3 {
+		t.Errorf("extracted %d files, want the 3 data files (manifest.csv must not be extracted)", len(files))
 	}
 }
 

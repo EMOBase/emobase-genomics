@@ -142,10 +142,13 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    concurrent tracks.
 2. On upload completion (`PreFinishResponseCallback` / `handlePreFinish`), the file is
    signature verified (gzip, or zip for `.zip` bundles), moved from the tus staging dir into
-   `{uploadDir}/{version}/{assemblyKey}/{fileName}` (flat `{uploadDir}/{version}/{fileName}`
+   `{uploadDir}/{version}/{assemblyKey}/{storedName}` (flat `{uploadDir}/{version}/{storedName}`
    for `orthology.tsv`), and one or more `entity.Job` rows are enqueued in MySQL
    (status `PENDING`) via `enqueueProcessJob`, each with `AssemblyVersionID` set
-   (`nil` only for `orthology.tsv`). Job payloads are typed structs in
+   (`nil` only for `orthology.tsv`). `storedName` is the upload's `fileName` with an
+   8-character tag from its upload ID before the first dot (`uploadspec.StoredFileName`,
+   e.g. `genomic-1a2b3c4d.gff.gz`), so same-named uploads never share a path; the move
+   refuses to overwrite an existing file. Job payloads are typed structs in
    `internal/pkg/jobpayload/*`, JSON-marshaled into `Job.Payload`.
 3. `cmd/worker` polls MySQL for pending jobs (`ClaimNextPending`), dispatches to a
    `map[jobType]Handler` in `internal/pkg/usecase/worker/handlers/`, marks the job
@@ -191,7 +194,7 @@ version-scoped and takes no `assembly`, since orthology belongs to the whole ver
 and checked at upload; its tracks are stored under that assembly's folder. The upload
 enqueues a single `*.BUNDLE` job; `handlers/bundle.go` validates the whole archive and manifest before
 writing anything, then extracts into `{uploadDir}/{version}/{bundleID}/` (gzipping
-plain files) and creates one independent child `upload_files` row + child job per file.
+plain files, each named like a single upload but tagged with its child ID) and creates one independent child `upload_files` row + child job per file.
 Children inherit the bundle row's assembly, which is nil for orthology.
 Child IDs are derived from bundle ID + file name, so a requeued bundle job reuses
 what it already created. Per-type metadata validation and child job construction

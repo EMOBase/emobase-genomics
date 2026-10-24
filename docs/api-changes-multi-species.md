@@ -67,6 +67,7 @@ both `null` when unset.
 | `GET /versions`, `GET /versions/{name}/detail` | No longer need a token (were admin-only). Responses are unchanged, so they include `createdBy`/`updatedBy`, file paths and job errors. |
 | `GET /search` | `orthologs` groups are sorted alphabetically by species (was: main species first). A direct `genes` hit is still only returned for the configured `main_species` (`Tcas`); a hit in any other species comes back as `orthologies` when it is in an orthology file, else as `otherGenes` with its `species` (e.g. `{ "species": "Lyst", "gene": "GSLYS_00000001001" }`). |
 | `DELETE /versions/{name}` | Also cascades to all assemblies and their JBrowse2 data. |
+| Every response with a `filePath` | The stored file name now carries an 8-character tag from the upload ID before its first dot (`genomic.gff.gz` → `genomic-3fa85f64.gff.gz`), so same-named uploads no longer overwrite each other. Files uploaded before this change keep their old names. Strip `-` plus the tag to show the original name. |
 | `GET /genes/{species}`, `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
 
 ## Deprecated

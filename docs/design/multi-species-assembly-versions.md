@@ -408,7 +408,12 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   This also fixes a pre-existing latent collision risk for the assembly-scoped types
   (same-named files from different uploads overwriting each other in one flat version
   directory), which multi-species would otherwise make load-bearing rather than
-  accidental.
+  accidental. (Revised: per-assembly folders don't separate same-named uploads to *one*
+  assembly, so the stored name now also carries an 8-character tag from the upload ID
+  before its first dot — `genomic-1a2b3c4d.gff.gz`, via `uploadspec.StoredFileName` —
+  and bundle files are tagged with their child ID. Otherwise a bundle job's cleanup could
+  delete a later same-named bundle's archive, and same-named tracks overwrote each other's
+  JBrowse2 copy.)
 - **Active-job dedup** (`HasActiveJobOfType`, line 179): re-scopes its first argument
   from `version.ID` to the resolved `assemblyVersion.ID` for every type except
   `orthology.tsv`, which **keeps its existing `version.ID` scoping unchanged** — an
@@ -660,7 +665,7 @@ decision.
 
 `{uploadDir}/{versionName}/{fileName}` → `{uploadDir}/{versionName}/{assemblyKey}/
 {fileName}` for every type except `orthology.tsv`, which keeps its current flat path
-(§3). `DeleteVersion`'s existing `os.RemoveAll(filepath.Join(uploadDir, v.Name))`
+(§3; revised: `{fileName}` is stored with an upload-ID tag, see there). `DeleteVersion`'s existing `os.RemoveAll(filepath.Join(uploadDir, v.Name))`
 (`version.go:552-555`) needs **no change** — it already recursively removes everything
 under the version directory, which now includes both the per-assembly subdirectories and
 the unchanged flat orthology file. A new "delete one assembly" path needs the narrower
