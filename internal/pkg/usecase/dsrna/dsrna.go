@@ -12,19 +12,18 @@ import (
 )
 
 type UseCase struct {
-	repo        IDsRNARepository
-	mainSpecies string
-	batchSize   int
+	repo      IDsRNARepository
+	batchSize int
 }
 
-func New(repo IDsRNARepository, mainSpecies string, batchSize int) *UseCase {
-	return &UseCase{repo: repo, mainSpecies: mainSpecies, batchSize: batchSize}
+func New(repo IDsRNARepository, batchSize int) *UseCase {
+	return &UseCase{repo: repo, batchSize: batchSize}
 }
 
 // Load parses a dsrna.csv (CSV format: id, seq, leftPrimer?, rightPrimer?) from r
 // and bulk-indexes the records into indexName. Lines starting with '#' and blank
-// lines are skipped. The gene ID is stored as "<mainSpecies>:<id>".
-func (uc *UseCase) Load(ctx context.Context, r io.Reader, indexName string) error {
+// lines are skipped. The gene ID is stored as "<species>:<id>".
+func (uc *UseCase) Load(ctx context.Context, r io.Reader, indexName, species string) error {
 	scanner := bufio.NewScanner(r)
 
 	count := 0
@@ -51,7 +50,7 @@ func (uc *UseCase) Load(ctx context.Context, r io.Reader, indexName string) erro
 			continue
 		}
 
-		doc, err := uc.parseLine(line)
+		doc, err := uc.parseLine(line, species)
 		if err != nil {
 			return fmt.Errorf("line %d: %w", lineNum, err)
 		}
@@ -76,14 +75,14 @@ func (uc *UseCase) Load(ctx context.Context, r io.Reader, indexName string) erro
 	return nil
 }
 
-func (uc *UseCase) parseLine(line string) (entity.DsRNA, error) {
+func (uc *UseCase) parseLine(line, species string) (entity.DsRNA, error) {
 	cols := strings.Split(line, ",")
 	if len(cols) < 2 {
 		return entity.DsRNA{}, fmt.Errorf("dsRNA CSV must have at least 2 columns, got %d", len(cols))
 	}
 
 	doc := entity.DsRNA{
-		Gene: uc.mainSpecies + ":" + strings.TrimSpace(cols[0]),
+		Gene: species + ":" + strings.TrimSpace(cols[0]),
 		Seq:  strings.TrimSpace(cols[1]),
 	}
 	if len(cols) > 2 {

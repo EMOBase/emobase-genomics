@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
@@ -23,7 +22,6 @@ type IDeleteOrthologyRepository interface {
 }
 
 type DeleteOrthologyTSVHandler struct {
-	uploadDir      string
 	uploadFileRepo IDeleteUploadFileRepository
 	versionRepo    IVersionRepository
 	orthologyRepo  IDeleteOrthologyRepository
@@ -31,14 +29,12 @@ type DeleteOrthologyTSVHandler struct {
 }
 
 func NewDeleteOrthologyTSVHandler(
-	uploadDir string,
 	uploadFileRepo IDeleteUploadFileRepository,
 	versionRepo IVersionRepository,
 	orthologyRepo IDeleteOrthologyRepository,
 	indexPrefix string,
 ) *DeleteOrthologyTSVHandler {
 	return &DeleteOrthologyTSVHandler{
-		uploadDir:      uploadDir,
 		uploadFileRepo: uploadFileRepo,
 		versionRepo:    versionRepo,
 		orthologyRepo:  orthologyRepo,
@@ -79,7 +75,8 @@ func (h *DeleteOrthologyTSVHandler) Handle(ctx context.Context, job entity.Job) 
 		return nil, fmt.Errorf("failed to soft-delete upload file record: %w", err)
 	}
 
-	filePath := filepath.Join(h.uploadDir, f.FilePath)
+	// FilePath already includes the upload directory, like every upload row's.
+	filePath := f.FilePath
 	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 		log.Ctx(ctx).Warn().Err(err).Str("path", filePath).Msg("failed to remove orthology file from disk")
 	}

@@ -98,23 +98,45 @@ components:
                 - `DRAFT` — no jobs exist.
                 - `PROCESSING` — at least one job is PENDING or RUNNING.
                 - `ERROR` — at least one job is FAILED.
-                - `MISSING_REQUIRED_FILE` — the required file (`genomic.fna`) has not been uploaded yet.
+                - `MISSING_REQUIRED_FILE` — the version has no Assembly Versions yet, so it cannot be released, whatever its jobs' state. No file type is required.
                 - `READY` — all jobs are DONE.
 
                 Beside `DRAFT` and `READY`, these states are not mutually exclusive.
-                The order of precedence is: PROCESSING > ERROR > MISSING_REQUIRED_FILE.
+                The order of precedence is: MISSING_REQUIRED_FILE > PROCESSING > ERROR.
 
     VersionList:
       type: object
-      required: [items, total, page, pageSize]
+      required: [versions, total, page, pageSize]
       properties:
-        items:
+        versions:
           type: array
           items:
             $ref: '#/components/schemas/VersionItem'
         total:
           type: integer
           description: Total number of versions across all pages.
+          example: 42
+        page:
+          type: integer
+          description: Current page number (1-based).
+          example: 1
+        pageSize:
+          type: integer
+          description: Number of items per page.
+          example: 20
+
+    OrthologyFileList:
+      type: object
+      required: [files, total, page, pageSize]
+      properties:
+        files:
+          type: array
+          description: One page of the Database Version's orthology.tsv uploads, newest first.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        total:
+          type: integer
+          description: Total number of orthology.tsv uploads across all pages.
           example: 42
         page:
           type: integer
@@ -148,6 +170,7 @@ components:
         - GENOMIC.FNA:SETUP_BLAST
         - PROTEIN.FAA:SETUP_BLAST
         - RNA.FNA:SETUP_BLAST
+        - GENOMIC.FNA:REMOVE_BLAST
         - PROTEIN.FAA:REMOVE_BLAST
         - RNA.FNA:REMOVE_BLAST
         - GENOMIC.FNA:SETUP_JBROWSE2
@@ -169,6 +192,7 @@ components:
         - `GENOMIC.FNA:SETUP_BLAST` — build genome BLAST database.
         - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
+        - `GENOMIC.FNA:REMOVE_BLAST` — remove a stale genome BLAST database left by a previous version that released without a `genomic.fna` file.
         - `PROTEIN.FAA:REMOVE_BLAST` — remove a stale protein BLAST database left by a previous version that released without a `protein.faa` file.
         - `RNA.FNA:REMOVE_BLAST` — remove a stale RNA BLAST database left by a previous version that released without a `rna.fna` file.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
@@ -176,7 +200,8 @@ components:
         - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
         - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
-        - `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` — validate and extract a bundle archive into independent `orthology.tsv` / `jbrowse.track` upload files, enqueueing one `ORTHOLOGY.TSV` / `JBROWSE.TRACK` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
+        - `ORTHOLOGY.BUNDLE` — validate and extract an `orthology.bundle` archive into independent `orthology.tsv` upload files, enqueueing one `ORTHOLOGY.TSV` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
+        - `JBROWSE.TRACK.BUNDLE` — validate and extract a `jbrowse.track.bundle` archive into independent `jbrowse.track` upload files of one assembly, enqueueing one `JBROWSE.TRACK` job per file. Same all-or-nothing rules as `ORTHOLOGY.BUNDLE`.
 
     JobSummary:
       type: object
@@ -211,6 +236,36 @@ components:
           description: Error message from the worker. Present only when `status` is `FAILED`.
           example: failed to open file "/uploads/dmel/genomic.gff.gz"
 
+    JobDetail:
+      description: One job, as returned by `GET /jobs/{id}`.
+      allOf:
+        - $ref: '#/components/schemas/JobSummary'
+        - type: object
+          required: [assemblyVersionId, createdAt, updatedAt, startedAt, completedAt]
+          properties:
+            assemblyVersionId:
+              type: integer
+              format: int64
+              nullable: true
+              description: Assembly Version the job belongs to. `null` for jobs shared across the whole Database Version (`ORTHOLOGY.TSV` and its variants).
+              example: 7
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+            startedAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: When a worker claimed the job. `null` while `PENDING`.
+            completedAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the job reached `DONE` or `FAILED`. `null` until then.
+
     FileDetail:
       type: object
       description: An uploaded file together with all its associated jobs.
@@ -222,7 +277,11 @@ components:
           example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
         filePath:
           type: string
-          example: dmel_r6.59/genomic.gff.gz
+          description: |
+            Where the file is stored. The file name is the uploaded name with an 8-character
+            tag from the upload ID inserted before its first dot, so two uploads of the same
+            name never share a file; removing `-` plus the tag gives the original name.
+          example: public/uploads/dmel_r6.59/v1a7/genomic-3fa85f64.gff.gz
         fileSize:
           type: integer
           format: int64
@@ -272,9 +331,13 @@ components:
     VersionDetailFiles:
       type: object
       description: |
-        Uploaded files grouped by type. For all types except `orthology.tsv` and
-        `jbrowse.track`, only the latest non-deleted file is returned (or `null` if none
-        exists). For `orthology.tsv` and `jbrowse.track`, all non-deleted files are returned.
+        Uploaded files grouped by type, scoped to a single Assembly Version (species).
+        `orthology.tsv` is shared across every species in a Database Version rather than
+        owned by one assembly, so it is not part of this type — see
+        `VersionDetail.orthologyTSV` instead. For all types except `jbrowse.track` and
+        `species.synonym`, only the latest non-deleted file is returned (or `null` if
+        none exists). For `jbrowse.track` and `species.synonym`, all non-deleted files
+        for this assembly are returned.
       properties:
         genomic.fna:
           $ref: '#/components/schemas/FileDetail'
@@ -294,16 +357,93 @@ components:
         dsrna.csv:
           $ref: '#/components/schemas/FileDetail'
           nullable: true
-          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when `main_species` is `tcas`.
-        orthology.tsv:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileDetail'
+          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when this assembly's `speciesCode` is `Tcas`.
         jbrowse.track:
           type: array
-          description: All non-deleted JBrowse2 track files for this version.
+          description: All non-deleted JBrowse2 track files for this assembly.
           items:
             $ref: '#/components/schemas/FileDetail'
+        species.synonym:
+          type: array
+          description: All non-deleted species synonym files for this assembly.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+
+    AssemblyVersion:
+      type: object
+      required: [id, versionId, name, speciesName, speciesCode, createdAt, createdBy, updatedAt, updatedBy]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        versionId:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          description: Free-text, human-readable label for this assembly.
+          example: Human / GRCh38
+        speciesName:
+          type: string
+          description: Admin-provided scientific name of the species, as entered at creation (trimmed). Read-only after creation.
+          example: Homo sapiens
+        speciesCode:
+          type: string
+          description: |
+            4-letter species code derived from `speciesName` at creation: the first letter of
+            the first word, uppercased, plus the first 3 letters of the second word, lowercased
+            (`Tribolium castaneum` → `Tcas`). Copied into indexed data at upload time, so it is
+            read-only. Not an address — a Database Version can hold several assemblies of one
+            species, so use `id` to address this Assembly Version in URLs and upload metadata.
+          example: Hsap
+        imagePath:
+          type: string
+          nullable: true
+          description: |
+            Path of the uploaded assembly image, in the same form as `FileDetail.filePath`;
+            nginx serves it at `/{imagePath}`. Set and removed with
+            `PUT`/`DELETE /versions/{name}/assemblies/{id}/image`. Each upload gets a new
+            path. `null` when no image was uploaded.
+          example: public/uploads/dmel_r6.59/v1a7/image-1760659200000000000.png
+        infoUrl:
+          type: string
+          nullable: true
+          description: Optional external link with more about the assembly. Absolute `http`/`https` URL, at most 2048 characters.
+          example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          example: admin
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          example: admin
+
+    AssemblyVersionItem:
+      allOf:
+        - $ref: '#/components/schemas/AssemblyVersion'
+        - type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [DRAFT, PROCESSING, ERROR, READY]
+              description: Same derivation as VersionItem.status, computed from this assembly's own jobs only. Never `MISSING_REQUIRED_FILE`, since no file type is required.
+
+    AssemblyVersionDetail:
+      allOf:
+        - $ref: '#/components/schemas/AssemblyVersionItem'
+        - type: object
+          required: [files]
+          properties:
+            files:
+              $ref: '#/components/schemas/VersionDetailFiles'
 
     UploadFileSummary:
       type: object
@@ -319,7 +459,7 @@ components:
           example: 1
         fileType:
           type: string
-          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, species.synonym, dsrna.csv, jbrowse.track]
+          enum: [genomic.fna, genomic.gff, rna.fna, cds.fna, protein.faa, orthology.tsv, orthology.bundle, species.synonym, dsrna.csv, jbrowse.track, jbrowse.track.bundle]
           example: genomic.gff
         fileSize:
           type: integer
@@ -563,7 +703,7 @@ components:
 
     VersionDetail:
       type: object
-      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, files]
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, assemblies]
       properties:
         id:
           type: integer
@@ -574,9 +714,20 @@ components:
           example: dmel_r6.59
         isDefault:
           type: boolean
+        totalFileSize:
+          type: integer
+          format: int64
+          description: Sum of `file_size` for all non-deleted upload files belonging to this Database Version (across every assembly plus the shared orthology.tsv), in bytes.
+          example: 1073741824
         status:
           type: string
           enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
+          description: |
+            Rolled up across every Assembly Version's own status plus the shared
+            orthology.tsv status: PROCESSING if any is PROCESSING, else ERROR if any is
+            ERROR, else READY if every assembly (and orthology) is READY, else DRAFT. No file
+            type is required; MISSING_REQUIRED_FILE is only returned when there are zero
+            Assembly Versions at all.
         createdAt:
           type: string
           format: date-time
@@ -589,8 +740,16 @@ components:
         updatedBy:
           type: string
           example: admin
-        files:
-          $ref: '#/components/schemas/VersionDetailFiles'
+        orthologyTSV:
+          type: array
+          description: All non-deleted orthology.tsv uploads for this Database Version — shared across every species rather than owned by one assembly.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        assemblies:
+          type: array
+          description: One entry per Assembly Version (species) in this Database Version.
+          items:
+            $ref: '#/components/schemas/AssemblyVersionDetail'
 
 paths:
   /health:
@@ -1201,7 +1360,13 @@ paths:
       summary: List versions (public)
       operationId: listVersionsPublic
       tags: [Versions]
-      description: Returns a lightweight list of all versions (id, name, status, isDefault, createdAt), sorted by createdAt descending. No authentication required. Capped at 100 results.
+      security: []
+      deprecated: true
+      description: |
+        **Deprecated:** use `GET /versions` (now public, paged) instead. Kept until the
+        frontend has migrated; will be removed in the next development cycle.
+
+        Returns a lightweight list of all versions (id, name, status, isDefault, createdAt), sorted by createdAt descending. No authentication required. Capped at 100 results.
       parameters:
         - name: status
           in: query
@@ -1230,6 +1395,7 @@ paths:
       summary: List versions
       operationId: listVersions
       tags: [Versions]
+      security: []
       parameters:
         - name: page
           in: query
@@ -1258,17 +1424,6 @@ paths:
                     $ref: '#/components/schemas/VersionList'
                   requestId:
                     type: string
-        '403':
-          description: Missing or invalid token.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                forbidden:
-                  value:
-                    error: permission denied
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
     post:
       summary: Create a version
@@ -1331,6 +1486,7 @@ paths:
       summary: Get version detail
       operationId: getVersionDetail
       tags: [Versions]
+      security: []
       parameters:
         - name: name
           in: path
@@ -1350,17 +1506,62 @@ paths:
                     $ref: '#/components/schemas/VersionDetail'
                   requestId:
                     type: string
-        '403':
-          description: Missing or invalid token.
+        '404':
+          description: Version not found.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                forbidden:
+                notFound:
                   value:
-                    error: permission denied
+                    error: version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}/orthologies:
+    get:
+      summary: List orthology.tsv uploads of a version (paged)
+      operationId: listVersionOrthologies
+      tags: [Versions]
+      security: []
+      description: |
+        Paged list of the Database Version's shared orthology.tsv uploads, newest
+        first, each with its jobs. Same entries as `orthologyTSV` in
+        `GET /versions/{name}/detail`, which still returns them all, unpaged.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Version name (e.g. `dmel_r6.59`).
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number (1-based).
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of items per page.
+      responses:
+        '200':
+          description: One page of orthology.tsv uploads.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/OrthologyFileList'
+                  requestId:
+                    type: string
         '404':
           description: Version not found.
           content:
@@ -1443,28 +1644,34 @@ paths:
       operationId: releaseVersion
       tags: [Versions]
       description: |
-        Enqueues `GENOMIC.FNA:SETUP_BLAST`, `PROTEIN.FAA:SETUP_BLAST`, and `RNA.FNA:SETUP_BLAST`
-        jobs for the latest completed file of each type. For `protein.faa` and `rna.fna`, if this
-        version has no completed upload of that type, a `PROTEIN.FAA:REMOVE_BLAST` /
-        `RNA.FNA:REMOVE_BLAST` job is enqueued instead, so a BLAST database built by a previous
-        version isn't left stale and served under this version. Once all enqueued blast jobs
-        succeed, the version is automatically promoted to the default, the BLAST container is
-        restarted, and this version's JBrowse2 assembly is promoted to the front of the default
-        session so it is what JBrowse2 opens by default (older assemblies remain available but no
-        longer take priority).
+        For every Assembly Version (species) in this Database Version, enqueues
+        `GENOMIC.FNA:SETUP_BLAST`, `PROTEIN.FAA:SETUP_BLAST`, and `RNA.FNA:SETUP_BLAST` jobs
+        for that assembly's latest completed file of each type. No file type is required:
+        if an assembly has no completed upload of a type, a `GENOMIC.FNA:REMOVE_BLAST` /
+        `PROTEIN.FAA:REMOVE_BLAST` / `RNA.FNA:REMOVE_BLAST` job is enqueued instead, so a
+        BLAST database built by a previous release isn't left stale and served under this
+        version. Once every enqueued blast job across every assembly succeeds, the version
+        is automatically promoted to the default, the BLAST container is restarted, and
+        every assembly's JBrowse2 view is promoted to the front of the default session
+        (older versions' assemblies remain available but no longer take priority).
 
-        Blast jobs are re-enqueued on every release call, even if this version was already fully
-        released before — BLAST DB paths are global, not per-version, so releasing this version
-        again (e.g. to switch the active default back to it after a different version's release
-        overwrote the databases) always rebuilds them from this version's own files. Only a job
-        that's still in-flight (`PENDING`/`RUNNING`) for this version is skipped, to avoid enqueuing
-        a duplicate from a repeated request.
+        Blast jobs are re-enqueued on every release call, even if this version was already
+        fully released before — releasing this version again (e.g. to switch the active
+        default back to it after a different version was released) always rebuilds its
+        BLAST databases from this version's own files. Only a job that's still in-flight
+        (`PENDING`/`RUNNING`) for a given assembly is skipped, to avoid enqueuing a
+        duplicate from a repeated request.
+
+        BLAST databases are built per assembly (one set per species), so every assembly in
+        the default version is searchable at once. When a different version was previously
+        the default, its now-superseded BLAST databases are removed on promotion.
 
         **Preconditions** (returns 422 if not met):
-        - `genomic.fna` must have at least one completed upload.
-        - All jobs generated from the latest completed file of every uploaded type must be in `DONE` state.
+        - This Database Version must have at least one Assembly Version.
+        - All jobs generated from the latest completed file of every uploaded type, for
+          every assembly and for the shared `orthology.tsv` (if any), must be in `DONE` state.
 
-        If a non-failed blast job already exists for a given type it is skipped (idempotent per type).
+        If a non-failed blast job already exists for a given assembly/type it is skipped (idempotent per assembly and type).
       parameters:
         - name: name
           in: path
@@ -1522,15 +1729,497 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                requiredFileNotUploaded:
-                  summary: A required file has not been uploaded yet
+                noAssemblies:
+                  summary: This Database Version has no Assembly Versions
                   value:
-                    error: "required file not uploaded: genomic.fna"
+                    error: "required file not uploaded: no Assembly Versions exist for this Database Version"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 fileJobsNotComplete:
                   summary: Jobs for the latest uploaded file of some type are not all done
                   value:
-                    error: "file jobs not complete: rna.fna"
+                    error: "file jobs not complete: rna.fna (species Hsap)"
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}/assemblies:
+    get:
+      summary: List Assembly Versions (species) in a Database Version
+      operationId: listAssemblyVersions
+      tags: [Assembly Versions]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+      responses:
+        '200':
+          description: All Assembly Versions in this Database Version.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssemblyVersionItem'
+                  requestId:
+                    type: string
+        '404':
+          description: Version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    post:
+      summary: Create an Assembly Version (species) in a Database Version
+      operationId: createAssemblyVersion
+      tags: [Assembly Versions]
+      description: |
+        Every Assembly Version is created identically — there is no auto-assigned
+        "primary"/"default" species. The admin enters `speciesName`; `speciesCode` is derived from it. Several assemblies may share a species within one Database Version. Use the returned `id` to address this assembly in URLs and upload metadata.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, speciesName]
+              properties:
+                name:
+                  type: string
+                  example: Human / GRCh38
+                speciesName:
+                  type: string
+                  description: |
+                    Scientific name: at least two words, the first starting with a letter and
+                    the second with 3 ASCII letters. `speciesCode` is derived from it
+                    (`Homo sapiens` → `Hsap`); words after the second are ignored.
+                  example: Homo sapiens
+                infoUrl:
+                  type: string
+                  description: Optional. Absolute `http`/`https` URL, at most 2048 characters.
+                  example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+      responses:
+        '201':
+          description: Assembly version created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssemblyVersion'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing name or speciesName, a speciesName no code can be derived from, or invalid infoUrl.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidInfoUrl:
+                  value:
+                    error: infoUrl must be an absolute http or https URL of at most 2048 characters
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}/assemblies/{id}:
+    get:
+      summary: Get Assembly Version detail
+      operationId: getAssemblyVersionDetail
+      tags: [Assembly Versions]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id (the `id` field from `GET /versions/{name}/assemblies`). Not the species code, since one Database Version can hold several assemblies of the same species. An id from another Database Version returns 404.
+      responses:
+        '200':
+          description: Full detail for the requested assembly.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssemblyVersionDetail'
+                  requestId:
+                    type: string
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    patch:
+      summary: Update an Assembly Version
+      operationId: updateAssemblyVersion
+      tags: [Assembly Versions]
+      description: |
+        Partial update: only fields present in the body change. `speciesName` and
+        `speciesCode` cannot be changed, since the code is copied into indexed data at
+        upload time; sending either returns 400 (delete and recreate the assembly instead). The image has its own
+        endpoint, `PUT /versions/{name}/assemblies/{id}/image`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id. An id from another Database Version returns 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Must not be empty.
+                  example: Human / GRCh38.p14
+                infoUrl:
+                  type: string
+                  description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link.
+                  example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+      responses:
+        '200':
+          description: The updated assembly.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssemblyVersion'
+                  requestId:
+                    type: string
+        '400':
+          description: Empty name, invalid infoUrl, or `speciesName`/`speciesCode` sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                speciesReadOnly:
+                  value:
+                    error: species cannot be changed; delete and recreate the assembly instead
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                emptyName:
+                  value:
+                    error: name must not be empty
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidInfoUrl:
+                  value:
+                    error: infoUrl must be an absolute http or https URL of at most 2048 characters
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    delete:
+      summary: Delete an Assembly Version (species)
+      operationId: deleteAssemblyVersion
+      tags: [Assembly Versions]
+      description: |
+        Permanently deletes one species from a Database Version and all of its own
+        data: upload file records are hard-deleted from the database and their files
+        are removed from disk, and all jobs for this assembly are deleted. There is no
+        orthology-related guard — this never touches the Database Version's shared
+        `orthology.tsv` data, since orthology belongs to no single assembly.
+
+        Also removes that species' Elasticsearch indices (genomic, sequence, synonym,
+        dsrna — never orthology) and its JBrowse2 assembly and tracks. These two cleanups
+        are best-effort: a failure is logged but does not fail the request.
+
+        **Preconditions** (returns 422 if not met):
+        - The assembly must have no active (PENDING or RUNNING) jobs.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id (the `id` field from `GET /versions/{name}/assemblies`). An id from another Database Version returns 404.
+      responses:
+        '204':
+          description: Assembly version and all related data deleted successfully.
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '422':
+          description: Precondition not met.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                hasActiveJobs:
+                  summary: Assembly version has active jobs
+                  value:
+                    error: assembly version has active jobs
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /versions/{name}/assemblies/{id}/image:
+    put:
+      summary: Upload or replace an Assembly Version's image
+      operationId: setAssemblyVersionImage
+      tags: [Assembly Versions]
+      description: |
+        Stores the image in the assembly's upload directory and sets `imagePath`,
+        replacing (and deleting) any previous image. PNG, JPEG or WebP only, detected
+        from the file's content rather than its name or `Content-Type`; at most 5 MiB.
+        Deleting the assembly or its Database Version also deletes the image.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id. An id from another Database Version returns 404.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: The updated assembly, with its new `imagePath`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssemblyVersion'
+                  requestId:
+                    type: string
+        '400':
+          description: Missing `image` field, or not a PNG, JPEG or WebP file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingField:
+                  value:
+                    error: multipart form field "image" is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                unsupportedType:
+                  value:
+                    error: image must be a PNG, JPEG or WebP file
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '413':
+          description: Image larger than 5 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tooLarge:
+                  value:
+                    error: image must be at most 5 MiB
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+    delete:
+      summary: Remove an Assembly Version's image
+      operationId: deleteAssemblyVersionImage
+      tags: [Assembly Versions]
+      description: Deletes the image file and sets `imagePath` to `null`. Succeeds when there is no image.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Database Version name (e.g. `dmel_r6.59`).
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Assembly Version id. An id from another Database Version returns 404.
+      responses:
+        '204':
+          description: Image removed (or there was none).
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: Version or assembly version not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                versionNotFound:
+                  value:
+                    error: version not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  value:
+                    error: assembly version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /jobs:
@@ -1582,6 +2271,69 @@ paths:
                     error: permission denied
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
+  /jobs/{id}:
+    get:
+      summary: Get a job
+      operationId: getJob
+      tags: [Jobs]
+      description: |
+        Returns one job by its id, e.g. an id from the `X-Jobs` header of an upload, so a
+        client can poll its status. When `status` is `FAILED`, `error` carries the worker's
+        error message.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Job id.
+      responses:
+        '200':
+          description: The job.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobDetail'
+                  requestId:
+                    type: string
+        '400':
+          description: The id is not an integer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidID:
+                  value:
+                    error: job id must be an integer
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '403':
+          description: Missing or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: No job has this id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: job not found
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
   /uploads:
     post:
       summary: Create a TUS upload
@@ -1593,15 +2345,16 @@ paths:
         | Key | Required | Description |
         |---|---|---|
         | `fileType` | Yes | One of the accepted file types (see enum below). |
-        | `fileName` | Yes | File name; must end with `.gz` or `.gzip`. |
+        | `fileName` | Yes | File name; must end with `.gz` or `.gzip`, or with `.tar.gz` or `.zip` for bundle file types. |
         | `version` | Yes | Version name. Required for all file types. |
+        | `assembly` | Conditional | The target Assembly Version's **`id`** as a decimal integer (e.g. `6`; see `GET /versions/{name}/assemblies`). Not the species code: a species code does not identify an assembly. **Required for every `fileType` except `orthology.tsv`**, which is shared across all species in the Version and takes no `assembly`. The Assembly Version must already exist in `version`. |
         | `order` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `algorithm` | Conditional | Required when `fileType` is `orthology.tsv`. |
         | `geneIDKey` | Conditional | Required when `fileType` is `genomic.gff`. GFF3 attribute key used to extract the gene ID. Supports simple keys (e.g. `ID`) and nested dot-notation keys (e.g. `Dbxref.GeneID`) to look up a `dbname:dbvalue` entry inside the attribute. |
         | `trimPrefixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the start of the extracted gene ID value. Use `0` for no trimming. |
         | `trimSuffixChars` | Conditional | Required when `fileType` is `genomic.gff`. Integer — number of characters to strip from the end of the extracted gene ID value. Use `0` for no trimming. |
         | `oldGeneIDKeys` | No | Comma-separated list of additional GFF3 attribute keys (same format as `geneIDKey`) whose extracted values are stored as previous/synonym gene IDs. Only used when `fileType` is `genomic.gff`. |
-        | `species` | Conditional | Required when `fileType` is `species.synonym`. The species identifier whose synonym rows are parsed from the file (e.g. `Dmel`). |
+        | `species` | Conditional | Required when `fileType` is `species.synonym`. The species identifier whose synonym rows are parsed from the file (e.g. `Dmel`). Independent of `assembly`, which says which Assembly Version the file is filed under. |
         | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
         | `category` | No | Only used when `fileType` is `jbrowse.track`. Comma-separated list of category labels used to group the track in the JBrowse2 track selector (e.g. `Alignments,My Lab`). |
         | `selectInDefaultSession` | No | Only used when `fileType` is `jbrowse.track`. Boolean (`true`/`false`, default `false`). When `true`, the track is added to the assembly's default session (already selected/visible the first time a user opens that assembly in JBrowse2). |
@@ -1612,16 +2365,18 @@ paths:
         - `rna.fna`
         - `cds.fna`
         - `protein.faa`
-        - `orthology.tsv`
+        - `orthology.tsv` *(shared across the whole Version; takes no `assembly`; 1 active per version)*
         - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files)*
-        - `dsrna.csv` *(tcas species only; 1 active per version — re-upload replaces the previous index)*
-        - `jbrowse.track` *(multiple tracks allowed per version; requires `trackName` metadata; optional `category`; deletable)*
-        - `orthology.bundle` / `jbrowse.track.bundle` *(many `orthology.tsv` / `jbrowse.track` files in one upload; see below)*
+        - `dsrna.csv` *(only for an assembly whose `speciesCode` is `Tcas`; 1 active per assembly — re-upload replaces that assembly's previous index)*
+        - `jbrowse.track` *(multiple tracks allowed per assembly; requires `trackName` metadata; optional `category`; deletable)*
+        - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
+        - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*
 
         **Bundle uploads** (`orthology.bundle`, `jbrowse.track.bundle`):
 
-        - The file must be a `.tar.gz` archive. No metadata is needed besides `fileType`, `fileName` and `version`.
-        - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`
+        - The file must be a `.tar.gz` or `.zip` archive. Metadata is `fileType`, `fileName` and `version`, plus `assembly` for `jbrowse.track.bundle` only. Do not send `assembly` for `orthology.bundle`: orthology belongs to the whole version.
+        - `jbrowse.track.bundle` covers exactly one assembly. An unknown `assembly` is rejected at upload with 400, and no archive is stored. Its tracks are stored under that assembly's folder.
+        - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`, or `zip -j bundle.zip <folder>/*` for a .zip (the same rules apply: no folders, and no `__MACOSX` entries from Finder).
         - Data files may be plain or already gzipped; plain files are gzipped on the server.
         - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single upload of the child type. In `jbrowse.track.bundle`, `trackName` must be unique within the bundle.
         - The upload enqueues one `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
@@ -1650,7 +2405,7 @@ paths:
             type: string
           description: |
             Comma-separated `key base64(value)` pairs.
-            Example: `fileType Z2Vub21pYy5nZmY=,fileName ZG1lbC5nZmYuZ3o=,version ZG1lbF9yNi41NA==`
+            Example: `fileType Z2Vub21pYy5nZmY=,fileName ZG1lbC5nZmYuZ3o=,version ZG1lbF9yNi41NA==,assembly RG1lbA==`
       responses:
         '201':
           description: Upload created.
@@ -1664,7 +2419,7 @@ paths:
                 type: string
                 enum: ['1.0.0']
         '400':
-          description: Invalid metadata (unknown fileType, invalid fileName, missing required fields, non-gzip extension).
+          description: Invalid metadata (unknown fileType, invalid fileName, missing required fields, non-gzip extension, missing or unknown `assembly`).
           content:
             application/json:
               schema:
@@ -1684,6 +2439,21 @@ paths:
                   summary: version does not exist
                   value:
                     error: 'version "dmel_r6.99" not found'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                missingAssembly:
+                  summary: assembly missing for a non-orthology file type
+                  value:
+                    error: '"genomic.gff" uploads require an "assembly" metadata field'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotAnID:
+                  summary: assembly given as a species code instead of an id
+                  value:
+                    error: '"assembly" metadata must be an assembly id, got "Hsap"'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                assemblyNotFound:
+                  summary: no Assembly Version with this id in the Version
+                  value:
+                    error: 'assembly "999" not found in version "dmel_r6.99"'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 missingGeneIDKey:
                   summary: geneIDKey missing for genomic.gff
@@ -1706,9 +2476,9 @@ paths:
                     error: 'jbrowse.track uploads require a "trackName" metadata field'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 dsrnaNotSupported:
-                  summary: dsrna.csv upload attempted on non-tcas species
+                  summary: dsrna.csv upload attempted on an assembly whose species is not Tcas
                   value:
-                    error: dsrna.csv uploads are only supported for the tcas species
+                    error: 'dsrna.csv uploads are only supported for the "Tcas" species'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
@@ -1722,7 +2492,7 @@ paths:
                     error: permission denied
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '409':
-          description: A job for this file type is already pending or running for the given version.
+          description: A job for this file type is already pending or running for the target assembly (or, for `orthology.tsv`, for the given version). `jbrowse.track` is exempt.
           content:
             application/json:
               schema:
@@ -1860,7 +2630,7 @@ paths:
         '404':
           description: Upload not found.
         '422':
-          description: Uploaded file is not a valid gzip archive.
+          description: Uploaded file is not a valid gzip (or, for `.zip` bundles, zip) archive.
           content:
             application/json:
               schema:
@@ -1885,7 +2655,7 @@ paths:
           description: Version name (e.g. `dmel_r6.54`).
       responses:
         '200':
-          description: All non-deleted upload files for the given version, ordered by creation time descending. Bundle archives (`orthology.bundle`, `jbrowse.track.bundle`) are not listed; the files extracted from them are.
+          description: All non-deleted upload files for the given version, ordered by creation time descending. Bundle archives (`orthology.bundle`) are not listed; the files extracted from them are.
           content:
             application/json:
               schema:
@@ -2070,6 +2840,8 @@ tags:
     description: Direct orthology lookup by known gene IDs.
   - name: Versions
     description: Genome version management.
+  - name: Assembly Versions
+    description: Per-species assembly management within a Database Version.
   - name: Jobs
     description: Background processing job tracking.
   - name: Uploads

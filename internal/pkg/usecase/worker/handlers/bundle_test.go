@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"io"
@@ -63,6 +64,40 @@ func gzipped(t *testing.T, s string) string {
 	_, _ = gw.Write([]byte(s))
 	_ = gw.Close()
 	return buf.String()
+}
+
+// writeZipBundle is writeBundle for a .zip archive. Zip has no links, so only
+// regular files and folders can be written.
+func writeZipBundle(t *testing.T, entries ...tarEntry) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range entries {
+		switch e.typeflag {
+		case tar.TypeDir:
+			if _, err := zw.Create(e.name + "/"); err != nil {
+				t.Fatal(err)
+			}
+		case 0, tar.TypeReg:
+			w, err := zw.Create(e.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write([]byte(e.body)); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatalf("zip bundles cannot hold typeflag %q", e.typeflag)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "bundle.zip")
+	if err := os.WriteFile(p, buf.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func readGzip(t *testing.T, p string) string {
@@ -231,21 +266,21 @@ func TestExtractBundle_GzipsPlainFilesOnce(t *testing.T) {
 		tarEntry{name: "pre-no-suffix.tsv", body: gzipped(t, "pre-no-suffix-content")},
 	)
 	dst := filepath.Join(t.TempDir(), "bundle-id")
-	if err := extractBundle(p, dst); err != nil {
+	if err := extractBundle(p, dst, "bundle-id"); err != nil {
 		t.Fatal(err)
 	}
 
-	for file, want := range map[string]string{
-		"plain.tsv.gz":         "plain-content",
-		"pre.tsv.gz":           "pre-content",
-		"pre-no-suffix.tsv.gz": "pre-no-suffix-content",
+	for name, want := range map[string]string{
+		"plain.tsv":         "plain-content",
+		"pre.tsv.gz":        "pre-content",
+		"pre-no-suffix.tsv": "pre-no-suffix-content",
 	} {
-		if got := readGzip(t, filepath.Join(dst, file)); got != want {
-			t.Errorf("%s: got %q, want %q", file, got, want)
+		if got := readGzip(t, filepath.Join(dst, childFileName("bundle-id", name))); got != want {
+			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dst, "manifest.csv.gz")); !os.IsNotExist(err) {
-		t.Error("manifest.csv must not be extracted as a data file")
+	if files, _ := os.ReadDir(dst); len(files) != 3 {
+		t.Errorf("extracted %d files, want the 3 data files (manifest.csv must not be extracted)", len(files))
 	}
 }
 

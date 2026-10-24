@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
@@ -18,7 +17,6 @@ type IDeleteSynonymRepository interface {
 }
 
 type DeleteSynonymHandler struct {
-	uploadDir      string
 	uploadFileRepo IDeleteUploadFileRepository
 	versionRepo    IVersionRepository
 	synonymRepo    IDeleteSynonymRepository
@@ -26,14 +24,12 @@ type DeleteSynonymHandler struct {
 }
 
 func NewDeleteSynonymHandler(
-	uploadDir string,
 	uploadFileRepo IDeleteUploadFileRepository,
 	versionRepo IVersionRepository,
 	synonymRepo IDeleteSynonymRepository,
 	indexPrefix string,
 ) *DeleteSynonymHandler {
 	return &DeleteSynonymHandler{
-		uploadDir:      uploadDir,
 		uploadFileRepo: uploadFileRepo,
 		versionRepo:    versionRepo,
 		synonymRepo:    synonymRepo,
@@ -63,8 +59,13 @@ func (h *DeleteSynonymHandler) Handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("version %d not found", f.VersionID)
 	}
 
+	if f.AssemblyVersionID == nil {
+		return nil, fmt.Errorf("upload file %q has no assembly", payload.UploadFileID)
+	}
+	assemblyKey := entity.FormatAssemblyID(f.VersionID, *f.AssemblyVersionID)
+
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, assemblyKey, version.CreatedAt.Unix())
 
 	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		return nil, fmt.Errorf("failed to delete synonym records: %w", err)
@@ -74,7 +75,8 @@ func (h *DeleteSynonymHandler) Handle(ctx context.Context, job entity.Job) (json
 		return nil, fmt.Errorf("failed to soft-delete upload file record: %w", err)
 	}
 
-	filePath := filepath.Join(h.uploadDir, f.FilePath)
+	// FilePath already includes the upload directory, like every upload row's.
+	filePath := f.FilePath
 	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 		log.Ctx(ctx).Warn().Err(err).Str("path", filePath).Msg("failed to remove synonym file from disk")
 	}
