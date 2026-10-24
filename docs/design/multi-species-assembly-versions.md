@@ -249,7 +249,8 @@ CREATE TABLE assembly_versions (
     id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     version_id  BIGINT UNSIGNED                     NOT NULL,
     name        VARCHAR(255)                        NOT NULL,
-    species     VARCHAR(255)                        NOT NULL,
+    species_name VARCHAR(255)                       NOT NULL,
+    species_code VARCHAR(255)                       NOT NULL,
     created_at  DATETIME                             NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by  VARCHAR(255)                         NOT NULL,
     updated_at  DATETIME                             NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -264,15 +265,29 @@ Field naming and roles were revised to match this codebase's existing convention
 (an earlier draft used `species`/`slug` where `slug` was a *derived, sanitized* infra
 key computed from free text — the user corrected this to match how species identity
 already works everywhere else in this codebase): `name` is the free-text, human-readable
-label (e.g. "Human / GRCh38"), and **`species` is a short, directly admin-provided code**
+label (e.g. "Human / GRCh38"), and **`species_code` is a short species code**
 (e.g. `"Tcas"`, `"Dmel"`, `"Hsap"`) — the same shape of value already used throughout
 the existing system (`entity.SpeciesDmel = "Dmel"`, `entity.SpeciesTcas = "Tcas"` in
 `internal/pkg/entity/species.go`; the `species.synonym` upload's `species` metadata
 field; `orthology.tsv`'s header-row species codes). Unlike the earlier draft's `slug`,
-**`species` is not derived from `name`** — it's a distinct, directly-entered field, so
-there's no sanitization/collapsing logic to design.
+the code is **not derived from `name`**.
 
-**`species` describes an assembly; it does not identify one.** A Database Version can hold several assemblies of one species, so assemblies are addressed by their numeric `id` (§3 uploads, §4 API). Several assemblies may share a species within one Database Version (`UNIQUE(version_id, species)` was dropped in migration 000007; see §10, risk 10).
+**Revised (migration 000009): the admin enters `species_name`; `species_code` is derived
+from it.** The table originally had one `species` column holding a code the admin typed
+directly. It was split in two: `species_name` is the scientific name the admin enters
+(e.g. `"Tribolium castaneum"`), and `species_code` is computed from it at creation by
+`SpeciesCodeFromName` (`usecase/assemblyversion`) — the first letter of the first word,
+uppercased, plus the first 3 letters of the second word, lowercased
+(`"tribolium castaneum"` → `"Tcas"`). Words after the second (subspecies, strain) are
+ignored; a name that cannot yield 4 ASCII letters this way is rejected with 400.
+`species_code` keeps every role the old `species` column had (copied into indexed
+documents at upload time, the dsrna gate, the GFF → SPECIES.SYNONYM species), so both
+fields are read-only after creation. Existing rows were backfilled with
+`species_name = species_code`, since a code cannot be expanded back into a name. Two
+different species can still derive the same code, just as two hand-typed codes could
+before.
+
+**The species describes an assembly; it does not identify one.** A Database Version can hold several assemblies of one species, so assemblies are addressed by their numeric `id` (§3 uploads, §4 API). Several assemblies may share a species within one Database Version (`UNIQUE(version_id, species)` was dropped in migration 000007; see §10, risk 10).
 
 Every Assembly Version row is identical in shape and status to every other — there is no
 `is_primary`, no auto-assignment on creation, no arity-dependent branching anywhere. This
@@ -319,7 +334,7 @@ that filters by `version_id` (`FindByVersionID`, `HasActiveJobOfType`,
 `HasActiveJobsByVersionID`, `DeleteByVersionID`, `HardDeleteByVersionID`, ...) **needs no
 changes at all** — they keep working exactly as today, and Database-Version-level rollup
 queries need no new joins. Only the new per-assembly concerns (upload dedup scoped to
-one species, per-assembly required-file checks, per-assembly detail) need the new
+one species, per-assembly release checks, per-assembly detail) need the new
 `assembly_version_id`-filtered query variants, added alongside the existing ones.
 
 ### Relationship diagram
@@ -401,7 +416,7 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   upload in the same Database Version, while orthology uploads continue to dedup at the
   whole-Database-Version level exactly as today.
 - **GFF → SPECIES.SYNONYM cross-job** (line 456): stops passing `uc.mainSpecies`,
-  passes the resolved Assembly Version's own `Species` field instead. This is the
+  passes the resolved Assembly Version's own `SpeciesCode` field instead. This is the
   single most consequential code change in the whole design — it's what makes the
   auto-generated synonym job describe the *correct* species for a multi-species upload.
 - **`tryEnqueueGFFSetupJBrowse2`'s FNA lookup** (line 552,
@@ -411,7 +426,7 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   one-FNA-per-version assumption was already fragile; this makes it correct by
   construction).
 - **dsrna.csv Tcas gate** (line 104-107): re-scopes from `uc.mainSpecies != "Tcas"`
-  (global) to the resolved Assembly Version's `Species != "Tcas"` (per-assembly, same
+  (global) to the resolved Assembly Version's `SpeciesCode != "Tcas"` (per-assembly, same
   hardcoded product rule, just correctly scoped). Confirmed with the user: this
   restriction is **preserved as-is**, not removed or questioned — it's a real,
   still-needed product constraint today. Removing it is a separate decision the product
@@ -422,21 +437,25 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   `VersionID` itself is **kept, unchanged**, on every literal (§2's additive schema
   change); `AssemblyVersionID` is left `nil` only for the `orthology.tsv` branch.
 
-### Required-file / release validation moves to per-assembly
+### Release validation moves to per-assembly
 
 Today's single check ("does the Database Version have a `genomic.fna`?",
-`version.go:359-361`) becomes: **every existing Assembly Version under the Database
-Version must have its own completed `genomic.fna`** before release is allowed, and a
-Database Version with **zero** Assembly Versions cannot be released at all. This directly
-satisfies the user's constraint that existing per-file-type rules continue to apply "per
-Assembly Version."
+`version.go:359-361`) originally became: **every existing Assembly Version under the
+Database Version must have its own completed `genomic.fna`** before release is allowed,
+and a Database Version with **zero** Assembly Versions cannot be released at all.
+
+**Revised: no file type is required.** An Assembly Version may be released with any
+subset of its files, or none; the only remaining precondition on each assembly is that
+every job for its latest completed files is `DONE`. A Database Version with zero
+Assembly Versions still cannot be released (`ErrRequiredFileNotUploaded`): there is
+nothing to release, and no blast job would run to promote it to default (§5).
 
 `ReleaseVersion`'s **signature is unchanged** — no new required input, no
 `blastAssemblyId` (an earlier draft of this design added one; removed once BLAST became
 per-assembly rather than single-target, per the user's correction). Instead, the
 existing `blastSpec`/`latestByType` loop (`version.go:378-446`) gains one outer loop:
-run the *exact same* per-file-type logic (required `genomic.fna` → `SETUP_BLAST`;
-optional `protein.faa`/`rna.fna` → `SETUP_BLAST` if present, `REMOVE_BLAST` if absent)
+run the *exact same* per-file-type logic (each of `genomic.fna`/`protein.faa`/`rna.fna`
+→ `SETUP_BLAST` if present, `REMOVE_BLAST` if absent)
 **once per Assembly Version** under the Database Version, instead of once for the whole
 version. This is a minimal, mechanical extension of the existing function — the
 per-file-type decision logic itself doesn't change at all, it's just invoked N times
@@ -446,20 +465,20 @@ rather than 3 fixed global ones.
 
 ### Status computation — Database-Version-level becomes a rollup
 
-`computeVersionStatus` (313-328) is **unchanged** as a function — it still computes one
-assembly's status from that assembly's own job/file state. It's now called once per
+`ComputeVersionStatus` computes one assembly's status from that assembly's own jobs.
+(Revised: it originally also took a `hasRequiredFiles` flag for `genomic.fna`; with no
+required file type, that flag and its `MISSING_REQUIRED_FILE` result are gone, so an
+assembly is only ever `PROCESSING`/`ERROR`/`READY`/`DRAFT`.) It's called once per
 Assembly Version, **plus once more for orthology's shared status** (jobs where
-`version_id = V AND assembly_version_id IS NULL`, `hasRequiredFiles` always `true` since
-orthology was never a required file type), and the Database Version's status is a
-rollup across all of them:
+`version_id = V AND assembly_version_id IS NULL`), and the Database Version's status is
+a rollup across all of them:
 
 ```
 n = count(assembly_versions where version_id = V)
-S_orthology = computeVersionStatus(orthology job counts for V, true)   // READY if none uploaded yet
-if n == 0:                                     → MISSING_REQUIRED_FILE   (reuses the existing enum value)
+S_orthology = ComputeVersionStatus(orthology job counts for V)         // READY if none uploaded yet
+if n == 0:                                     → MISSING_REQUIRED_FILE   (reuses the existing enum value; its only source)
 else if any assembly == PROCESSING or S_orthology == PROCESSING → PROCESSING
 else if any assembly == ERROR or S_orthology == ERROR           → ERROR
-else if any assembly == MISSING_REQUIRED_FILE  → MISSING_REQUIRED_FILE
 else if all assemblies == READY (and S_orthology == READY)      → READY
 else                                            → DRAFT
 ```
@@ -470,16 +489,17 @@ therefore can't surface through any individual assembly's status. Reusing
 `MISSING_REQUIRED_FILE` for the zero-assembly case (rather than inventing a 6th status
 string) keeps the enum stable for whatever consumes `VersionItem.Status`/
 `VersionDetail.Status` outside this repo — but that's still a coordination point worth
-flagging explicitly (§10), not assuming away. This rollup degenerates identically to
-today's behavior for a Database Version with exactly one assembly and no orthology
-upload in flight, so single-species deployments see no behavior change.
+flagging explicitly (§10), not assuming away. With no file type required, zero
+assemblies is now the value's only meaning. This rollup degenerates to today's behavior
+for a Database Version with exactly one assembly and no orthology upload in flight,
+except that a missing `genomic.fna` no longer yields `MISSING_REQUIRED_FILE`.
 
 ### Three levels of validation, summarized
 
 | Level | Examples | Where enforced |
 |---|---|---|
 | **Database-Version-level** | Version name uniqueness; release requires ≥1 assembly; delete blocked if default or has active jobs; orthology.tsv upload/validation (shared, not owned by any assembly) | `usecase/version` |
-| **Assembly-Version-level** | Required `genomic.fna` per assembly before release; delete has no BLAST/orthology-related guard at all — deleting one assembly never touches shared orthology data | `usecase/assemblyversion` (new) |
+| **Assembly-Version-level** | Species code derived from `species_name`; no file type is required before release (revised: `genomic.fna` was; the per-assembly jobs-done check runs in `usecase/version`); delete has no BLAST/orthology-related guard at all — deleting one assembly never touches shared orthology data | `usecase/assemblyversion` (new) |
 | **File-level** | Per-file-type metadata (geneIDKey, order, algorithm, trackName...), gzip check, dsrna Tcas gate, active-job-of-same-type dedup | `usecase/upload` (unchanged shape, re-scoped inputs except orthology.tsv) |
 
 ---
@@ -488,8 +508,9 @@ upload in flight, so single-species deployments see no behavior change.
 
 ### New endpoints (all admin-only, matching existing `/versions/*` placement)
 
-- `POST /versions/:name/assemblies` — create `{name, species}` → `{id, versionId, name,
-  species, createdAt, ...}` — no special/target field; every assembly is created equal.
+- `POST /versions/:name/assemblies` — create `{name, speciesName}` → `{id, versionId, name,
+  speciesName, speciesCode, createdAt, ...}` (`speciesCode` derived, §2) — no
+  special/target field; every assembly is created equal.
   `id` is the address every endpoint below uses. A species code does not identify an
   assembly (§2), so it is not used for addressing; Database Versions stay addressed by
   `:name`. An `id` from another Database Version returns 404.
@@ -521,18 +542,18 @@ automatically.
   Version, unchanged from today — it was already a list, never a single-file bucket) and
   every other field (`genomicFNA`, `genomicGFF`, `rnaFNA`, `cdsFNA`, `proteinFAA`,
   `dsrnaCSV`, `jbrowseTrack`, `speciesSynonym`) moves into a new `assemblies:
-  {assemblyId, name, species, status, files}[]` array, one entry per Assembly Version.
+  {assemblyId, name, speciesName, speciesCode, status, files}[]` array, one entry per Assembly Version.
   The Database Version's own `isDefault` field keeps its exact current meaning (compares
   against `app_settings.default_version_id`, unchanged) — once true, every one of its
   assemblies is BLASTable, with no further per-assembly distinction needed.
 - `POST /versions/:name/release` — **request/response shape unchanged** (no new
-  required field). Internally now validates every Assembly Version has its required
-  files (§3) and builds BLAST DBs for all of them; `ReleaseResult` gains per-assembly job
-  breakdowns; can now fail with `ErrRequiredFileNotUploaded` (per-assembly, in addition
-  to its existing meaning) if any assembly is missing `genomic.fna`.
+  required field). Internally now checks every Assembly Version's jobs are done (§3)
+  and builds BLAST DBs for all of them; `ReleaseResult` gains per-assembly job
+  breakdowns. No file type is required (revised: `genomic.fna` originally was), so
+  `ErrRequiredFileNotUploaded` now only means the Database Version has no assemblies.
 - `GET /upload-files?version=` — gains an optional `assembly=` filter param (the
   assembly's numeric `id`, the same address the assembly endpoints and `assembly` upload metadata use); `UploadFileSummary`
-  gains `assemblyVersionId`/`species` fields for reference.
+  gains `assemblyVersionId`/`speciesCode` fields for reference.
 - `GET /silencingseqs` — **explicitly out of scope for this design, deferred by the
   user.** Left unchanged for now (still gated by the global `mainSpecies == "Tcas"`
   check, §1); multi-species behavior for this endpoint will be specified in a future
@@ -565,12 +586,12 @@ automatically.
 
 ```
 POST /versions/v2/assemblies
-{ "name": "Human / GRCh38", "species": "Hsap" }
-→ 201 { "id": 7, "versionId": 3, "name": "Human / GRCh38", "species": "Hsap", "createdAt": "..." }
+{ "name": "Human / GRCh38", "speciesName": "Homo sapiens" }
+→ 201 { "id": 7, "versionId": 3, "name": "Human / GRCh38", "speciesName": "Homo sapiens", "speciesCode": "Hsap", "createdAt": "..." }
 
 POST /versions/v2/assemblies
-{ "name": "Mouse / GRCm39", "species": "Mmus" }
-→ 201 { "id": 8, "versionId": 3, "name": "Mouse / GRCm39", "species": "Mmus", "createdAt": "..." }
+{ "name": "Mouse / GRCm39", "speciesName": "Mus musculus" }
+→ 201 { "id": 8, "versionId": 3, "name": "Mouse / GRCm39", "speciesName": "Mus musculus", "speciesCode": "Mmus", "createdAt": "..." }
 
 GET /versions/v2/detail   (before any release; one shared orthology.tsv uploaded)
 → {
@@ -578,8 +599,8 @@ GET /versions/v2/detail   (before any release; one shared orthology.tsv uploaded
     "status": "READY",
     "orthologyTSV": [ { "id": "...", "filePath": "...", "uploadStatus": "COMPLETED", "jobs": [...] } ],
     "assemblies": [
-      { "assemblyId": 7, "name": "Human / GRCh38", "species": "Hsap", "status": "READY", "files": { "genomic.fna": {...}, ... } },
-      { "assemblyId": 8, "name": "Mouse / GRCm39", "species": "Mmus", "status": "DRAFT", "files": { "genomic.fna": {...}, ... } }
+      { "assemblyId": 7, "name": "Human / GRCh38", "speciesName": "Homo sapiens", "speciesCode": "Hsap", "status": "READY", "files": { "genomic.fna": {...}, ... } },
+      { "assemblyId": 8, "name": "Mouse / GRCm39", "speciesName": "Mus musculus", "speciesCode": "Mmus", "status": "DRAFT", "files": { "genomic.fna": {...}, ... } }
     ]
   }
   // orthologyTSV is shared — it references genes from BOTH assemblies, not owned by either
@@ -593,8 +614,8 @@ GET /versions/v2/detail   (after release; app_settings.default_version_id = 3)
     "id": 3, "name": "v2", "isDefault": true,
     "status": "READY",
     "assemblies": [
-      { "assemblyId": 7, "name": "Human / GRCh38", "species": "Hsap", "status": "READY", "files": { "genomic.fna": {...}, ... } },
-      { "assemblyId": 8, "name": "Mouse / GRCm39", "species": "Mmus", "status": "DRAFT", "files": { "genomic.fna": {...}, ... } }
+      { "assemblyId": 7, "name": "Human / GRCh38", "speciesName": "Homo sapiens", "speciesCode": "Hsap", "status": "READY", "files": { "genomic.fna": {...}, ... } },
+      { "assemblyId": 8, "name": "Mouse / GRCm39", "speciesName": "Mus musculus", "speciesCode": "Mmus", "status": "DRAFT", "files": { "genomic.fna": {...}, ... } }
     ]
   }
   // both Hsap and Mmus are now simultaneously BLASTable — see §5
@@ -618,6 +639,10 @@ byte-compatible.
 - `migrations/000006_alter_jobs_upload_files_assembly_version.up/down.sql` — separate
   migration (must run after 000005, since it FKs into `assembly_versions`): rename
   `upload_files.version_id` / `jobs.version_id` to `assembly_version_id`, repoint the FK.
+
+- Later revisions: `000007` drops `UNIQUE(version_id, species)` (§2), `000008` adds
+  `image_path`/`info_url`, and `000009` splits `species` into `species_name` +
+  `species_code` (§2), backfilling `species_name` from the existing code.
 
 That's the complete migration set — `app_settings` and `versions` need no schema change
 at all (§2).
@@ -796,8 +821,10 @@ more than the earlier draft assumed:
   moves from "baked into the handler at wiring time" to "computed per job," a real but
   contained code change.
 - **`ReleaseVersion`'s blastSpec loop runs once per Assembly Version** (§3) — for each
-  assembly: required `genomic.fna` → `SETUP_BLAST`; optional `protein.faa`/`rna.fna` →
-  `SETUP_BLAST` if present. `SetupBlastPayload` gains the assembly's `AssemblyID`.
+  assembly, each of `genomic.fna`/`protein.faa`/`rna.fna` → `SETUP_BLAST` if present,
+  `REMOVE_BLAST` if absent. `SetupBlastPayload` gains the assembly's `AssemblyID`.
+  (Revised: `genomic.fna` was originally required and had no `REMOVE_BLAST`;
+  `GENOMIC.FNA:REMOVE_BLAST` was added when it became optional.)
 - **`REMOVE_BLAST` becomes effectively dead code, worth removing rather than carrying
   forward** — its entire purpose today is cleaning up a stale DB left at a *shared
   global path* by a file type this version doesn't have (`version.go:394-399`'s
@@ -810,6 +837,13 @@ more than the earlier draft assumed:
   `JobTypeRNAFNARemoveBlast`, `RemoveBlastHandler`, `RemoveBlastPayload`) rather than a
   requirement — Phase 4 can carry it forward unused with no correctness cost if the team
   prefers a smaller diff.
+  **Revised: kept, and now needed — do not remove.** The cleanup argument above still
+  holds (no BLAST source file type is deletable, so a stale per-assembly database can't
+  arise). But once `genomic.fna` stopped being required, an assembly can be released
+  with no BLAST-able file at all, and its `*_REMOVE_BLAST` jobs are then the only blast
+  jobs it gets. `finalizeBlastRelease` only runs when a blast job completes, so without
+  them a release whose assemblies have no BLAST-able files would enqueue nothing and the
+  version would never be promoted to default.
 - **Switching the *default Database Version* still needs an explicit cleanup step that
   didn't exist before**: today, overwriting the 3 fixed global paths on every release
   automatically discards the previous version's BLAST data for free. With per-assembly
@@ -867,17 +901,19 @@ under the new model is:
 
 1. **Create a Database Version** — unchanged: `POST /versions {name}`.
 2. **Add an Assembly Version / species** — new: `POST /versions/:name/assemblies
-   {name, species}`. Every assembly is created equal — none is auto-marked special.
+   {name, speciesName}`; the species code is derived from `speciesName` (§2). Every
+   assembly is created equal — none is auto-marked special.
 3. **Upload files** — unchanged tus flow, plus the new required `assembly` metadata
    field (the Assembly Version's `id`) selecting which one each upload belongs to.
 4. **Validate an Assembly Version** — `GET /versions/:name/assemblies/:id` shows its
-   own status (`READY`/`DRAFT`/`MISSING_REQUIRED_FILE`/etc.), same semantics as today's
+   own status (`READY`/`DRAFT`/`PROCESSING`/`ERROR`), same semantics as today's
    whole-version status, now scoped per species.
 5. **Add multiple species to the same Database Version** — repeat steps 2-4 per species;
    `GET /versions/:name/detail` shows the Database-Version-level rollup plus a
    per-assembly breakdown.
 6. **Release** — `POST /versions/:name/release` (unchanged request shape) now validates
-   every assembly has its required files, then builds BLAST DBs for **all** of them —
+   every assembly's jobs are done (no file type is required), then builds BLAST DBs for
+   **all** of them —
    every species in the version becomes simultaneously BLASTable once release completes,
    with no per-species selection step at all.
 
@@ -891,13 +927,18 @@ to introduce test coverage, since "preserve all existing per-file-type validatio
 rules" is hard to *prove* preserved without one (§10).
 
 **Unit**
-- Two assemblies with the same `species` in one Database Version are both accepted, and get separate ES indices and upload folders (§10, risk 10).
+- Two assemblies with the same species code in one Database Version are both accepted, and get separate ES indices and upload folders (§10, risk 10).
 - Per-assembly BLAST path construction (`{blastDBPath}/{AssemblyID}-{genome,protein,
   rna}`) produces distinct, collision-free flat filenames for every assembly.
-- Per-assembly required-file check; Database-Version rollup status against the exact
+- Release with no required file type: an assembly with no files, or without
+  `genomic.fna`, still releases and gets a `REMOVE_BLAST` job per absent type
+  (`usecase/version/version_test.go`); Database-Version rollup status against the exact
   rule in §3 (including the `n == 0` and `n == 1` degenerate cases).
-- GFF → SPECIES.SYNONYM species resolution now uses the assembly's own `Species`, not a
-  global constant.
+- Species code derivation (`SpeciesCodeFromName`): casing/spacing variants of a name give
+  the same code, and names that cannot yield one are refused
+  (`usecase/assemblyversion/assemblyversion_test.go`).
+- GFF → SPECIES.SYNONYM species resolution now uses the assembly's own `SpeciesCode`, not
+  a global constant.
 - `sequence`/`synonym`'s extended index-name grouping key: uploading RNA, then CDS, then
   protein for the *same* assembly computes the identical index name each time (still
   accumulates safely, unchanged from today); a *different* assembly's upload computes a
@@ -933,8 +974,9 @@ rules" is hard to *prove* preserved without one (§10).
   a species code, a non-integer, an unknown id, or an id from a different Database Version
   → 400). `GET`/`DELETE /versions/:name/assemblies/:id` with an id from a different Database
   Version → 404.
-- Release validation: partially-incomplete assembly blocks release; zero-assembly
-  Database Version blocks release (`ErrRequiredFileNotUploaded` in both cases, §3).
+- Release validation: an assembly with unfinished jobs blocks release
+  (`ErrFileJobsNotComplete`); a zero-assembly Database Version blocks release
+  (`ErrRequiredFileNotUploaded`, §3); an assembly with no files does not.
 - Deleting an assembly never removes or touches the Database Version's shared
   `orthology.tsv` data or index, even when the deleted assembly's species appears in
   existing ortholog groups (§2, §5) — the orthology-owning-assembly guard from an
@@ -995,7 +1037,7 @@ in parallel. Phase 5 runs last, since it removes the `MainSpecies` fallback enti
   only carry `VersionID`/`VersionName`: `SetupJBrowse2FNAPayload`,
   `SetupJBrowse2GFFPayload`, `JBrowseTrackPayload`, `SetupBlastPayload`; consider
   dropping `RemoveBlastPayload`/the `*REMOVE_BLAST` job types entirely per §5's
-  dead-code observation)
+  dead-code observation — revised: keep them, see §5)
 
 **Phase 3 — ES index/alias split, search** (depends on 2; independent of 4)
 - `internal/pkg/repository/{genomic,dsrna}/es.go` (assembly-scoped `SetAlias`/
@@ -1060,7 +1102,9 @@ data-migration risk.
 3. **`MISSING_REQUIRED_FILE` reuse for the zero-assembly rollup case** (§3) needs
    coordination with whatever external client consumes `VersionItem.Status`/
    `VersionDetail.Status` today — flagged, not assumed resolved, since this repo has no
-   visibility into that client.
+   visibility into that client. (Revised: with no file type required, zero assemblies
+   is now the value's only meaning, so its name is a misnomer — one more reason to
+   coordinate before renaming or dropping it.)
 4. **Upload-client coordination** — this repo is backend-only; any script/tool that
    calls `/uploads` today lives elsewhere and needs the new required `assembly`
    metadata field, sent as an assembly id, added in lockstep. The `tus-demo` client, outside this
