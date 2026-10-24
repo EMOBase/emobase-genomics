@@ -100,8 +100,9 @@ and explicit in each `Action` function.
 
 A `Version` (MySQL, `entity.Version`) is a named snapshot of the whole dataset (e.g. a
 release) — a "Database Version" in the design doc's terms. Each Version holds one or
-more `AssemblyVersion` rows (MySQL, `entity.AssemblyVersion`), one per assembly: `species`
-is a short admin-provided code describing the species (e.g. `"Hsap"`); it is not unique within the Version and does not address an assembly, since the API and upload metadata use the numeric `id`. `name` is a
+more `AssemblyVersion` rows (MySQL, `entity.AssemblyVersion`), one per assembly: the admin
+enters `species_name` (e.g. `"Homo sapiens"`), and `species_code` is derived from it at creation
+(`SpeciesCodeFromName`: first letter of word 1 + first 3 of word 2, e.g. `"Hsap"`); neither is unique within the Version or addresses an assembly, since the API and upload metadata use the numeric `id`. `name` is a
 free-text human label (e.g. `"Human / GRCh38"`). Every Assembly Version is fully
 symmetric — there is no "primary"/"default" one. `upload_files` and `jobs` both keep
 their original `version_id` column (unchanged) and additionally carry a nullable
@@ -110,9 +111,9 @@ their original `version_id` column (unchanged) and additionally carry a nullable
 one (its own uploads/jobs/ES index stay Version-scoped only, exactly as before this
 model existed). `entity.AssemblyVersion.AssemblyID()` returns an opaque
 `"v{versionID}a{assemblyID}"` key used wherever JBrowse2/BLAST need a stable,
-shell/filename-safe identifier instead of free-text `name`/`species`.
-`species` is read-only after creation (`PATCH` rejects it): it is copied into indexed ES
-documents at upload time, so changing it would leave them under the old species. An
+shell/filename-safe identifier instead of free-text `name`/species fields.
+Both species fields are read-only after creation (`PATCH` rejects them): the code is copied
+into indexed ES documents at upload time, so changing it would leave them under the old species. An
 assembly's optional image is stored in its own upload directory (`imagePath`, served by
 nginx under `/public/uploads/`), so the assembly/Version directory delete also removes it.
 
@@ -172,8 +173,8 @@ builds BLAST databases for `genomic.fna`/`protein.faa`/`rna.fna` via `*_SETUP_BL
 jobs. BLAST DB paths are **per-assembly, flat filenames** under one shared
 `blast.db_path` (`{blast.db_path}/{AssemblyID}-{genome,protein,rna}`, where `AssemblyID`
 is `entity.AssemblyVersion.AssemblyID()`) — every assembly under the default Version is
-simultaneously BLASTable, with no "chosen species" concept. An assembly that omits an
-optional file type (`protein.faa`/`rna.fna`) enqueues a `*_REMOVE_BLAST` job for that
+simultaneously BLASTable, with no "chosen species" concept. No file type is required to
+release; an assembly that omits one (`genomic.fna`/`protein.faa`/`rna.fna`) enqueues a `*_REMOVE_BLAST` job for that
 assembly instead of silently leaving a previous release's database in place — see
 `handlers/blast_shared.go` for the shared `finalizeBlastRelease` logic (used by both
 `SetupBlastHandler` and `RemoveBlastHandler`) that waits for every setup/remove job of

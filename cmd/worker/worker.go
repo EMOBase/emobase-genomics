@@ -101,6 +101,9 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeRNAFNASetupBlast: handlers.NewSetupBlastHandler(
 			"nucl", "RNA", "rna", blastDBPath, blastTitle, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
+		entity.JobTypeGenomicFNARemoveBlast: handlers.NewRemoveBlastHandler(
+			"genome", blastDBPath, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
+		),
 		entity.JobTypeProteinFAARemoveBlast: handlers.NewRemoveBlastHandler(
 			"protein", blastDBPath, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),

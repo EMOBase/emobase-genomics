@@ -240,42 +240,12 @@ func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID 
 	return count > 0, nil
 }
 
-// StatusCountsByVersionID returns job status counts for a single version,
-// counting only jobs tied to active files: the latest upload per single-file
-// type, and all non-deleted uploads for orthology.tsv.
-func (r *MySQLRepository) StatusCountsByVersionID(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error) {
-	var counts entity.JobStatusCounts
-	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(j.status = ?), 0) AS running_count,
-		       COALESCE(SUM(j.status = ?), 0) AS failed_count,
-		       COALESCE(SUM(j.status = ?), 0) AS done_count,
-		       COUNT(*)                        AS total_count
-		FROM jobs j
-		WHERE j.version_id = ?
-		  AND (
-		    j.file_id IS NULL
-		    OR j.file_id IN (
-		      SELECT id FROM (
-		        SELECT id, file_type,
-		               ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
-		        FROM upload_files
-		        WHERE version_id = ? AND deleted_at IS NULL
-		      ) ranked
-		      WHERE rn = 1 OR file_type = ?
-		    )
-		  )`,
-		entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone,
-		versionID, versionID, entity.FileTypeOrthologyTSV,
-	).Scan(&counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount)
-	return counts, err
-}
-
-// StatusCountsByAssemblyVersionID is the per-assembly counterpart of
-// StatusCountsByVersionID, used to compute one Assembly Version's own status
+// StatusCountsByAssemblyVersionID returns job status counts used to compute
+// one Assembly Version's own status, counting only jobs tied to active files
 // (the Database-Version-level status is then a rollup across all of its
-// assemblies, computed in the usecase layer). Unlike the version-scoped query,
-// there's no need to special-case orthology.tsv here: orthology jobs never
-// carry an assembly_version_id, so they're naturally excluded already.
+// assemblies, computed in the usecase layer). There's no need to special-case
+// orthology.tsv here: orthology jobs never carry an assembly_version_id, so
+// they're naturally excluded already.
 func (r *MySQLRepository) StatusCountsByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) (entity.JobStatusCounts, error) {
 	var counts entity.JobStatusCounts
 	err := r.db.QueryRowContext(ctx, `

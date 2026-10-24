@@ -31,6 +31,7 @@ var (
 	ErrAssemblyVersionNotFound      = errors.New("assembly version not found")
 	ErrAssemblyVersionHasActiveJobs = errors.New("assembly version has active jobs")
 	ErrEmptyName                    = errors.New("name must not be empty")
+	ErrInvalidSpeciesName           = errors.New(`speciesName must be at least two words, the first starting with a letter and the second with 3 letters (e.g. "Tribolium castaneum")`)
 	ErrInvalidInfoURL               = fmt.Errorf("infoUrl must be an absolute http or https URL of at most %d characters", maxInfoURLLength)
 	ErrImageTooLarge                = fmt.Errorf("image must be at most %d MiB", MaxImageSize>>20)
 	ErrUnsupportedImageType         = errors.New("image must be a PNG, JPEG or WebP file")
@@ -64,6 +65,26 @@ func validateInfoURL(raw string) error {
 	return nil
 }
 
+// SpeciesCodeFromName derives the 4-letter species code from a scientific
+// name: the first letter of the genus, uppercased, and the first 3 letters of
+// the species epithet, lowercased ("tribolium castaneum" -> "Tcas"). Words
+// after the second (subspecies, strain) are ignored. Only ASCII letters are
+// accepted, since the code prefixes gene IDs ("Tcas:TC000001") in search
+// results and URLs.
+func SpeciesCodeFromName(name string) (string, error) {
+	words := strings.Fields(name)
+	if len(words) < 2 || len(words[1]) < 3 {
+		return "", ErrInvalidSpeciesName
+	}
+	code := words[0][:1] + words[1][:3]
+	for _, r := range code {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return "", ErrInvalidSpeciesName
+		}
+	}
+	return strings.ToUpper(code[:1]) + strings.ToLower(code[1:]), nil
+}
+
 // AssemblyVersionItem is the list-view representation of an Assembly Version.
 type AssemblyVersionItem struct {
 	entity.AssemblyVersion
@@ -93,8 +114,14 @@ func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRep
 // CreateAssemblyVersion creates an assembly for a species within a Database Version.
 // Every Assembly Version is created identically — there is no auto-assigned
 // "primary"/"default" one (§2 of the design doc).
+// The species code is derived from speciesName (see SpeciesCodeFromName).
 // infoURL is optional; "" leaves it unset.
-func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name, species, infoURL string) (*entity.AssemblyVersion, error) {
+func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name, speciesName, infoURL string) (*entity.AssemblyVersion, error) {
+	speciesCode, err := SpeciesCodeFromName(speciesName)
+	if err != nil {
+		return nil, err
+	}
+
 	var info *string
 	if infoURL != "" {
 		if err := validateInfoURL(infoURL); err != nil {
@@ -112,12 +139,13 @@ func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name,
 	}
 
 	a := &entity.AssemblyVersion{
-		VersionID: v.ID,
-		Name:      name,
-		Species:   species,
-		InfoURL:   info,
-		CreatedBy: auth.UsernameFromContext(ctx),
-		UpdatedBy: auth.UsernameFromContext(ctx),
+		VersionID:   v.ID,
+		Name:        name,
+		SpeciesName: strings.TrimSpace(speciesName),
+		SpeciesCode: speciesCode,
+		InfoURL:     info,
+		CreatedBy:   auth.UsernameFromContext(ctx),
+		UpdatedBy:   auth.UsernameFromContext(ctx),
 	}
 
 	if err := uc.assemblyVersionRepo.Create(ctx, a); err != nil {
@@ -149,20 +177,9 @@ func (uc *UseCase) ListAssemblyVersions(ctx context.Context, versionName string)
 		if err != nil {
 			return nil, err
 		}
-		completedFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByAssemblyVersionID(ctx, asm.ID)
-		if err != nil {
-			return nil, err
-		}
-		hasFNA := false
-		for _, f := range completedFiles {
-			if f.FileType == entity.FileTypeGenomicFNA {
-				hasFNA = true
-				break
-			}
-		}
 		items[i] = AssemblyVersionItem{
 			AssemblyVersion: asm,
-			Status:          ucversion.ComputeVersionStatus(counts, hasFNA),
+			Status:          ucversion.ComputeVersionStatus(counts),
 		}
 	}
 
@@ -205,8 +222,9 @@ func (uc *UseCase) findAssemblyVersion(ctx context.Context, versionName string, 
 }
 
 // AssemblyVersionUpdate holds the fields PATCH may change; a nil field is left
-// as is. species is not here: it is copied into every indexed document at
-// upload time, so changing it would leave those documents under the old one.
+// as is. The species fields are not here: the code is copied into every
+// indexed document at upload time, so changing it (or the name it is derived
+// from) would leave those documents under the old one.
 type AssemblyVersionUpdate struct {
 	Name *string
 	// InfoURL set to "" clears the link.

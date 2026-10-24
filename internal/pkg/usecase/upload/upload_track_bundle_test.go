@@ -24,10 +24,10 @@ type fakeUploadAssemblies struct{}
 func (fakeUploadAssemblies) FindByID(_ context.Context, id uint64) (*entity.AssemblyVersion, error) {
 	switch id {
 	case 7:
-		return &entity.AssemblyVersion{ID: 7, VersionID: 1, Species: "Tcas", Name: "Tribolium"}, nil
+		return &entity.AssemblyVersion{ID: 7, VersionID: 1, SpeciesCode: "Tcas", Name: "Tribolium"}, nil
 	case 8:
 		// Belongs to another Database Version, so it must not resolve for version 1.
-		return &entity.AssemblyVersion{ID: 8, VersionID: 2, Species: "Tcas", Name: "Other"}, nil
+		return &entity.AssemblyVersion{ID: 8, VersionID: 2, SpeciesCode: "Tcas", Name: "Other"}, nil
 	}
 	return nil, nil
 }

@@ -17,9 +17,9 @@ func New(db *sql.DB) *MySQLRepository {
 
 func (r *MySQLRepository) Create(ctx context.Context, a *entity.AssemblyVersion) error {
 	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO assembly_versions (version_id, name, species, image_path, info_url, created_by, updated_by)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		a.VersionID, a.Name, a.Species, a.ImagePath, a.InfoURL, a.CreatedBy, a.UpdatedBy,
+		`INSERT INTO assembly_versions (version_id, name, species_name, species_code, image_path, info_url, created_by, updated_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.VersionID, a.Name, a.SpeciesName, a.SpeciesCode, a.ImagePath, a.InfoURL, a.CreatedBy, a.UpdatedBy,
 	)
 	if err != nil {
 		return err
@@ -38,11 +38,11 @@ func (r *MySQLRepository) Create(ctx context.Context, a *entity.AssemblyVersion)
 func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.AssemblyVersion, error) {
 	a := &entity.AssemblyVersion{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, version_id, name, species, image_path, info_url, created_at, created_by, updated_at, updated_by
+		`SELECT id, version_id, name, species_name, species_code, image_path, info_url, created_at, created_by, updated_at, updated_by
 		 FROM assembly_versions WHERE id = ?`,
 		id,
 	).Scan(
-		&a.ID, &a.VersionID, &a.Name, &a.Species, &a.ImagePath, &a.InfoURL,
+		&a.ID, &a.VersionID, &a.Name, &a.SpeciesName, &a.SpeciesCode, &a.ImagePath, &a.InfoURL,
 		&a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy,
 	)
 	if err == sql.ErrNoRows {
@@ -58,7 +58,7 @@ func (r *MySQLRepository) FindByID(ctx context.Context, id uint64) (*entity.Asse
 // ordered by creation time.
 func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64) ([]entity.AssemblyVersion, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, version_id, name, species, image_path, info_url, created_at, created_by, updated_at, updated_by
+		`SELECT id, version_id, name, species_name, species_code, image_path, info_url, created_at, created_by, updated_at, updated_by
 		 FROM assembly_versions WHERE version_id = ? ORDER BY created_at ASC`,
 		versionID,
 	)
@@ -71,7 +71,7 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	for rows.Next() {
 		var a entity.AssemblyVersion
 		if err := rows.Scan(
-			&a.ID, &a.VersionID, &a.Name, &a.Species, &a.ImagePath, &a.InfoURL,
+			&a.ID, &a.VersionID, &a.Name, &a.SpeciesName, &a.SpeciesCode, &a.ImagePath, &a.InfoURL,
 			&a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy,
 		); err != nil {
 			return nil, err
@@ -81,8 +81,8 @@ func (r *MySQLRepository) ListByVersionID(ctx context.Context, versionID uint64)
 	return assemblies, rows.Err()
 }
 
-// Update writes the fields PATCH may change. species is left out on purpose:
-// it is copied into indexed documents at upload time, so it never changes.
+// Update writes the fields PATCH may change. The species fields are left out:
+// the code is copied into indexed documents at upload time, so they never change.
 func (r *MySQLRepository) Update(ctx context.Context, a *entity.AssemblyVersion) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE assembly_versions SET name = ?, info_url = ?, updated_by = ? WHERE id = ?`,

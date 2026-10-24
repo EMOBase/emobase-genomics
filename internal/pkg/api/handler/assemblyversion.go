@@ -15,7 +15,7 @@ import (
 )
 
 type assemblyVersionUseCase interface {
-	CreateAssemblyVersion(ctx context.Context, versionName, name, species, infoURL string) (*entity.AssemblyVersion, error)
+	CreateAssemblyVersion(ctx context.Context, versionName, name, speciesName, infoURL string) (*entity.AssemblyVersion, error)
 	UpdateAssemblyVersion(ctx context.Context, versionName string, assemblyVersionID uint64, upd ucassemblyversion.AssemblyVersionUpdate) (*entity.AssemblyVersion, error)
 	SetAssemblyVersionImage(ctx context.Context, versionName string, assemblyVersionID uint64, image io.ReadSeeker, size int64) (*entity.AssemblyVersion, error)
 	DeleteAssemblyVersionImage(ctx context.Context, versionName string, assemblyVersionID uint64) error
@@ -36,22 +36,22 @@ func (h *AssemblyVersionHandler) Create(c *gin.Context) {
 	versionName := c.Param("name")
 
 	var body struct {
-		Name    string `json:"name" binding:"required"`
-		Species string `json:"species" binding:"required"`
-		InfoURL string `json:"infoUrl"`
+		Name        string `json:"name" binding:"required"`
+		SpeciesName string `json:"speciesName" binding:"required"`
+		InfoURL     string `json:"infoUrl"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		apires.Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	a, err := h.uc.CreateAssemblyVersion(c.Request.Context(), versionName, body.Name, body.Species, body.InfoURL)
+	a, err := h.uc.CreateAssemblyVersion(c.Request.Context(), versionName, body.Name, body.SpeciesName, body.InfoURL)
 	if err != nil {
 		if errors.Is(err, ucassemblyversion.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return
 		}
-		if errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) {
+		if errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) || errors.Is(err, ucassemblyversion.ErrInvalidSpeciesName) {
 			apires.Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -132,16 +132,17 @@ func (h *AssemblyVersionHandler) Update(c *gin.Context) {
 	}
 
 	var body struct {
-		Name    *string `json:"name"`
-		Species *string `json:"species"`
-		InfoURL *string `json:"infoUrl"`
+		Name        *string `json:"name"`
+		SpeciesName *string `json:"speciesName"`
+		SpeciesCode *string `json:"speciesCode"`
+		InfoURL     *string `json:"infoUrl"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		apires.Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Rejected rather than ignored, so a client never believes it changed.
-	if body.Species != nil {
+	if body.SpeciesName != nil || body.SpeciesCode != nil {
 		apires.Fail(c, http.StatusBadRequest, "species cannot be changed; delete and recreate the assembly instead")
 		return
 	}

@@ -98,11 +98,11 @@ components:
                 - `DRAFT` — no jobs exist.
                 - `PROCESSING` — at least one job is PENDING or RUNNING.
                 - `ERROR` — at least one job is FAILED.
-                - `MISSING_REQUIRED_FILE` — the required file (`genomic.fna`) has not been uploaded yet.
+                - `MISSING_REQUIRED_FILE` — the version has no Assembly Versions yet, so it cannot be released, whatever its jobs' state. No file type is required.
                 - `READY` — all jobs are DONE.
 
                 Beside `DRAFT` and `READY`, these states are not mutually exclusive.
-                The order of precedence is: PROCESSING > ERROR > MISSING_REQUIRED_FILE.
+                The order of precedence is: MISSING_REQUIRED_FILE > PROCESSING > ERROR.
 
     VersionList:
       type: object
@@ -170,6 +170,7 @@ components:
         - GENOMIC.FNA:SETUP_BLAST
         - PROTEIN.FAA:SETUP_BLAST
         - RNA.FNA:SETUP_BLAST
+        - GENOMIC.FNA:REMOVE_BLAST
         - PROTEIN.FAA:REMOVE_BLAST
         - RNA.FNA:REMOVE_BLAST
         - GENOMIC.FNA:SETUP_JBROWSE2
@@ -191,6 +192,7 @@ components:
         - `GENOMIC.FNA:SETUP_BLAST` — build genome BLAST database.
         - `PROTEIN.FAA:SETUP_BLAST` — build protein BLAST database.
         - `RNA.FNA:SETUP_BLAST` — build RNA BLAST database.
+        - `GENOMIC.FNA:REMOVE_BLAST` — remove a stale genome BLAST database left by a previous version that released without a `genomic.fna` file.
         - `PROTEIN.FAA:REMOVE_BLAST` — remove a stale protein BLAST database left by a previous version that released without a `protein.faa` file.
         - `RNA.FNA:REMOVE_BLAST` — remove a stale RNA BLAST database left by a previous version that released without a `rna.fna` file.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
@@ -321,7 +323,7 @@ components:
         dsrna.csv:
           $ref: '#/components/schemas/FileDetail'
           nullable: true
-          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when this assembly's species is `Tcas`.
+          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when this assembly's `speciesCode` is `Tcas`.
         jbrowse.track:
           type: array
           description: All non-deleted JBrowse2 track files for this assembly.
@@ -335,7 +337,7 @@ components:
 
     AssemblyVersion:
       type: object
-      required: [id, versionId, name, species, createdAt, createdBy, updatedAt, updatedBy]
+      required: [id, versionId, name, speciesName, speciesCode, createdAt, createdBy, updatedAt, updatedBy]
       properties:
         id:
           type: integer
@@ -349,9 +351,18 @@ components:
           type: string
           description: Free-text, human-readable label for this assembly.
           example: Human / GRCh38
-        species:
+        speciesName:
           type: string
-          description: Admin-provided species code, describing what the assembly is. Not an address — a Database Version can hold several assemblies of one species, so use `id` to address this Assembly Version in URLs and upload metadata.
+          description: Admin-provided scientific name of the species, as entered at creation (trimmed). Read-only after creation.
+          example: Homo sapiens
+        speciesCode:
+          type: string
+          description: |
+            4-letter species code derived from `speciesName` at creation: the first letter of
+            the first word, uppercased, plus the first 3 letters of the second word, lowercased
+            (`Tribolium castaneum` → `Tcas`). Copied into indexed data at upload time, so it is
+            read-only. Not an address — a Database Version can hold several assemblies of one
+            species, so use `id` to address this Assembly Version in URLs and upload metadata.
           example: Hsap
         imagePath:
           type: string
@@ -388,8 +399,8 @@ components:
           properties:
             status:
               type: string
-              enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
-              description: Same derivation as VersionItem.status, computed from this assembly's own jobs and files only.
+              enum: [DRAFT, PROCESSING, ERROR, READY]
+              description: Same derivation as VersionItem.status, computed from this assembly's own jobs only. Never `MISSING_REQUIRED_FILE`, since no file type is required.
 
     AssemblyVersionDetail:
       allOf:
@@ -680,9 +691,9 @@ components:
           description: |
             Rolled up across every Assembly Version's own status plus the shared
             orthology.tsv status: PROCESSING if any is PROCESSING, else ERROR if any is
-            ERROR, else MISSING_REQUIRED_FILE if any assembly is missing its required
-            genomic.fna (this also applies when there are zero Assembly Versions at all),
-            else READY if every assembly (and orthology) is READY, else DRAFT.
+            ERROR, else READY if every assembly (and orthology) is READY, else DRAFT. No file
+            type is required; MISSING_REQUIRED_FILE is only returned when there are zero
+            Assembly Versions at all.
         createdAt:
           type: string
           format: date-time
@@ -1601,8 +1612,8 @@ paths:
       description: |
         For every Assembly Version (species) in this Database Version, enqueues
         `GENOMIC.FNA:SETUP_BLAST`, `PROTEIN.FAA:SETUP_BLAST`, and `RNA.FNA:SETUP_BLAST` jobs
-        for that assembly's latest completed file of each type. For `protein.faa` and
-        `rna.fna`, if an assembly has no completed upload of that type, a
+        for that assembly's latest completed file of each type. No file type is required:
+        if an assembly has no completed upload of a type, a `GENOMIC.FNA:REMOVE_BLAST` /
         `PROTEIN.FAA:REMOVE_BLAST` / `RNA.FNA:REMOVE_BLAST` job is enqueued instead, so a
         BLAST database built by a previous release isn't left stale and served under this
         version. Once every enqueued blast job across every assembly succeeds, the version
@@ -1623,7 +1634,6 @@ paths:
 
         **Preconditions** (returns 422 if not met):
         - This Database Version must have at least one Assembly Version.
-        - Every Assembly Version's `genomic.fna` must have at least one completed upload.
         - All jobs generated from the latest completed file of every uploaded type, for
           every assembly and for the shared `orthology.tsv` (if any), must be in `DONE` state.
 
@@ -1690,11 +1700,6 @@ paths:
                   value:
                     error: "required file not uploaded: no Assembly Versions exist for this Database Version"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                requiredFileNotUploaded:
-                  summary: A required file has not been uploaded yet for some assembly
-                  value:
-                    error: "required file not uploaded: genomic.fna (species Hsap)"
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 fileJobsNotComplete:
                   summary: Jobs for the latest uploaded file of some type are not all done
                   value:
@@ -1746,7 +1751,7 @@ paths:
       tags: [Assembly Versions]
       description: |
         Every Assembly Version is created identically — there is no auto-assigned
-        "primary"/"default" species. Several assemblies may share a `species` within one Database Version. Use the returned `id` to address this assembly in URLs and upload metadata.
+        "primary"/"default" species. The admin enters `speciesName`; `speciesCode` is derived from it. Several assemblies may share a species within one Database Version. Use the returned `id` to address this assembly in URLs and upload metadata.
       parameters:
         - name: name
           in: path
@@ -1760,14 +1765,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name, species]
+              required: [name, speciesName]
               properties:
                 name:
                   type: string
                   example: Human / GRCh38
-                species:
+                speciesName:
                   type: string
-                  example: Hsap
+                  description: |
+                    Scientific name: at least two words, the first starting with a letter and
+                    the second with 3 ASCII letters. `speciesCode` is derived from it
+                    (`Homo sapiens` → `Hsap`); words after the second are ignored.
+                  example: Homo sapiens
                 infoUrl:
                   type: string
                   description: Optional. Absolute `http`/`https` URL, at most 2048 characters.
@@ -1785,7 +1794,7 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name or species, or invalid infoUrl.
+          description: Missing name or speciesName, a speciesName no code can be derived from, or invalid infoUrl.
           content:
             application/json:
               schema:
@@ -1870,9 +1879,9 @@ paths:
       operationId: updateAssemblyVersion
       tags: [Assembly Versions]
       description: |
-        Partial update: only fields present in the body change. `species` cannot be
-        changed, since it is copied into indexed data at upload time; sending it
-        returns 400 (delete and recreate the assembly instead). The image has its own
+        Partial update: only fields present in the body change. `speciesName` and
+        `speciesCode` cannot be changed, since the code is copied into indexed data at
+        upload time; sending either returns 400 (delete and recreate the assembly instead). The image has its own
         endpoint, `PUT /versions/{name}/assemblies/{id}/image`.
       parameters:
         - name: name
@@ -1915,7 +1924,7 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Empty name, invalid infoUrl, or `species` sent.
+          description: Empty name, invalid infoUrl, or `speciesName`/`speciesCode` sent.
           content:
             application/json:
               schema:
@@ -2261,7 +2270,7 @@ paths:
         - `protein.faa`
         - `orthology.tsv` *(shared across the whole Version; takes no `assembly`; 1 active per version)*
         - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files)*
-        - `dsrna.csv` *(only for an assembly whose `species` is `Tcas`; 1 active per assembly — re-upload replaces that assembly's previous index)*
+        - `dsrna.csv` *(only for an assembly whose `speciesCode` is `Tcas`; 1 active per assembly — re-upload replaces that assembly's previous index)*
         - `jbrowse.track` *(multiple tracks allowed per assembly; requires `trackName` metadata; optional `category`; deletable)*
         - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
         - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*

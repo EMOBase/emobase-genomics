@@ -57,7 +57,7 @@ func (m *memAssemblies) UpdateImagePath(_ context.Context, id uint64, imagePath 
 }
 
 func (fakeAssemblies) FindByID(_ context.Context, id uint64) (*entity.AssemblyVersion, error) {
-	return &entity.AssemblyVersion{ID: id, VersionID: 2, Species: "Tcas"}, nil
+	return &entity.AssemblyVersion{ID: id, VersionID: 2, SpeciesCode: "Tcas"}, nil
 }
 
 // An assembly id is only meaningful inside its own Database Version. Using an
@@ -78,11 +78,11 @@ func TestCreateAssemblyVersion_AllowsSameSpeciesTwice(t *testing.T) {
 	repo := &memAssemblies{}
 	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
 
-	first, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas Tcas5.2", "Tcas", "")
+	first, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas Tcas5.2", "Tribolium castaneum", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas Tcas6", "Tcas", "")
+	second, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas Tcas6", "Tribolium castaneum", "")
 	if err != nil {
 		t.Fatalf("second assembly of Tcas refused: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestCreateAssemblyVersion_InfoURLMustBeAbsoluteHTTP(t *testing.T) {
 	for _, raw := range bad {
 		repo := &memAssemblies{}
 		uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
-		if _, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tcas", raw); !errors.Is(err, ErrInvalidInfoURL) {
+		if _, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", raw); !errors.Is(err, ErrInvalidInfoURL) {
 			t.Errorf("infoUrl %.40q: got %v, want ErrInvalidInfoURL", raw, err)
 		}
 		if len(repo.rows) != 0 {
@@ -117,7 +117,7 @@ func TestCreateAssemblyVersion_InfoURLMustBeAbsoluteHTTP(t *testing.T) {
 
 	repo := &memAssemblies{}
 	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
-	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tcas", "https://example.org/tcas?x=1")
+	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "https://example.org/tcas?x=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestCreateAssemblyVersion_InfoURLMustBeAbsoluteHTTP(t *testing.T) {
 func TestUpdateAssemblyVersion_EmptyInfoURLClearsLinkAndKeepsName(t *testing.T) {
 	repo := &memAssemblies{}
 	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
-	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tcas", "https://example.org/tcas")
+	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "https://example.org/tcas")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestSetAssemblyVersionImage_RejectsSVG(t *testing.T) {
 	repo := &memAssemblies{}
 	dir := t.TempDir()
 	uc := New(fakeVersions{}, repo, nil, nil, nil, dir)
-	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tcas", "")
+	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestSetAssemblyVersionImage_ReplaceRemovesOldFile(t *testing.T) {
 	repo := &memAssemblies{}
 	dir := t.TempDir()
 	uc := New(fakeVersions{}, repo, nil, nil, nil, dir)
-	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tcas", "")
+	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,5 +217,56 @@ func TestSetAssemblyVersionImage_TooLarge(t *testing.T) {
 	_, err := uc.SetAssemblyVersionImage(context.Background(), "v1", 1, bytes.NewReader(pngBytes), MaxImageSize+1)
 	if !errors.Is(err, ErrImageTooLarge) {
 		t.Fatalf("got %v, want ErrImageTooLarge", err)
+	}
+}
+
+// The species code prefixes every indexed gene ID ("Tcas:TC000001") and must
+// match the codes used by other species' data and orthology files, so it has
+// to come out as the conventional genus[:1]+epithet[:3] code however the admin
+// capitalized or spaced the name. A name that cannot yield such a code is
+// refused rather than stored under a malformed one.
+func TestSpeciesCodeFromName(t *testing.T) {
+	good := map[string]string{
+		"tribolium castaneum":                  "Tcas",
+		"Drosophila melanogaster":              "Dmel",
+		"TRIBOLIUM CASTANEUM":                  "Tcas",
+		"  Aedes   aegypti ":                   "Aaeg",
+		"Drosophila melanogaster melanogaster": "Dmel",
+		"Ips typographus":                      "Ityp",
+	}
+	for name, want := range good {
+		got, err := SpeciesCodeFromName(name)
+		if err != nil || got != want {
+			t.Errorf("SpeciesCodeFromName(%q) = %q, %v; want %q", name, got, err, want)
+		}
+	}
+
+	bad := []string{"", "Tribolium", "Tcas", "Tribolium ca", "Tribolium ca-staneum", "Tribolium 1castaneum", "1ribolium castaneum", "Élan castaneum"}
+	for _, name := range bad {
+		if got, err := SpeciesCodeFromName(name); !errors.Is(err, ErrInvalidSpeciesName) {
+			t.Errorf("SpeciesCodeFromName(%q) = %q, %v; want ErrInvalidSpeciesName", name, got, err)
+		}
+	}
+}
+
+// The admin enters only the species name; the stored code is derived from it,
+// and an unusable name stores nothing.
+func TestCreateAssemblyVersion_DerivesSpeciesCode(t *testing.T) {
+	repo := &memAssemblies{}
+	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+
+	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", " tribolium castaneum ", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.SpeciesName != "tribolium castaneum" || a.SpeciesCode != "Tcas" {
+		t.Errorf("got speciesName %q, speciesCode %q; want %q, %q", a.SpeciesName, a.SpeciesCode, "tribolium castaneum", "Tcas")
+	}
+
+	if _, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium", ""); !errors.Is(err, ErrInvalidSpeciesName) {
+		t.Errorf("got %v, want ErrInvalidSpeciesName", err)
+	}
+	if len(repo.rows) != 1 {
+		t.Errorf("stored %d assemblies, want 1", len(repo.rows))
 	}
 }

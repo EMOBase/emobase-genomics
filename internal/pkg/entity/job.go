@@ -45,8 +45,7 @@ const (
 	// REMOVE_BLAST jobs delete a stale BLAST database when a released version
 	// has no file of the corresponding (optional) type, so the blast server
 	// never keeps serving data from an older, superseded version.
-	// genomic.fna has no REMOVE_BLAST counterpart since it is required on
-	// every release (see ReleaseVersion).
+	JobTypeGenomicFNARemoveBlast = "GENOMIC.FNA:REMOVE_BLAST"
 	JobTypeProteinFAARemoveBlast = "PROTEIN.FAA:REMOVE_BLAST"
 	JobTypeRNAFNARemoveBlast     = "RNA.FNA:REMOVE_BLAST"
 
@@ -74,6 +73,7 @@ var JobDescriptions = map[string]string{
 	JobTypeGenomicFNASetupBlast:    "Setup genome BLAST database",
 	JobTypeProteinFAASetupBlast:    "Setup protein BLAST database",
 	JobTypeRNAFNASetupBlast:        "Setup RNA BLAST database",
+	JobTypeGenomicFNARemoveBlast:   "Remove stale genome BLAST database",
 	JobTypeProteinFAARemoveBlast:   "Remove stale protein BLAST database",
 	JobTypeRNAFNARemoveBlast:       "Remove stale RNA BLAST database",
 	JobTypeGenomicFNASetupJBrowse2: "Setup JBrowse2 assembly",

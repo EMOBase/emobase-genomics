@@ -198,7 +198,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	// 8. Species-restricted file types — scoped to the resolved assembly's own
 	// species (assemblyVersion is always non-nil here since dsrna.csv is not
 	// orthology.tsv, so it always goes through step 7 above).
-	if fileType == entity.FileTypeDsRNACSV && assemblyVersion.Species != entity.SpeciesTcas {
+	if fileType == entity.FileTypeDsRNACSV && assemblyVersion.SpeciesCode != entity.SpeciesTcas {
 		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
 			"dsrna.csv uploads are only supported for the \"Tcas\" species")
 	}
@@ -224,7 +224,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	newMeta["_versionID"] = strconv.FormatUint(version.ID, 10)
 	if assemblyVersion != nil {
 		newMeta["_assemblyVersionID"] = strconv.FormatUint(assemblyVersion.ID, 10)
-		newMeta["_assemblySpecies"] = assemblyVersion.Species
+		newMeta["_assemblySpecies"] = assemblyVersion.SpeciesCode
 		newMeta["_assemblyName"] = assemblyVersion.Name
 		newMeta["_assemblyKey"] = entity.FormatAssemblyID(version.ID, assemblyVersion.ID)
 	}

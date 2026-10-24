@@ -25,6 +25,7 @@ var blastJobTypes = []string{
 	entity.JobTypeGenomicFNASetupBlast,
 	entity.JobTypeProteinFAASetupBlast,
 	entity.JobTypeRNAFNASetupBlast,
+	entity.JobTypeGenomicFNARemoveBlast,
 	entity.JobTypeProteinFAARemoveBlast,
 	entity.JobTypeRNAFNARemoveBlast,
 }

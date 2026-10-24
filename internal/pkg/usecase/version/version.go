@@ -91,26 +91,14 @@ func (uc *UseCase) ListVersionsPublic(ctx context.Context, status string) ([]Ver
 	if err != nil {
 		return nil, err
 	}
-	// TODO: N+1 queries as in ListVersions; status is derived from jobs and
-	// upload files. Optimize (e.g. cache) if this becomes a bottleneck.
+	// TODO: N+1 queries as in ListVersions. Optimize (e.g. cache) if this
+	// becomes a bottleneck.
 	items := make([]VersionPublicItem, 0, len(versions))
 	for _, v := range versions {
-		statusCounts, err := uc.jobRepo.StatusCountsByVersionID(ctx, v.ID)
+		itemStatus, err := uc.computeVersionRollupStatus(ctx, v.ID)
 		if err != nil {
 			return nil, err
 		}
-		completedFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByVersionID(ctx, v.ID)
-		if err != nil {
-			return nil, err
-		}
-		hasFNA := false
-		for _, f := range completedFiles {
-			if f.FileType == entity.FileTypeGenomicFNA {
-				hasFNA = true
-				break
-			}
-		}
-		itemStatus := ComputeVersionStatus(statusCounts, hasFNA)
 		if status != "" && itemStatus != status {
 			continue
 		}
@@ -509,7 +497,7 @@ func BuildAssemblyVersionDetail(ctx context.Context, jobRepo IJobRepository, upl
 
 	return &AssemblyVersionDetail{
 		AssemblyVersion: asm,
-		Status:          ComputeVersionStatus(counts, seen[entity.FileTypeGenomicFNA]),
+		Status:          ComputeVersionStatus(counts),
 		Files:           detailFiles,
 	}, nil
 }
@@ -533,16 +521,16 @@ func toJobSummary(j entity.Job) JobSummary {
 	return s
 }
 
-func ComputeVersionStatus(c entity.JobStatusCounts, hasRequiredFiles bool) string {
+// ComputeVersionStatus derives a status from job counts alone: no file type is
+// required, so it is never MISSING_REQUIRED_FILE (that is only reported for a
+// Database Version with zero Assembly Versions, see computeVersionRollupStatus).
+func ComputeVersionStatus(c entity.JobStatusCounts) string {
 	pendingCount := c.TotalCount - c.RunningCount - c.FailedCount - c.DoneCount
 	if c.RunningCount > 0 || pendingCount > 0 {
 		return VersionStatusProcessing
 	}
 	if c.FailedCount > 0 {
 		return VersionStatusError
-	}
-	if !hasRequiredFiles {
-		return VersionStatusMissingRequiredFile
 	}
 	if c.TotalCount > 0 && c.DoneCount == c.TotalCount {
 		return VersionStatusReady
@@ -553,10 +541,9 @@ func ComputeVersionStatus(c entity.JobStatusCounts, hasRequiredFiles bool) strin
 // computeOrthologyStatus computes the status of a Database Version's shared
 // orthology.tsv uploads (never owned by a single Assembly Version, §2 of the
 // design doc) — folded into the Database-Version-level status rollup
-// alongside each assembly's own status. Unlike an assembly, orthology.tsv is
-// never a required file, so an absent upload is READY (nothing to block on),
-// not the DRAFT that ComputeVersionStatus's zero-jobs branch would otherwise
-// produce.
+// alongside each assembly's own status. An absent orthology.tsv upload is
+// READY (nothing to block on), not the DRAFT that ComputeVersionStatus's
+// zero-jobs branch would otherwise produce.
 func (uc *UseCase) computeOrthologyStatus(ctx context.Context, versionID uint64) (string, error) {
 	counts, err := uc.jobRepo.StatusCountsForSharedJobs(ctx, versionID)
 	if err != nil {
@@ -565,22 +552,20 @@ func (uc *UseCase) computeOrthologyStatus(ctx context.Context, versionID uint64)
 	if counts.TotalCount == 0 {
 		return "READY", nil
 	}
-	return ComputeVersionStatus(counts, true), nil
+	return ComputeVersionStatus(counts), nil
 }
 
 // rollupStatuses combines each Assembly Version's status with the Database
 // Version's shared orthology.tsv status into one overall status, per
 // docs/design/multi-species-assembly-versions.md §3.
 func rollupStatuses(statuses []string) string {
-	hasProcessing, hasError, hasMissing, allReady := false, false, false, true
+	hasProcessing, hasError, allReady := false, false, true
 	for _, s := range statuses {
 		switch s {
 		case "PROCESSING":
 			hasProcessing = true
 		case "ERROR":
 			hasError = true
-		case "MISSING_REQUIRED_FILE":
-			hasMissing = true
 		}
 		if s != "READY" {
 			allReady = false
@@ -591,8 +576,6 @@ func rollupStatuses(statuses []string) string {
 		return "PROCESSING"
 	case hasError:
 		return "ERROR"
-	case hasMissing:
-		return "MISSING_REQUIRED_FILE"
 	case allReady:
 		return "READY"
 	default:
@@ -604,8 +587,8 @@ func rollupStatuses(statuses []string) string {
 // a rollup across each of its Assembly Versions' own status plus the shared
 // orthology.tsv status — see docs/design/multi-species-assembly-versions.md
 // §3. A Database Version with no Assembly Versions at all cannot be released
-// (ReleaseVersion) and reuses MISSING_REQUIRED_FILE to reflect that, the same
-// way a single missing genomic.fna does, rather than inventing a 6th status.
+// (ReleaseVersion) and reports MISSING_REQUIRED_FILE to reflect that, rather
+// than inventing a 6th status.
 func (uc *UseCase) computeVersionRollupStatus(ctx context.Context, versionID uint64) (string, error) {
 	assemblyVersions, err := uc.assemblyVersionRepo.ListByVersionID(ctx, versionID)
 	if err != nil {
@@ -627,18 +610,7 @@ func (uc *UseCase) computeVersionRollupStatus(ctx context.Context, versionID uin
 		if err != nil {
 			return "", err
 		}
-		completedFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByAssemblyVersionID(ctx, asm.ID)
-		if err != nil {
-			return "", err
-		}
-		hasFNA := false
-		for _, f := range completedFiles {
-			if f.FileType == entity.FileTypeGenomicFNA {
-				hasFNA = true
-				break
-			}
-		}
-		statuses = append(statuses, ComputeVersionStatus(counts, hasFNA))
+		statuses = append(statuses, ComputeVersionStatus(counts))
 	}
 
 	return rollupStatuses(statuses), nil
@@ -654,10 +626,11 @@ type ReleaseResult struct {
 // rna.fna using the latest completed upload file of each type. Once all three
 // blast jobs succeed the worker sets the default version and restarts the blast
 // container.
-// ReleaseVersion validates every Assembly Version under the Database Version
-// has its required files, then enqueues SETUP_BLAST jobs for genomic.fna,
-// protein.faa, and rna.fna for each one, using the latest completed upload
-// file of each type per assembly. Once all of a version's blast jobs succeed
+// ReleaseVersion enqueues, for every Assembly Version under the Database
+// Version, SETUP_BLAST jobs for genomic.fna, protein.faa, and rna.fna using
+// the latest completed upload file of each type per assembly — or a
+// REMOVE_BLAST job for a type the assembly has no file of, since no file type
+// is required. Once all of a version's blast jobs succeed
 // the worker sets the default version and restarts the blast container. The
 // Database Version's shared orthology.tsv (not owned by any assembly) must
 // also have its jobs complete before release.
@@ -698,16 +671,13 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		}
 	}
 
-	// removeJobType is empty for file types that are required on every release
-	// (currently only genomic.fna) — those can never be absent, so there is no
-	// stale database to clean up.
 	type blastSpec struct {
 		fileType      string
 		setupJobType  string
 		removeJobType string
 	}
 	specs := []blastSpec{
-		{entity.FileTypeGenomicFNA, entity.JobTypeGenomicFNASetupBlast, ""},
+		{entity.FileTypeGenomicFNA, entity.JobTypeGenomicFNASetupBlast, entity.JobTypeGenomicFNARemoveBlast},
 		{entity.FileTypeProteinFAA, entity.JobTypeProteinFAASetupBlast, entity.JobTypeProteinFAARemoveBlast},
 		{entity.FileTypeRNAFNA, entity.JobTypeRNAFNASetupBlast, entity.JobTypeRNAFNARemoveBlast},
 	}
@@ -724,10 +694,6 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 			latestByType[latestFiles[i].FileType] = &latestFiles[i]
 		}
 
-		if latestByType[entity.FileTypeGenomicFNA] == nil {
-			return nil, fmt.Errorf("%w: %s (species %s)", ErrRequiredFileNotUploaded, entity.FileTypeGenomicFNA, asm.Species)
-		}
-
 		// All jobs for the latest completed file of each uploaded type must be DONE.
 		for ft, f := range latestByType {
 			// TODO: seems like a N+1 query problem. Can we batch this?
@@ -736,7 +702,7 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 				return nil, err
 			}
 			if hasNonDone {
-				return nil, fmt.Errorf("%w: %s (species %s)", ErrFileJobsNotComplete, ft, asm.Species)
+				return nil, fmt.Errorf("%w: %s (species %s)", ErrFileJobsNotComplete, ft, asm.SpeciesCode)
 			}
 		}
 
@@ -748,10 +714,6 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 				// (e.g. by a previous release of this assembly), the on-disk
 				// database would otherwise be left stale and keep being served
 				// too — enqueue a job to remove it instead.
-				if spec.removeJobType == "" {
-					continue
-				}
-
 				j, err := uc.enqueueRemoveBlastJob(ctx, v.ID, asm.ID, v.Name, spec.removeJobType)
 				if err != nil {
 					return nil, err

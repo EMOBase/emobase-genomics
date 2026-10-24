@@ -21,7 +21,6 @@ type IAppSettingsRepository interface {
 }
 
 type IJobRepository interface {
-	StatusCountsByVersionID(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error)
 	StatusCountsByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) (entity.JobStatusCounts, error)
 	StatusCountsForSharedJobs(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error)
 	FindByVersionID(ctx context.Context, versionID uint64) ([]entity.Job, error)
