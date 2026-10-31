@@ -14,7 +14,7 @@ Every other new endpoint below is admin-only. Apart from those GETs, endpoints t
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /versions/{name}/orthologies?page=&page_size=` | Paged `orthology.tsv` uploads of the Version, newest first: `{ files: FileDetail[], total, page, pageSize }` (defaults `page=1`, `page_size=20`, max 100). Same entries as `orthologyTSV` in `GET /versions/{name}/detail`, which still returns them all for now. |
+| `GET /versions/{name}/orthologies?page=&page_size=` | Paged `orthology.tsv` uploads of the Version, newest first: `{ files: FileDetail[], total, page, pageSize }` (defaults `page=1`, `page_size=20`, max 100). The only way to list them: `GET /versions/{name}/detail` does not return them. |
 | `GET /jobs/{id}` | One job, e.g. an id from an upload's `X-Jobs` header, for polling: the same fields as a `GET /jobs` item plus `assemblyVersionId` (`null` for orthology), `createdAt`, `updatedAt`, `startedAt`, `completedAt`. `400` non-integer id, `404` unknown id. |
 | `GET /versions/{name}/assemblies` | List assemblies; each item has its own `status`. |
 | `GET /silencingseqs/{species}?ids=\|geneIds=&version=` | One species' dsRNA silencing sequences; same query params and response as `GET /silencingseqs`. Records and genes of other species are never returned, even when they use the same dsRNA ID. Public. |
@@ -50,9 +50,9 @@ both `null` when unset.
 | Before | After |
 |---|---|
 | `files: { genomic.fna, …, orthology.tsv[], jbrowse.track[] }` | `files` removed |
-| — | `orthologyTSV: FileDetail[]` (top level, shared). Unpaged; will be removed once the frontend uses `GET /versions/{name}/orthologies` |
+| `files.orthology.tsv[]` | Not returned; page them with `GET /versions/{name}/orthologies` |
 | — | `assemblies: [{ id, versionId, name, speciesName, speciesCode, …, status, files }]` — `files` has the same per-type buckets minus `orthology.tsv`, plus `species.synonym[]` and `jbrowse.track.bundle[]` (bundle archives with their `JBROWSE.TRACK.BUNDLE` job; the extracted tracks stay in `jbrowse.track[]`) |
-| — | `orthologyBundle: FileDetail[]` (top level, shared): orthology bundle archives with their `ORTHOLOGY.BUNDLE` job; the extracted files stay in `orthologyTSV`. A failed bundle extracts nothing, so its job's `error` is the only place the failure shows |
+| — | `orthologyBundle: FileDetail[]` (top level, shared): orthology bundle archives with their `ORTHOLOGY.BUNDLE` job; the extracted `orthology.tsv` files are paged by `GET /versions/{name}/orthologies`. A failed bundle extracts nothing, so its job's `error` is the only place the failure shows |
 | `status` from the whole Version's jobs | `status` rolled up across every assembly + orthology: `PROCESSING` > `ERROR` > `READY` > `DRAFT`. No file is required, so `MISSING_REQUIRED_FILE` now only means zero assemblies |
 
 ### `POST /versions/{name}/release` — same request, per-assembly behavior

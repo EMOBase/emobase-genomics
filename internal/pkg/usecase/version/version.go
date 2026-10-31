@@ -140,8 +140,8 @@ type FileDetail struct {
 // and all uploaded files for jbrowse.track / jbrowse.track.bundle /
 // species.synonym, scoped to a single Assembly Version. orthology.tsv is
 // shared across every species in a Database Version rather than owned by one
-// assembly, so it is not part of this type — it surfaces at the top level of
-// VersionDetail instead.
+// assembly, so it is not part of this type — GET /versions/{name}/orthologies
+// pages it instead.
 type VersionDetailFiles struct {
 	GenomicFNA     *FileDetail  `json:"genomic.fna"`
 	GenomicGFF     *FileDetail  `json:"genomic.gff"`
@@ -172,11 +172,10 @@ type VersionDetail struct {
 	IsDefault     bool                    `json:"isDefault"`
 	Status        string                  `json:"status"`
 	TotalFileSize int64                   `json:"totalFileSize"`
-	OrthologyTSV  []FileDetail            `json:"orthologyTSV"`
 	Assemblies    []AssemblyVersionDetail `json:"assemblies"`
-	// OrthologyBundle lists the orthology bundle archives, apart from the files
-	// extracted from them (which are in OrthologyTSV), for the same reason as
-	// VersionDetailFiles.JBrowseTrackBundle.
+	// OrthologyBundle lists the orthology bundle archives, for the same reason
+	// as VersionDetailFiles.JBrowseTrackBundle. The orthology.tsv files, both
+	// extracted and single uploads, are paged by GET /versions/{name}/orthologies.
 	OrthologyBundle []FileDetail `json:"orthologyBundle"`
 }
 
@@ -273,7 +272,7 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 		return nil, err
 	}
 
-	orthologyTSV, orthologyBundle, err := uc.listOrthologyFileDetails(ctx, v.ID)
+	orthologyBundle, err := uc.listOrthologyBundleDetails(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -315,47 +314,38 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 		IsDefault:       defaultVersionID != nil && *defaultVersionID == v.ID,
 		Status:          status,
 		TotalFileSize:   fileSizes[v.ID],
-		OrthologyTSV:    orthologyTSV,
 		OrthologyBundle: orthologyBundle,
 		Assemblies:      assemblies,
 	}, nil
 }
 
-// listOrthologyFileDetails returns FileDetail entries for every orthology.tsv
-// and orthology.bundle upload in a Database Version — shared across every
-// species rather than owned by one assembly (§2 of the design doc), so this
-// reads all files for the whole version and keeps only those two types.
-func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint64) (tsv, bundles []FileDetail, err error) {
-	files, err := uc.uploadFileRepo.ListByVersionID(ctx, versionID)
-	if err != nil {
-		return nil, nil, err
-	}
-	// ListByVersionID leaves out bundle rows, so read them on their own.
+// listOrthologyBundleDetails returns FileDetail entries, with their jobs, for
+// every orthology.bundle upload in a Database Version. It reads only the
+// bundle rows and their jobs: the version's orthology.tsv files can be many,
+// and GET /versions/{name}/orthologies pages them.
+func (uc *UseCase) listOrthologyBundleDetails(ctx context.Context, versionID uint64) ([]FileDetail, error) {
 	// math.MaxInt64 is MySQL's "no limit" for LIMIT.
-	bundleFiles, err := uc.uploadFileRepo.ListByVersionIDAndType(ctx, versionID, entity.FileTypeOrthologyBundle, 0, math.MaxInt64)
+	files, err := uc.uploadFileRepo.ListByVersionIDAndType(ctx, versionID, entity.FileTypeOrthologyBundle, 0, math.MaxInt64)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	files = append(files, bundleFiles...)
 
-	jobs, err := uc.jobRepo.FindByVersionID(ctx, versionID)
+	fileIDs := make([]string, len(files))
+	for i, f := range files {
+		fileIDs[i] = f.ID
+	}
+	jobs, err := uc.jobRepo.FindByFileIDs(ctx, fileIDs)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	jobsByFileID := make(map[string][]JobSummary)
 	for _, j := range jobs {
-		if j.FileID == nil {
-			continue
-		}
 		jobsByFileID[*j.FileID] = append(jobsByFileID[*j.FileID], toJobSummary(j))
 	}
 
-	tsv, bundles = []FileDetail{}, []FileDetail{}
-	for _, f := range files {
-		if f.FileType != entity.FileTypeOrthologyTSV && f.FileType != entity.FileTypeOrthologyBundle {
-			continue
-		}
-		fd := FileDetail{
+	bundles := make([]FileDetail, len(files))
+	for i, f := range files {
+		bundles[i] = FileDetail{
 			ID:           f.ID,
 			FilePath:     f.FilePath,
 			FileSize:     f.FileSize,
@@ -365,16 +355,11 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 			CompletedAt:  f.CompletedAt,
 			Jobs:         jobsByFileID[f.ID],
 		}
-		if fd.Jobs == nil {
-			fd.Jobs = []JobSummary{}
-		}
-		if f.FileType == entity.FileTypeOrthologyBundle {
-			bundles = append(bundles, fd)
-		} else {
-			tsv = append(tsv, fd)
+		if bundles[i].Jobs == nil {
+			bundles[i].Jobs = []JobSummary{}
 		}
 	}
-	return tsv, bundles, nil
+	return bundles, nil
 }
 
 // OrthologyFileList is the response for GET /versions/{name}/orthologies.
@@ -386,8 +371,8 @@ type OrthologyFileList struct {
 }
 
 // ListOrthologyFiles returns one page of a Database Version's shared
-// orthology.tsv uploads — the same entries as VersionDetail.OrthologyTSV, but
-// paged, since an orthology bundle can add many files to one version.
+// orthology.tsv uploads, newest first, each with its jobs. It is paged, since
+// an orthology bundle can add many files to one version.
 func (uc *UseCase) ListOrthologyFiles(ctx context.Context, name string, page, pageSize int) (*OrthologyFileList, error) {
 	v, err := uc.versionRepo.FindByName(ctx, name)
 	if err != nil {

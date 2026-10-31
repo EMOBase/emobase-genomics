@@ -334,7 +334,7 @@ components:
         Uploaded files grouped by type, scoped to a single Assembly Version (species).
         `orthology.tsv` is shared across every species in a Database Version rather than
         owned by one assembly, so it is not part of this type — see
-        `VersionDetail.orthologyTSV` instead. For all types except `jbrowse.track`,
+        `GET /versions/{name}/orthologies` instead. For all types except `jbrowse.track`,
         `jbrowse.track.bundle` and `species.synonym`, only the latest non-deleted file is
         returned (or `null` if none exists). For those three, all non-deleted files for
         this assembly are returned.
@@ -712,7 +712,7 @@ components:
 
     VersionDetail:
       type: object
-      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, orthologyBundle, assemblies]
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyBundle, assemblies]
       properties:
         id:
           type: integer
@@ -749,16 +749,12 @@ components:
         updatedBy:
           type: string
           example: admin
-        orthologyTSV:
-          type: array
-          description: All non-deleted orthology.tsv uploads for this Database Version — shared across every species rather than owned by one assembly.
-          items:
-            $ref: '#/components/schemas/FileDetail'
         orthologyBundle:
           type: array
           description: |
             All non-deleted `orthology.bundle` archives for this Database Version, each with
-            its `ORTHOLOGY.BUNDLE` job. The files extracted from them are in `orthologyTSV`.
+            its `ORTHOLOGY.BUNDLE` job. The `orthology.tsv` files (extracted or uploaded singly)
+            are not part of version detail: page them with `GET /versions/{name}/orthologies`.
             A bundle that fails validation extracts nothing, so its job's `error` is the only
             place the failure shows.
           items:
@@ -1604,8 +1600,7 @@ paths:
       security: []
       description: |
         Paged list of the Database Version's shared orthology.tsv uploads, newest
-        first, each with its jobs. Same entries as `orthologyTSV` in
-        `GET /versions/{name}/detail`, which still returns them all, unpaged.
+        first, each with its jobs. `GET /versions/{name}/detail` does not return them.
       parameters:
         - name: name
           in: path
