@@ -22,6 +22,7 @@ type IJobRepository interface {
 	HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	FindLatestByFileAndType(ctx context.Context, fileID string, jobType string) (*entity.Job, error)
+	FindByFileIDs(ctx context.Context, fileIDs []string) ([]entity.Job, error)
 }
 
 type IUploadFileRepository interface {
@@ -32,4 +33,5 @@ type IUploadFileRepository interface {
 	SoftDelete(ctx context.Context, id string, deletedBy string) error
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
 	FindLatestCompletedByAssemblyVersionAndType(ctx context.Context, assemblyVersionID uint64, fileType string) (*entity.UploadFile, error)
+	ListByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
 }

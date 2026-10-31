@@ -148,8 +148,12 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    (`nil` only for `orthology.tsv`). `storedName` is the upload's `fileName` with an
    8-character tag from its upload ID before the first dot (`uploadspec.StoredFileName`,
    e.g. `genomic-1a2b3c4d.gff.gz`), so same-named uploads never share a path; the move
-   refuses to overwrite an existing file. Job payloads are typed structs in
-   `internal/pkg/jobpayload/*`, JSON-marshaled into `Job.Payload`.
+   refuses to overwrite an existing file. So a re-upload never replaces the old file by
+   itself: for the one-file-per-assembly types (`singleFileTypes` in `usecase/upload`),
+   `removeReplacedFiles` removes the assembly's other completed files of that type from
+   disk and soft-deletes them once the new upload completes (only if it is the latest,
+   and keeping any file a `PENDING`/`RUNNING` job still reads). Job payloads are typed
+   structs in `internal/pkg/jobpayload/*`, JSON-marshaled into `Job.Payload`.
 3. `cmd/worker` polls MySQL for pending jobs (`ClaimNextPending`), dispatches to a
    `map[jobType]Handler` in `internal/pkg/usecase/worker/handlers/`, marks the job
    `DONE`/`FAILED`, and calls optional `OnCompleteHook`/`OnFailureHook` on the handler.

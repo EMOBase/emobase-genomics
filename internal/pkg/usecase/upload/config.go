@@ -34,6 +34,17 @@ var concurrentFileTypes = map[string]struct{}{
 	entity.FileTypeJBrowseTrackBundle: {},
 }
 
+// singleFileTypes keep one file per assembly: a completed upload replaces the
+// assembly's previous file of its type, which removeReplacedFiles then removes.
+var singleFileTypes = map[string]struct{}{
+	entity.FileTypeGenomicFNA: {},
+	entity.FileTypeGenomicGFF: {},
+	entity.FileTypeRNAFNA:     {},
+	entity.FileTypeCDSFNA:     {},
+	entity.FileTypeProteinFAA: {},
+	entity.FileTypeDsRNACSV:   {},
+}
+
 // isVersionScoped reports whether a file type belongs to the whole Database Version
 // rather than to one Assembly Version. Such uploads take no "assembly" metadata.
 func isVersionScoped(fileType string) bool {

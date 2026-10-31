@@ -281,6 +281,8 @@ components:
             Where the file is stored. The file name is the uploaded name with an 8-character
             tag from the upload ID inserted before its first dot, so two uploads of the same
             name never share a file; removing `-` plus the tag gives the original name.
+            For a type that keeps one file per assembly, a newer upload removes this file
+            (see `POST /uploads`).
           example: public/uploads/dmel_r6.59/v1a7/genomic-3fa85f64.gff.gz
         fileSize:
           type: integer
@@ -2464,6 +2466,13 @@ paths:
         - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files, and dsRNA-to-gene mappings named `ib_tc*` or `dsrna_gene*` (2 columns: dsRNA ID, gene ID))*
         - `dsrna.csv` *(any species; 1 active per assembly — re-upload replaces that assembly's previous index)*
         - `jbrowse.track` *(multiple tracks allowed per assembly; requires `trackName` metadata; optional `category`; deletable)*
+
+        **One file per assembly** (`genomic.fna`, `genomic.gff`, `rna.fna`, `cds.fna`,
+        `protein.faa`, `dsrna.csv`): when an upload of one of these types completes, the
+        assembly's previous files of that type (whatever their name) are removed from
+        disk and soft-deleted, so they no longer appear in listings or count in
+        `totalFileSize`. A previous file that still has a `PENDING` or `RUNNING` job is
+        kept until the next upload of its type.
         - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
         - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*
 

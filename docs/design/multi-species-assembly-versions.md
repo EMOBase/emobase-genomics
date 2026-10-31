@@ -412,7 +412,9 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   before its first dot — `genomic-1a2b3c4d.gff.gz`, via `uploadspec.StoredFileName` —
   and bundle files are tagged with their child ID. Otherwise a bundle job's cleanup could
   delete a later same-named bundle's archive, and same-named tracks overwrote each other's
-  JBrowse2 copy.)
+  JBrowse2 copy. Since a re-upload then no longer overwrites the previous file, a completed
+  upload of a one-file-per-assembly type removes and soft-deletes the assembly's previous
+  files of that type, keeping any that a pending or running job still reads.)
 - **Active-job dedup** (`HasActiveJobOfType`, line 179): re-scopes its first argument
   from `version.ID` to the resolved `assemblyVersion.ID` for every type except
   `orthology.tsv`, which **keeps its existing `version.ID` scoping unchanged** — an

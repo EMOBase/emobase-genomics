@@ -336,6 +336,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	if err := uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusCompleted); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("uploadID", upload.ID).Msg("failed to mark upload file as completed")
 	}
+	uc.removeReplacedFiles(ctx, upload.ID, upload.MetaData)
 
 	idStrs := make([]string, len(jobs))
 	for i, j := range jobs {
@@ -353,6 +354,85 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 			"X-Jobs":    string(jobsJSON),
 		},
 	}, nil
+}
+
+// removeReplacedFiles removes the files that a completed upload of a
+// single-file type replaces: every other completed file of that type in its
+// assembly, whatever its name. Only the latest completed file of such a type
+// is ever read (release, detail, the GFF to JBrowse2 chain), and stored names
+// are tagged with the upload ID, so older files would otherwise pile up on
+// disk. A removed file is soft-deleted too, so listings and version sizes stop
+// counting it. A file with a pending or running job is kept until the next
+// upload of its type, since that job still reads it. Failures are logged and
+// never fail the upload, which is already done.
+func (uc *UseCase) removeReplacedFiles(ctx context.Context, uploadID string, meta tusd.MetaData) {
+	fileType := meta["fileType"]
+	if _, single := singleFileTypes[fileType]; !single {
+		return
+	}
+	logger := log.Ctx(ctx).With().Str("uploadID", uploadID).Str("fileType", fileType).Logger()
+	assemblyVersionID, err := parseOptionalAssemblyVersionID(meta)
+	if err != nil || assemblyVersionID == nil {
+		logger.Warn().Err(err).Msg("no assembly in upload metadata; not removing replaced files")
+		return
+	}
+
+	// If a newer upload of this type has completed meanwhile, this one is
+	// already replaced, and that upload removes the older files.
+	latest, err := uc.uploadRepo.FindLatestCompletedByAssemblyVersionAndType(ctx, *assemblyVersionID, fileType)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to look up latest file; not removing replaced files")
+		return
+	}
+	if latest == nil || latest.ID != uploadID {
+		return
+	}
+
+	files, err := uc.uploadRepo.ListByAssemblyVersionID(ctx, *assemblyVersionID)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to list assembly files; not removing replaced files")
+		return
+	}
+	var replaced []entity.UploadFile
+	var ids []string
+	for _, f := range files {
+		if f.ID != uploadID && f.FileType == fileType && f.UploadStatus == entity.UploadStatusCompleted {
+			replaced = append(replaced, f)
+			ids = append(ids, f.ID)
+		}
+	}
+	if len(replaced) == 0 {
+		return
+	}
+
+	jobs, err := uc.jobRepo.FindByFileIDs(ctx, ids)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to look up replaced files' jobs; not removing replaced files")
+		return
+	}
+	inUse := make(map[string]bool)
+	for _, j := range jobs {
+		if j.Status == entity.JobStatusPending || j.Status == entity.JobStatusRunning {
+			inUse[*j.FileID] = true
+		}
+	}
+
+	deletedBy := auth.UsernameFromContext(ctx)
+	for _, f := range replaced {
+		if inUse[f.ID] {
+			logger.Info().Str("replacedID", f.ID).Msg("replaced file has a pending or running job; keeping it until the next upload of its type")
+			continue
+		}
+		if err := os.Remove(f.FilePath); err != nil && !os.IsNotExist(err) {
+			logger.Warn().Err(err).Str("replacedID", f.ID).Str("path", f.FilePath).Msg("failed to remove replaced file")
+			continue
+		}
+		if err := uc.uploadRepo.SoftDelete(ctx, f.ID, deletedBy); err != nil {
+			logger.Warn().Err(err).Str("replacedID", f.ID).Msg("removed replaced file but failed to soft-delete its record")
+			continue
+		}
+		logger.Info().Str("replacedID", f.ID).Str("path", f.FilePath).Msg("removed replaced file")
+	}
 }
 
 func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta tusd.MetaData, filePath string) ([]entity.Job, error) {

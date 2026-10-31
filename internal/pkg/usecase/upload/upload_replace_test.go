@@ -1,0 +1,182 @@
+package upload
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+)
+
+// memUploads keeps upload_files rows in memory, with the same notion of an
+// assembly's "latest completed file" as the MySQL repository.
+type memUploads struct {
+	IUploadFileRepository
+	rows map[string]*entity.UploadFile
+}
+
+func (m *memUploads) UpdateStatus(_ context.Context, id string, status entity.UploadStatus) error {
+	m.rows[id].UploadStatus = status
+	return nil
+}
+
+func (m *memUploads) FindLatestCompletedByAssemblyVersionAndType(_ context.Context, asm uint64, fileType string) (*entity.UploadFile, error) {
+	var latest *entity.UploadFile
+	for _, f := range m.rows {
+		if *f.AssemblyVersionID == asm && f.FileType == fileType && f.UploadStatus == entity.UploadStatusCompleted &&
+			f.DeletedAt == nil && (latest == nil || f.CreatedAt.After(latest.CreatedAt)) {
+			latest = f
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	c := *latest
+	return &c, nil
+}
+
+func (m *memUploads) ListByAssemblyVersionID(_ context.Context, asm uint64) ([]entity.UploadFile, error) {
+	var out []entity.UploadFile
+	for _, f := range m.rows {
+		if *f.AssemblyVersionID == asm && f.DeletedAt == nil {
+			out = append(out, *f)
+		}
+	}
+	return out, nil
+}
+
+func (m *memUploads) SoftDelete(_ context.Context, id, deletedBy string) error {
+	now := time.Now()
+	m.rows[id].DeletedAt, m.rows[id].DeletedBy = &now, &deletedBy
+	return nil
+}
+
+// jobsOfFiles also answers FindByFileIDs with jobs that already exist.
+type jobsOfFiles struct {
+	*fakeUploadJobs
+	existing []entity.Job
+}
+
+func (j jobsOfFiles) FindByFileIDs(_ context.Context, ids []string) ([]entity.Job, error) {
+	var out []entity.Job
+	for _, job := range j.existing {
+		if slices.Contains(ids, *job.FileID) {
+			out = append(out, job)
+		}
+	}
+	return out, nil
+}
+
+type replaceFixture struct {
+	t       *testing.T
+	uc      *UseCase
+	jobs    *fakeUploadJobs
+	uploads *memUploads
+}
+
+func newReplaceFixture(t *testing.T, existing []entity.Job) *replaceFixture {
+	uc, jobs := newFinishTestUseCase(t)
+	uploads := &memUploads{rows: map[string]*entity.UploadFile{}}
+	uc.uploadRepo = uploads
+	uc.jobRepo = jobsOfFiles{fakeUploadJobs: jobs, existing: existing}
+	return &replaceFixture{t: t, uc: uc, jobs: jobs, uploads: uploads}
+}
+
+// stored adds a completed upload whose file is on disk, as an earlier upload
+// would have left it.
+func (f *replaceFixture) stored(id string, asm uint64, fileType, fileName string, created time.Time) string {
+	f.t.Helper()
+	meta := assemblyMeta(fileType, fileName, nil)
+	meta["_assemblyKey"] = entity.FormatAssemblyID(1, asm)
+	path := f.uc.storedPath(id, meta)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("\x1f\x8bold"), 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+	f.uploads.rows[id] = &entity.UploadFile{ID: id, AssemblyVersionID: &asm, FileType: fileType, FilePath: path,
+		UploadStatus: entity.UploadStatusCompleted, CreatedAt: created}
+	return path
+}
+
+// upload runs a new upload of assembly 7 through the finish hook, as tusd does
+// once the file is fully received.
+func (f *replaceFixture) upload(id, fileType, fileName string, created time.Time) string {
+	f.t.Helper()
+	asm := uint64(7)
+	meta := assemblyMeta(fileType, fileName, nil)
+	f.uploads.rows[id] = &entity.UploadFile{ID: id, AssemblyVersionID: &asm, FileType: fileType,
+		FilePath: f.uc.storedPath(id, meta), UploadStatus: entity.UploadStatusUploading, CreatedAt: created}
+	return finishUpload(f.t, f.uc, f.jobs, id, meta, "\x1f\x8bnew")
+}
+
+func (f *replaceFixture) assertKept(path, id string) {
+	f.t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		f.t.Errorf("%s: file should be kept: %v", id, err)
+	}
+	if f.uploads.rows[id].DeletedAt != nil {
+		f.t.Errorf("%s: record should not be soft-deleted", id)
+	}
+}
+
+// An assembly keeps one file of each single-file type. Since stored names are
+// tagged with the upload ID, a re-upload (under the same name or another) no
+// longer overwrites the previous file, so finishing it must remove the
+// previous file and soft-delete its record, or it stays in the public folder
+// and still counts in listings and the version size. Untouched: other types,
+// other assemblies, and a replaced file that a pending or running job still
+// reads, which stays until the next upload of its type (a failed job does not
+// keep a file).
+func TestUploadFinish_RemovesReplacedSingleFile(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	running := "busy0000000000000000000000000002"
+	f := newReplaceFixture(t, []entity.Job{
+		{FileID: strPtr("old00000000000000000000000000001"), Type: entity.JobTypeRNAFNA, Status: entity.JobStatusFailed},
+		{FileID: &running, Type: entity.JobTypeRNAFNASetupBlast, Status: entity.JobStatusRunning},
+	})
+	old := f.stored("old00000000000000000000000000001", 7, entity.FileTypeRNAFNA, "rna_v1.fna.gz", t0)
+	busy := f.stored(running, 7, entity.FileTypeRNAFNA, "rna.fna.gz", t0.Add(time.Hour))
+	protein := f.stored("prot0000000000000000000000000003", 7, entity.FileTypeProteinFAA, "protein.faa.gz", t0)
+	otherAssembly := f.stored("asm80000000000000000000000000004", 8, entity.FileTypeRNAFNA, "rna.fna.gz", t0)
+
+	newPath := f.upload("new00000000000000000000000000005", entity.FileTypeRNAFNA, "rna.fna.gz", t0.Add(2*time.Hour))
+
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("replaced file should be removed from disk: %v", err)
+	}
+	if f.uploads.rows["old00000000000000000000000000001"].DeletedAt == nil {
+		t.Error("replaced file's record should be soft-deleted")
+	}
+	f.assertKept(busy, running)
+	f.assertKept(protein, "prot0000000000000000000000000003")
+	f.assertKept(otherAssembly, "asm80000000000000000000000000004")
+	f.assertKept(newPath, "new00000000000000000000000000005")
+}
+
+// Uploads can finish out of order. If a newer upload of the type has already
+// completed, the one finishing now is already replaced: it must not remove
+// anything, above all not the newer file, which is the one in use.
+func TestUploadFinish_OlderUploadFinishingLateRemovesNothing(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	f := newReplaceFixture(t, nil)
+	older := f.stored("old00000000000000000000000000001", 7, entity.FileTypeGenomicGFF, "genomic.gff.gz", t0)
+	newer := f.stored("newr0000000000000000000000000003", 7, entity.FileTypeGenomicGFF, "genomic.gff.gz", t0.Add(2*time.Hour))
+
+	// The late upload, created between the two, has just been marked completed.
+	// Its cleanup is called directly: a GFF finish also enqueues synonym and
+	// JBrowse2 jobs, which these fakes do not cover.
+	asm, late := uint64(7), "late0000000000000000000000000002"
+	f.uploads.rows[late] = &entity.UploadFile{ID: late, AssemblyVersionID: &asm, FileType: entity.FileTypeGenomicGFF,
+		UploadStatus: entity.UploadStatusCompleted, CreatedAt: t0.Add(time.Hour)}
+	f.uc.removeReplacedFiles(context.Background(), late, assemblyMeta(entity.FileTypeGenomicGFF, "genomic.gff.gz", nil))
+
+	f.assertKept(newer, "newr0000000000000000000000000003")
+	f.assertKept(older, "old00000000000000000000000000001")
+}
+
+func strPtr(s string) *string { return &s }
