@@ -77,13 +77,13 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	appSettingsRepo := repoappsettings.New(db)
 	assemblyVersionRepo := repoassemblyversion.New(db)
 
-	synonymHandler := handlers.NewSynonymHandler(versionRepo, synonymUC, synonymRepo, indexPrefix)
+	synonymHandler := handlers.NewSynonymHandler(versionRepo, synonymUC, synonymRepo, uploadFileRepo, indexPrefix)
 
 	jobHandlers := map[string]ucworker.Handler{
 		entity.JobTypeGenomicGFF:   handlers.NewGenomicGFFHandler(versionRepo, genomicUC, genomicRepo, indexPrefix),
-		entity.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
-		entity.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
-		entity.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo, indexPrefix),
+		entity.JobTypeRNAFNA:       handlers.NewRNAFNAHandler(versionRepo, sequenceUC, sequenceRepo, uploadFileRepo, indexPrefix),
+		entity.JobTypeCDSFNA:       handlers.NewCDSFNAHandler(versionRepo, sequenceUC, sequenceRepo, uploadFileRepo, indexPrefix),
+		entity.JobTypeProteinFAA:   handlers.NewProteinFAAHandler(versionRepo, sequenceUC, sequenceRepo, uploadFileRepo, indexPrefix),
 		entity.JobTypeOrthologyTSV: handlers.NewOrthologyTSVHandler(versionRepo, orthologyUC, orthologyRepo, indexPrefix),
 		entity.JobTypeOrthologyTSVDelete: handlers.NewDeleteOrthologyTSVHandler(
 			uploadFileRepo, versionRepo, orthologyRepo, indexPrefix,

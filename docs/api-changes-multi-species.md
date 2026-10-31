@@ -72,6 +72,7 @@ both `null` when unset.
 | `DELETE /versions/{name}` | Also cascades to all assemblies and their JBrowse2 data. |
 | Every response with a `filePath` | The stored file name now carries an 8-character tag from the upload ID before its first dot (`genomic.gff.gz` → `genomic-3fa85f64.gff.gz`), so same-named uploads no longer overwrite each other. Files uploaded before this change keep their old names. Strip `-` plus the tag to show the original name. |
 | `POST /uploads` (tus) | When an upload of `genomic.fna`, `genomic.gff`, `rna.fna`, `cds.fna`, `protein.faa` or `dsrna.csv` completes, the assembly's previous files of that type are removed from disk and soft-deleted (gone from `GET /upload-files`, no longer in `totalFileSize`), whatever their name. A previous file with a `PENDING`/`RUNNING` job is kept until the next upload of its type. |
+| `GET /search`, `GET /search/_suggest`, `GET /genes/{species}` | After a `genomic.gff`, `rna.fna`, `cds.fna` or `protein.faa` is replaced and the new file's jobs are done, genes, synonyms and sequences that only the replaced file had are no longer returned (before: they stayed searchable). |
 | `GET /genes/{species}`, `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
 | `GET /jobs` | New optional `type` filter: one job type, exact match (e.g. `?version=v1&type=GENOMIC.FNA:SETUP_BLAST`). An unknown type is `400 invalid type filter`. Without `type`, every job is listed as before. |
 

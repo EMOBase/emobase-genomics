@@ -151,7 +151,7 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    8-character tag from its upload ID before the first dot (`uploadspec.StoredFileName`,
    e.g. `genomic-1a2b3c4d.gff.gz`), so same-named uploads never share a path; the move
    refuses to overwrite an existing file. So a re-upload never replaces the old file by
-   itself: for the one-file-per-assembly types (`singleFileTypes` in `usecase/upload`),
+   itself: for the one-file-per-assembly types (`entity.SingleFileTypes`),
    `removeReplacedFiles` removes the assembly's other completed files of that type from
    disk and soft-deletes them once the new upload completes (only if it is the latest,
    and keeping any file a `PENDING`/`RUNNING` job still reads). Job payloads are typed
@@ -216,7 +216,10 @@ file/job type constants, a detail bucket in `usecase/version`, and register
 When adding a new upload-driven file type: add validation in `handlePreUploadCreate`,
 a payload struct in `jobpayload/`, a job-creation branch in `enqueueProcessJob`, a
 handler in `usecase/worker/handlers/` registered in `cmd/worker/worker.go`'s
-`jobHandlers` map, and (if deletable) an entry in `upload.deletableFileTypes`.
+`jobHandlers` map, and (if deletable) an entry in `upload.deletableFileTypes`. If an
+assembly keeps only one file of the type, add it to `entity.SingleFileTypes`, and if its
+documents share a fixed index with other files, remove a replaced file's documents in
+its handler's `OnComplete` (see Elasticsearch conventions).
 
 ### JBrowse2 and BLAST integration
 
@@ -268,6 +271,17 @@ UI.
   first, then delete by explicit resolved names — see `esindex.DeleteIndexesByVersion`
   (whole Version, all 5 types) and `esindex.DeleteIndexesByAssemblyVersion` (one assembly, the 4 assembly-scoped types only) for the reference pattern. Never call
   `Indices.Delete` with a wildcard string directly.
+- `sequence` and `synonym` use one fixed index per assembly (`version.CreatedAt`, not
+  `time.Now()`), shared by all of the assembly's files of those types, so a re-upload
+  only rewrites the documents it still has. Every document carries its upload's
+  `file_id`. Once a single-file type's job is `DONE`, its handler's `OnComplete` deletes
+  the documents of the files it replaced (`uploadfile.ListIDsReplacedBy`: same assembly
+  and type, created earlier, soft-deleted rows included): the sequence handlers
+  (`sequence_fasta.go`) those of their sequence type plus untagged legacy ones, `SynonymHandler` only for `genomic.gff`
+  (a `species.synonym` file replaces nothing). Both refresh the index first and run
+  `delete_by_query` with `conflicts=proceed`, so a document the new file just rewrote is
+  never deleted. The sequence template maps `file_id` as `keyword`; re-run `es:migrate`
+  after changing a template (existing indices keep their mapping).
 
 ### Auth
 

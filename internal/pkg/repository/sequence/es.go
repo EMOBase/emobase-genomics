@@ -76,6 +76,57 @@ func (r *ElasticSearchRepository) bulkIndex(
 	return nil
 }
 
+// DeleteReplaced deletes the sequenceType documents of indexName that were
+// indexed from one of replacedFileIDs, or that have no file_id at all (indexed
+// before documents were tagged with their file). The index is refreshed first,
+// and a document rewritten since its match is left alone (conflicts=proceed),
+// so sequences the new file just wrote are never deleted.
+func (r *ElasticSearchRepository) DeleteReplaced(ctx context.Context, indexName, sequenceType string, replacedFileIDs []string) error {
+	if replacedFileIDs == nil {
+		replacedFileIDs = []string{}
+	}
+	body, err := json.Marshal(map[string]any{
+		"query": map[string]any{"bool": map[string]any{
+			"filter": []any{map[string]any{"term": map[string]any{"type": sequenceType}}},
+			"should": []any{
+				map[string]any{"terms": map[string]any{"file_id": replacedFileIDs}},
+				map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "file_id"}}}},
+			},
+			"minimum_should_match": 1,
+		}},
+	})
+	if err != nil {
+		return err
+	}
+
+	refreshRes, err := r.esClient.Indices.Refresh(
+		r.esClient.Indices.Refresh.WithContext(ctx),
+		r.esClient.Indices.Refresh.WithIndex(indexName),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to refresh %q: %w", indexName, err)
+	}
+	defer func() { _ = refreshRes.Body.Close() }()
+	if refreshRes.IsError() {
+		return fmt.Errorf("elasticsearch refresh failed: %s", refreshRes.String())
+	}
+
+	res, err := r.esClient.DeleteByQuery(
+		[]string{indexName},
+		bytes.NewReader(body),
+		r.esClient.DeleteByQuery.WithContext(ctx),
+		r.esClient.DeleteByQuery.WithConflicts("proceed"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete replaced sequences: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch delete_by_query failed: %s", res.String())
+	}
+	return nil
+}
+
 // FindByIDs returns sequence documents whose ES document ID matches any of the given IDs.
 func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName string, ids []string) ([]entity.Sequence, error) {
 	if len(ids) == 0 {

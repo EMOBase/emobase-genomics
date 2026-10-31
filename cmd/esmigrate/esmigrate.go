@@ -54,7 +54,8 @@ func createIndexTemplates(ctx context.Context, esClient *elasticsearch.Client, i
 							"name":     {"type": "text"},
 							"species":  {"type": "keyword"},
 							"sequence": {"type": "text", "index": false},
-							"type":     {"type": "keyword"}
+							"type":     {"type": "keyword"},
+							"file_id":  {"type": "keyword"}
 						}
 					}
 				}

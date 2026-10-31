@@ -717,7 +717,12 @@ each handler (`internal/pkg/usecase/worker/handlers/*.go`):**
   `version.CreatedAt.Unix()`, not `time.Now()`. Re-uploading RNA then CDS then protein
   for the *same* assembly still computes the identical index name every time (safe,
   accumulates as today) — only a *different* assembly produces a different index name.
-  No `DeleteStaleIndexes` needed for these two, same as today.
+  No `DeleteStaleIndexes` needed for these two, same as today. (Revised: since a
+  re-upload only rewrites the documents it still has, a replaced file's other documents
+  stayed searchable. Every sequence and synonym document now carries its upload's
+  `file_id`, and once a one-file-per-assembly type's job is done, its handler deletes the
+  replaced files' documents from the assembly's own index: sequences of that type, and
+  synonyms only for a replaced `genomic.gff`, never for `species.synonym`.)
 - `orthology` is the only type that stays fully shared, unscoped by assembly — it's
   Database-Version-wide by nature, not owned by any one assembly (§2), so there's no assembly dimension to add to its index name at all.
 

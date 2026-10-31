@@ -2472,7 +2472,10 @@ paths:
         assembly's previous files of that type (whatever their name) are removed from
         disk and soft-deleted, so they no longer appear in listings or count in
         `totalFileSize`. A previous file that still has a `PENDING` or `RUNNING` job is
-        kept until the next upload of its type.
+        kept until the next upload of its type. Once the new file's jobs are done, the
+        sequences (`rna.fna`, `cds.fna`, `protein.faa`) and GFF synonyms indexed from the
+        files it replaced are removed too, so search and `GET /genes/{species}` no longer
+        return genes, names or sequences the new file dropped.
         - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
         - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*
 

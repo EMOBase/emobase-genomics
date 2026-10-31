@@ -369,7 +369,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 // never fail the upload, which is already done.
 func (uc *UseCase) removeReplacedFiles(ctx context.Context, uploadID string, meta tusd.MetaData) {
 	fileType := meta["fileType"]
-	if _, single := singleFileTypes[fileType]; !single {
+	if !entity.IsSingleFileType(fileType) {
 		return
 	}
 	logger := log.Ctx(ctx).With().Str("uploadID", uploadID).Str("fileType", fileType).Logger()

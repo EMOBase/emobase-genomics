@@ -24,26 +24,30 @@ type ISynonymUseCase interface {
 type ISynonymRepository interface {
 	SetAlias(ctx context.Context, indexName, aliasName, assemblyKey string) error
 	DeleteByFileID(ctx context.Context, indexName, fileID string) error
+	DeleteByFileIDs(ctx context.Context, indexName string, fileIDs []string) error
 }
 
 type SynonymHandler struct {
-	versionRepo IVersionRepository
-	synonymUC   ISynonymUseCase
-	synonymRepo ISynonymRepository
-	indexPrefix string
+	versionRepo    IVersionRepository
+	synonymUC      ISynonymUseCase
+	synonymRepo    ISynonymRepository
+	uploadFileRepo IReplacedFileRepository
+	indexPrefix    string
 }
 
 func NewSynonymHandler(
 	versionRepo IVersionRepository,
 	synonymUC ISynonymUseCase,
 	synonymRepo ISynonymRepository,
+	uploadFileRepo IReplacedFileRepository,
 	indexPrefix string,
 ) *SynonymHandler {
 	return &SynonymHandler{
-		versionRepo: versionRepo,
-		synonymUC:   synonymUC,
-		synonymRepo: synonymRepo,
-		indexPrefix: indexPrefix,
+		versionRepo:    versionRepo,
+		synonymUC:      synonymUC,
+		synonymRepo:    synonymRepo,
+		uploadFileRepo: uploadFileRepo,
+		indexPrefix:    indexPrefix,
 	}
 }
 
@@ -105,6 +109,43 @@ func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload)
 	default:
 		return nil
 	}
+}
+
+// OnComplete removes the synonyms of the GFF files this one replaced, now that
+// its own are indexed. All of an assembly's synonym files share one index, and
+// a re-uploaded GFF rewrites only the synonyms it still has, so the replaced
+// GFF's other synonyms (removed genes, dropped names) would otherwise stay
+// searchable. A species.synonym file replaces nothing: every one stays.
+func (h *SynonymHandler) OnComplete(ctx context.Context, job entity.Job, _ json.RawMessage) error {
+	var payload jobpayload.SpeciesSynonymPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
+	}
+	f, err := h.uploadFileRepo.FindByID(ctx, payload.UploadFileID)
+	if err != nil {
+		return fmt.Errorf("failed to look up upload file: %w", err)
+	}
+	if f == nil || !entity.IsSingleFileType(f.FileType) {
+		return nil
+	}
+	replaced, err := h.uploadFileRepo.ListIDsReplacedBy(ctx, payload.UploadFileID)
+	if err != nil {
+		return fmt.Errorf("failed to list replaced files: %w", err)
+	}
+	if len(replaced) == 0 {
+		return nil
+	}
+
+	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
+	if err != nil || version == nil {
+		return fmt.Errorf("failed to look up version %d: %v", payload.VersionID, err)
+	}
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID), version.CreatedAt.Unix())
+	if err := h.synonymRepo.DeleteByFileIDs(ctx, indexName, replaced); err != nil {
+		return fmt.Errorf("failed to delete replaced synonyms from %s: %w", indexName, err)
+	}
+	return nil
 }
 
 // OnFailure removes any partially-inserted ES records for the file so the index

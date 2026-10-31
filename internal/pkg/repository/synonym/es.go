@@ -95,6 +95,48 @@ func (r *ElasticSearchRepository) DeleteByFileID(ctx context.Context, indexName,
 	return nil
 }
 
+// DeleteByFileIDs deletes the documents of indexName indexed from any of
+// fileIDs. The index is refreshed first, and a document another file rewrote
+// since its match is left alone (conflicts=proceed).
+func (r *ElasticSearchRepository) DeleteByFileIDs(ctx context.Context, indexName string, fileIDs []string) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"query": map[string]any{"terms": map[string]any{"file_id": fileIDs}},
+	})
+	if err != nil {
+		return err
+	}
+
+	refreshRes, err := r.esClient.Indices.Refresh(
+		r.esClient.Indices.Refresh.WithContext(ctx),
+		r.esClient.Indices.Refresh.WithIndex(indexName),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to refresh %q: %w", indexName, err)
+	}
+	defer func() { _ = refreshRes.Body.Close() }()
+	if refreshRes.IsError() {
+		return fmt.Errorf("elasticsearch refresh failed: %s", refreshRes.String())
+	}
+
+	res, err := r.esClient.DeleteByQuery(
+		[]string{indexName},
+		bytes.NewReader(body),
+		r.esClient.DeleteByQuery.WithContext(ctx),
+		r.esClient.DeleteByQuery.WithConflicts("proceed"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete by file_ids: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.IsError() {
+		return fmt.Errorf("elasticsearch delete_by_query failed: %s", res.String())
+	}
+	return nil
+}
+
 // SetAlias atomically points aliasName to indexName, removing only this
 // assembly's previous index (if any) from the alias — sibling assemblies'
 // indexes already attached to aliasName are left untouched.
