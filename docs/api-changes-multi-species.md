@@ -17,6 +17,7 @@ Every other new endpoint below is admin-only. Apart from those GETs, endpoints t
 | `GET /versions/{name}/orthologies?page=&page_size=` | Paged `orthology.tsv` uploads of the Version, newest first: `{ files: FileDetail[], total, page, pageSize }` (defaults `page=1`, `page_size=20`, max 100). Same entries as `orthologyTSV` in `GET /versions/{name}/detail`, which still returns them all for now. |
 | `GET /jobs/{id}` | One job, e.g. an id from an upload's `X-Jobs` header, for polling: the same fields as a `GET /jobs` item plus `assemblyVersionId` (`null` for orthology), `createdAt`, `updatedAt`, `startedAt`, `completedAt`. `400` non-integer id, `404` unknown id. |
 | `GET /versions/{name}/assemblies` | List assemblies; each item has its own `status`. |
+| `GET /silencingseqs/{species}?ids=\|geneIds=&version=` | One species' dsRNA silencing sequences; same query params and response as `GET /silencingseqs`. Records and genes of other species are never returned, even when they use the same dsRNA ID. Public. |
 | `POST /versions/{name}/assemblies` | Create. Body `{ "name": "Human / GRCh38", "speciesName": "Homo sapiens", "infoUrl"?: "https://…" }` → `201`. `speciesCode` is derived: first letter of the first word (uppercased) + first 3 letters of the second (lowercased), e.g. `Tribolium castaneum` → `Tcas`; `400` if `speciesName` is not at least two such words. Several assemblies may share a species in one Version. |
 | `GET /versions/{name}/assemblies/{id}` | Assembly detail: `status` + per-file-type `files`. `404` if the id is not in this Version. |
 | `PATCH /versions/{name}/assemblies/{id}` | Partial update of `name` and/or `infoUrl` (`""` removes the link) → `200` with the assembly. `speciesName`/`speciesCode` cannot be changed (`400`). |
@@ -35,7 +36,8 @@ both `null` when unset.
 - `jbrowse.track.bundle` covers exactly one assembly, named by `assembly`; every track in it is filed under that assembly. Its `manifest.csv` columns are unchanged.
 - New `400`s: `"<fileType>" uploads require an "assembly" metadata field`; `"assembly" metadata must be an assembly id, got "X"` (for example a species code); `assembly "X" not found in version "Y"` (unknown id, or an id from another Version).
 - The `409` "job already pending or running" check is now per assembly (per Version for `orthology.tsv`), so two species can upload the same file type concurrently.
-- `dsrna.csv` gate is now per assembly: the assembly's `speciesCode` must be `Tcas` (was: global `main_species`). Message changed to `dsrna.csv uploads are only supported for the "Tcas" species`.
+- `dsrna.csv` is accepted for an assembly of any species (was: only when the global `main_species` was `Tcas`); the `dsrna.csv uploads are only supported…` `400` is gone.
+- `species.synonym` also accepts dsRNA-to-gene mappings named `dsrna_gene*` (as well as `ib_tc*`), 2 columns: dsRNA ID, gene ID. They fill `geneIds` in `GET /silencingseqs/{species}`.
 - `species.synonym` keeps its own `species` field (which species the file describes) and now also needs `assembly`.
 - Jobs in the `X-Jobs` response header gain `AssemblyVersionID` (`null` for `orthology.tsv` and `orthology.bundle`).
 
@@ -75,12 +77,11 @@ both `null` when unset.
 | Endpoint | Use instead |
 |---|---|
 | `GET /public/versions` | `GET /versions` (now public, paged, same `status`). Kept until the frontend has migrated, then removed. |
+| `GET /silencingseqs` | `GET /silencingseqs/{species}`. The old route now means the configured `main_species` and no longer returns `400` for a non-`Tcas` `main_species`. Kept until the frontend has migrated, then removed. |
 
 ## Unchanged
 
 `POST /versions`, `GET /jobs`, `GET/DELETE /upload-files`, `/uploads/{id}` (PATCH/HEAD/DELETE), `/health`, `/docs`.
-
-`GET /silencingseqs` is untouched and still gated on the global `main_species == "Tcas"` config; its multi-species behavior is deferred.
 
 ## Not available yet
 - `GET /upload-files` does not report which assembly a file belongs to, and has no `assembly=` filter.

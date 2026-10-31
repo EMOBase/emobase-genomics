@@ -26,6 +26,7 @@ func TestSynonymParserForFile_RecognizesTaggedNames(t *testing.T) {
 		"fb_synonym_fb_2024_01.tsv.gz":     &synonymparser.FlyBaseSynonymParser{},
 		"fbgn_fbtr_fbpp_fb_2024_01.tsv.gz": &synonymparser.FlyBaseGeneRNAProteinMapParser{},
 		"IB_TC_mapping.tsv.gz":             &synonymparser.IBTCParser{},
+		"dsrna_gene_dmel.csv.gz":           &synonymparser.IBTCParser{},
 	} {
 		path := filepath.Join("public/uploads/v1/v1a7", uploadspec.StoredFileName(name, id))
 		got := h.parserForFile(jobpayload.SpeciesSynonymPayload{FilePath: path})

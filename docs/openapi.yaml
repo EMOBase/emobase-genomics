@@ -197,7 +197,7 @@ components:
         - `RNA.FNA:REMOVE_BLAST` — remove a stale RNA BLAST database left by a previous version that released without a `rna.fna` file.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
         - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track, rebuild the JBrowse2 text index, and select the annotation track in the assembly default session.
-        - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
+        - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences.
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
         - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
         - `ORTHOLOGY.BUNDLE` — validate and extract an `orthology.bundle` archive into independent `orthology.tsv` upload files, enqueueing one `ORTHOLOGY.TSV` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
@@ -357,7 +357,7 @@ components:
         dsrna.csv:
           $ref: '#/components/schemas/FileDetail'
           nullable: true
-          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when this assembly's `speciesCode` is `Tcas`.
+          description: Latest non-deleted dsRNA CSV file, or `null`.
         jbrowse.track:
           type: array
           description: All non-deleted JBrowse2 track files for this assembly.
@@ -1131,29 +1131,38 @@ paths:
                     error: no default version configured
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
-  /silencingseqs:
+  /silencingseqs/{species}:
     get:
-      summary: Get silencing sequences
-      operationId: getSilencingSeqs
+      summary: Get silencing sequences for a species
+      operationId: getSilencingSeqsBySpecies
       security: []
       tags: [Search]
       description: |
-        Returns dsRNA silencing sequence records for the given iB numbers (`ids`) or
-        gene IDs (`geneIds`).
+        Returns `species`' dsRNA silencing sequence records for the given dsRNA IDs
+        (`ids`, e.g. Tcas iB numbers) or gene IDs (`geneIds`). Reads every assembly of
+        `species` in the Version. Records and genes of other species are never returned,
+        even when they use the same dsRNA ID.
 
         **Constraints:**
-        - Only available when `main_species` is `tcas`. Returns 400 otherwise.
         - `ids` and `geneIds` are mutually exclusive — pass exactly one. Returns 400 if both are provided.
         - When querying by `geneIds`, the response includes all silencing sequences that have the
-          given genes as synonyms via a `DSRNA` synonym relationship.
+          given genes as synonyms via a `DSRNA` synonym relationship (from a `species.synonym`
+          upload named `ib_tc*` or `dsrna_gene*`).
         - When neither parameter is provided an empty array is returned.
       parameters:
+        - name: species
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Four-letter species code (e.g. `Tcas`, `Dmel`).
+          example: Tcas
         - name: ids
           in: query
           required: false
           schema:
             type: string
-          description: Comma-separated list of iB numbers (without species prefix) to look up directly.
+          description: Comma-separated list of dsRNA IDs (without species prefix) to look up directly.
           example: iB-00001,iB-00002
         - name: geneIds
           in: query
@@ -1208,7 +1217,7 @@ paths:
                     data: []
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '400':
-          description: Both `ids` and `geneIds` provided, or `main_species` is not `tcas`.
+          description: Both `ids` and `geneIds` provided.
           content:
             application/json:
               schema:
@@ -1218,11 +1227,6 @@ paths:
                   summary: ids and geneIds are mutually exclusive
                   value:
                     error: ids and geneIds are mutually exclusive
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                notTcas:
-                  summary: main_species is not tcas
-                  value:
-                    error: silencingseqs is only supported when main_species is "tcas"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: The specified version does not exist.
@@ -1246,6 +1250,62 @@ paths:
                   value:
                     error: no default version configured
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /silencingseqs:
+    get:
+      summary: Get silencing sequences (main species)
+      operationId: getSilencingSeqs
+      security: []
+      tags: [Search]
+      deprecated: true
+      description: |
+        **Deprecated:** use `GET /silencingseqs/{species}` instead. Kept until the
+        frontend has migrated, then removed.
+
+        Same as `GET /silencingseqs/{species}` with `species` set to the configured
+        `main_species`. Takes the same query params and returns the same responses.
+      parameters:
+        - name: ids
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: geneIds
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Silencing sequence records of the main species. Empty array when none are found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SilencingSeq'
+                  requestId:
+                    type: string
+        '400':
+          description: Both `ids` and `geneIds` provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /orthology/{species}:
     get:
@@ -2366,8 +2426,8 @@ paths:
         - `cds.fna`
         - `protein.faa`
         - `orthology.tsv` *(shared across the whole Version; takes no `assembly`; 1 active per version)*
-        - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files)*
-        - `dsrna.csv` *(only for an assembly whose `speciesCode` is `Tcas`; 1 active per assembly — re-upload replaces that assembly's previous index)*
+        - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files, and dsRNA-to-gene mappings named `ib_tc*` or `dsrna_gene*` (2 columns: dsRNA ID, gene ID))*
+        - `dsrna.csv` *(any species; 1 active per assembly — re-upload replaces that assembly's previous index)*
         - `jbrowse.track` *(multiple tracks allowed per assembly; requires `trackName` metadata; optional `category`; deletable)*
         - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
         - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*
@@ -2474,11 +2534,6 @@ paths:
                   summary: trackName missing for jbrowse.track
                   value:
                     error: 'jbrowse.track uploads require a "trackName" metadata field'
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                dsrnaNotSupported:
-                  summary: dsrna.csv upload attempted on an assembly whose species is not Tcas
-                  value:
-                    error: 'dsrna.csv uploads are only supported for the "Tcas" species'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.

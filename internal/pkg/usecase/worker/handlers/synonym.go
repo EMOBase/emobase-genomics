@@ -90,7 +90,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 // *.gff.gz / *.gff3.gz  → GFF3SynonymParser             (any species)
 // fb_synonym_*           → FlyBaseSynonymParser          (Dmel fb_synonym files)
 // fbgn_fbtr_fbpp_*       → FlyBaseGeneRNAProteinMapParser (Dmel gene/RNA/protein map)
-// ib_tc*                 → IBTCParser                    (Tcas iB-to-TC mapping)
+// ib_tc*, dsrna_gene*    → IBTCParser                    (dsRNA-to-gene mapping, any species)
 func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload) synonymparser.ISynonymParser {
 	base := strings.ToLower(filepath.Base(payload.FilePath))
 	switch {
@@ -100,7 +100,7 @@ func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload)
 		return synonymparser.NewFlyBaseSynonymParser(payload.Species)
 	case strings.HasPrefix(base, "fbgn_fbtr_fbpp_"):
 		return synonymparser.NewFlyBaseGeneRNAProteinMapParser(payload.Species)
-	case strings.HasPrefix(base, "ib_tc"):
+	case strings.HasPrefix(base, "ib_tc"), strings.HasPrefix(base, "dsrna_gene"):
 		return synonymparser.NewIBTCParser(payload.Species)
 	default:
 		return nil

@@ -12,7 +12,7 @@ import (
 )
 
 type silencingSeqsUseCase interface {
-	GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, versionName string) ([]ucsearch.SilencingSeq, error)
+	GetSilencingSeqs(ctx context.Context, species string, ids, geneIDs []string, versionName string) ([]ucsearch.SilencingSeq, error)
 }
 
 type SilencingSeqsHandler struct {
@@ -23,6 +23,8 @@ func NewSilencingSeqsHandler(uc silencingSeqsUseCase) *SilencingSeqsHandler {
 	return &SilencingSeqsHandler{uc: uc}
 }
 
+// Get serves GET /silencingseqs/:species and the deprecated GET /silencingseqs,
+// whose empty species means the configured main species.
 func (h *SilencingSeqsHandler) Get(c *gin.Context) {
 	ids := splitCSV(c.Query("ids"))
 	geneIDs := splitCSV(c.Query("geneIds"))
@@ -32,12 +34,8 @@ func (h *SilencingSeqsHandler) Get(c *gin.Context) {
 		return
 	}
 
-	results, err := h.uc.GetSilencingSeqs(c.Request.Context(), ids, geneIDs, c.Query("version"))
+	results, err := h.uc.GetSilencingSeqs(c.Request.Context(), c.Param("species"), ids, geneIDs, c.Query("version"))
 	if err != nil {
-		if errors.Is(err, ucsearch.ErrDsRNANotSupported) {
-			apires.Fail(c, http.StatusBadRequest, err.Error())
-			return
-		}
 		if errors.Is(err, ucsearch.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return

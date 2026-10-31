@@ -195,15 +195,7 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		}
 	}
 
-	// 8. Species-restricted file types — scoped to the resolved assembly's own
-	// species (assemblyVersion is always non-nil here since dsrna.csv is not
-	// orthology.tsv, so it always goes through step 7 above).
-	if fileType == entity.FileTypeDsRNACSV && assemblyVersion.SpeciesCode != entity.SpeciesTcas {
-		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusBadRequest,
-			"dsrna.csv uploads are only supported for the \"Tcas\" species")
-	}
-
-	// 9. Reject if an active job of the same type already exists for this
+	// 8. Reject if an active job of the same type already exists for this
 	// assembly. Types in concurrentFileTypes are exempt (see its doc comment).
 	if _, concurrent := concurrentFileTypes[fileType]; !concurrent {
 		hasActive, err := uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(hook.Context, assemblyVersion.ID, fileType)

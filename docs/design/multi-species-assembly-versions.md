@@ -32,11 +32,10 @@ not open questions:
    `is_primary`/"main"/"target" flag lives on the Assembly Version itself, and (per the
    BLAST decision above) none is needed anywhere else either. Release simply processes
    every Assembly Version under a Database Version identically.
-4. **The existing Tcas-only `dsrna.csv`/silencing-seq restriction is preserved, not
-   removed** — it is a real, still-needed product constraint for now. This design
-   re-scopes it from a global config check to a per-Assembly-Version check (§3); removing
-   it entirely is a separate future decision the product owner will make, not something
-   this migration proposes or assumes.
+4. **`dsrna.csv`/silencing seqs are supported for every species** (revised: this
+   design first kept the Tcas-only restriction, re-scoped per Assembly Version; the
+   product owner has since dropped it). The upload gate is gone (§3), and
+   `GET /silencingseqs/{species}` reads one species' dsRNA data (§4).
 5. **Clean cutover** — no production data must be preserved; migrations do not need a
    zero-downtime backfill path.
 
@@ -430,12 +429,12 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   Assembly Version *is* the new one-FNA-per-unit boundary (today's implicit
   one-FNA-per-version assumption was already fragile; this makes it correct by
   construction).
-- **dsrna.csv Tcas gate** (line 104-107): re-scopes from `uc.mainSpecies != "Tcas"`
-  (global) to the resolved Assembly Version's `SpeciesCode != "Tcas"` (per-assembly, same
-  hardcoded product rule, just correctly scoped). Confirmed with the user: this
-  restriction is **preserved as-is**, not removed or questioned — it's a real,
-  still-needed product constraint today. Removing it is a separate decision the product
-  owner will make in the future, not something this migration proposes.
+- **dsrna.csv Tcas gate** (line 104-107): **removed** (revised: first re-scoped to the
+  Assembly Version's `SpeciesCode != "Tcas"`, then dropped once the product owner
+  decided dsRNA is supported for every species). The worker already indexes `dsrna.csv`
+  per assembly under the assembly's species code (§5), so nothing else in the upload or
+  worker path changes. A species' dsRNA-to-gene mapping is a `species.synonym` upload
+  named `ib_tc*` or `dsrna_gene*` (2 columns: dsRNA ID, gene ID).
 - Every `entity.Job{VersionID: ...}` / `entity.UploadFile{VersionID: ...}` literal in
   `upload.go` (7 job-construction sites: lines 337, 373, 429, 491, 525, 604, 712, plus
   the `UploadFile` literal at 217) additionally sets the new `AssemblyVersionID` field —
@@ -505,7 +504,7 @@ except that a missing `genomic.fna` no longer yields `MISSING_REQUIRED_FILE`.
 |---|---|---|
 | **Database-Version-level** | Version name uniqueness; release requires ≥1 assembly; delete blocked if default or has active jobs; orthology.tsv upload/validation (shared, not owned by any assembly) | `usecase/version` |
 | **Assembly-Version-level** | Species code derived from `species_name`; no file type is required before release (revised: `genomic.fna` was; the per-assembly jobs-done check runs in `usecase/version`); delete has no BLAST/orthology-related guard at all — deleting one assembly never touches shared orthology data | `usecase/assemblyversion` (new) |
-| **File-level** | Per-file-type metadata (geneIDKey, order, algorithm, trackName...), gzip check, dsrna Tcas gate, active-job-of-same-type dedup | `usecase/upload` (unchanged shape, re-scoped inputs except orthology.tsv) |
+| **File-level** | Per-file-type metadata (geneIDKey, order, algorithm, trackName...), gzip check, active-job-of-same-type dedup | `usecase/upload` (unchanged shape, re-scoped inputs except orthology.tsv) |
 
 ---
 
@@ -559,12 +558,14 @@ automatically.
 - `GET /upload-files?version=` — gains an optional `assembly=` filter param (the
   assembly's numeric `id`, the same address the assembly endpoints and `assembly` upload metadata use); `UploadFileSummary`
   gains `assemblyVersionId`/`speciesCode` fields for reference.
-- `GET /silencingseqs` — **explicitly out of scope for this design, deferred by the
-  user.** Left unchanged for now (still gated by the global `mainSpecies == "Tcas"`
-  check, §1); multi-species behavior for this endpoint will be specified in a future
-  requirements update rather than designed here. Note for whenever that happens: dsRNA
-  data is not merged behind a shared alias the way orthology/synonym/sequence/genomic
-  are (§9), so resolving "which assembly" will need its own explicit param at that time.
+- `GET /silencingseqs/{species}` — new (revised: first deferred). Same query params
+  and response as `GET /silencingseqs`, for any species, matching `/genes/{species}`.
+  dsRNA sits behind the same shared `{prefix}-dsrna-{versionSlug}` alias as the other
+  assembly-scoped types (§5), so the species is just the ID prefix (`{species}:{id}`),
+  like `/genes/{species}`, and every assembly of that species is read. The `DSRNA`
+  synonyms found by dsRNA ID are filtered to that species, since another species may use
+  the same dsRNA ID. The old `GET /silencingseqs` is deprecated: it now means
+  `main_species`, without the Tcas check, until the frontend migrates.
 
 ### Endpoints needing NO change (confirmed, not assumed)
 
@@ -1037,7 +1038,7 @@ in parallel. Phase 5 runs last, since it removes the `MainSpecies` fallback enti
 
 **Phase 2 — Upload pipeline re-scoping** (depends on 0+1)
 - `internal/pkg/usecase/upload/upload.go` (§3: metadata field, path construction, dedup
-  scoping, GFF→SYNONYM species arg, FNA lookup scoping, dsrna gate)
+  scoping, GFF→SYNONYM species arg, FNA lookup scoping, dsrna gate removal)
 - `internal/pkg/jobpayload/*.go` (add the opaque `AssemblyID` where payloads currently
   only carry `VersionID`/`VersionName`: `SetupJBrowse2FNAPayload`,
   `SetupJBrowse2GFFPayload`, `JBrowseTrackPayload`, `SetupBlastPayload`; consider
@@ -1065,8 +1066,8 @@ in parallel. Phase 5 runs last, since it removes the `MainSpecies` fallback enti
 - `internal/pkg/usecase/search/search.go` (`enrichOrthology`'s "main species first" sort
   simplifies to a plain deterministic ordering, §4), `genes.go`, `orthology.go`
   (confirmed likely unchanged given the alias fix — write the regression test from §8 to
-  prove it). `GetSilencingSeqs`/`/silencingseqs` is **out of scope for this phase** —
-  deferred by the user (§4); left exactly as-is.
+  prove it). `GetSilencingSeqs` takes a species, served by the new
+  `/silencingseqs/{species}` (§4); the old `/silencingseqs` is deprecated.
 
 **Phase 4 — JBrowse2/BLAST re-scoping** (depends on 2; independent of 3)
 - `scripts/{setup_jbrowse2_fna,setup_jbrowse2_gff,add_jbrowse_track,
@@ -1100,10 +1101,9 @@ data-migration risk.
    than owned by one assembly. This eliminated an entire earlier open question (the
    delete-ownership guard, §5) rather than just answering it: there is no longer any
    tension to track here.
-2. **The Tcas-only dsrna gate is confirmed to stay, for now** — the user explicitly
-   confirmed this is a real, currently-needed product constraint (re-scoped from global
-   to per-assembly in §3, not removed). Its eventual removal is a decision the product
-   owner will make separately in the future; not proposed or assumed by this migration.
+2. **The Tcas-only dsrna gate — resolved, removed.** The product owner decided dsRNA is
+   supported for every species: the upload gate is gone (§3) and
+   `GET /silencingseqs/{species}` serves any species (§4).
 3. **`MISSING_REQUIRED_FILE` reuse for the zero-assembly rollup case** (§3) needs
    coordination with whatever external client consumes `VersionItem.Status`/
    `VersionDetail.Status` today — flagged, not assumed resolved, since this repo has no
