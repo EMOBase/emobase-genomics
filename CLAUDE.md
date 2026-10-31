@@ -200,8 +200,11 @@ Child IDs are derived from bundle ID + file name, so a requeued bundle job reuse
 what it already created. Per-type metadata validation and child job construction
 live in `internal/pkg/uploadspec`, shared by single uploads and bundles. The bundle
 row is kept as an audit record but excluded from version-level file queries
-(`notBundleSQL` in the uploadfile repo). To support bundles for another type, add
-an `uploadspec.Bundles` entry, its file/job type constants, and register
+(`notBundleSQL` in the uploadfile repo). Version/assembly detail still lists it, with its
+bundle job, in its own bucket (`orthologyBundle`, `files["jbrowse.track.bundle"]`), since a
+bundle that fails validation extracts nothing and its job is the only place the error
+shows. To support bundles for another type, add an `uploadspec.Bundles` entry, its
+file/job type constants, a detail bucket in `usecase/version`, and register
 `handlers.NewBundleHandler` in `cmd/worker/worker.go`.
 
 When adding a new upload-driven file type: add validation in `handlePreUploadCreate`,

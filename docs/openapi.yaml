@@ -334,10 +334,10 @@ components:
         Uploaded files grouped by type, scoped to a single Assembly Version (species).
         `orthology.tsv` is shared across every species in a Database Version rather than
         owned by one assembly, so it is not part of this type — see
-        `VersionDetail.orthologyTSV` instead. For all types except `jbrowse.track` and
-        `species.synonym`, only the latest non-deleted file is returned (or `null` if
-        none exists). For `jbrowse.track` and `species.synonym`, all non-deleted files
-        for this assembly are returned.
+        `VersionDetail.orthologyTSV` instead. For all types except `jbrowse.track`,
+        `jbrowse.track.bundle` and `species.synonym`, only the latest non-deleted file is
+        returned (or `null` if none exists). For those three, all non-deleted files for
+        this assembly are returned.
       properties:
         genomic.fna:
           $ref: '#/components/schemas/FileDetail'
@@ -360,7 +360,16 @@ components:
           description: Latest non-deleted dsRNA CSV file, or `null`.
         jbrowse.track:
           type: array
-          description: All non-deleted JBrowse2 track files for this assembly.
+          description: All non-deleted JBrowse2 track files for this assembly, including the tracks extracted from bundles.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        jbrowse.track.bundle:
+          type: array
+          description: |
+            All non-deleted `jbrowse.track.bundle` archives for this assembly, each with its
+            `JBROWSE.TRACK.BUNDLE` job. The tracks extracted from them are in `jbrowse.track`.
+            A bundle that fails validation extracts nothing, so its job's `error` is the only
+            place the failure shows.
           items:
             $ref: '#/components/schemas/FileDetail'
         species.synonym:
@@ -703,7 +712,7 @@ components:
 
     VersionDetail:
       type: object
-      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, assemblies]
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, orthologyBundle, assemblies]
       properties:
         id:
           type: integer
@@ -743,6 +752,15 @@ components:
         orthologyTSV:
           type: array
           description: All non-deleted orthology.tsv uploads for this Database Version — shared across every species rather than owned by one assembly.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        orthologyBundle:
+          type: array
+          description: |
+            All non-deleted `orthology.bundle` archives for this Database Version, each with
+            its `ORTHOLOGY.BUNDLE` job. The files extracted from them are in `orthologyTSV`.
+            A bundle that fails validation extracts nothing, so its job's `error` is the only
+            place the failure shows.
           items:
             $ref: '#/components/schemas/FileDetail'
         assemblies:
@@ -2462,7 +2480,7 @@ paths:
         - Data files may be plain or already gzipped; plain files are gzipped on the server.
         - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single upload of the child type. In `jbrowse.track.bundle`, `trackName` must be unique within the bundle.
         - The upload enqueues one `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
-        - On success, each data file becomes an independent upload file (listed, processed and deletable exactly like a single upload). The bundle itself is not listed in `GET /upload-files`.
+        - On success, each data file becomes an independent upload file (listed, processed and deletable exactly like a single upload). The bundle itself is not listed in `GET /upload-files`, but is listed with its job in `GET /versions/{name}/detail` (`orthologyBundle`, or the assembly's `files["jbrowse.track.bundle"]`) and `GET /versions/{name}/assemblies/{id}`.
 
         On success, the `Location` response header contains the URL for subsequent PATCH / HEAD requests.
       operationId: createUpload

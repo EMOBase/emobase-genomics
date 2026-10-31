@@ -51,7 +51,8 @@ both `null` when unset.
 |---|---|
 | `files: { genomic.fna, …, orthology.tsv[], jbrowse.track[] }` | `files` removed |
 | — | `orthologyTSV: FileDetail[]` (top level, shared). Unpaged; will be removed once the frontend uses `GET /versions/{name}/orthologies` |
-| — | `assemblies: [{ id, versionId, name, speciesName, speciesCode, …, status, files }]` — `files` has the same per-type buckets minus `orthology.tsv`, plus `species.synonym[]` |
+| — | `assemblies: [{ id, versionId, name, speciesName, speciesCode, …, status, files }]` — `files` has the same per-type buckets minus `orthology.tsv`, plus `species.synonym[]` and `jbrowse.track.bundle[]` (bundle archives with their `JBROWSE.TRACK.BUNDLE` job; the extracted tracks stay in `jbrowse.track[]`) |
+| — | `orthologyBundle: FileDetail[]` (top level, shared): orthology bundle archives with their `ORTHOLOGY.BUNDLE` job; the extracted files stay in `orthologyTSV`. A failed bundle extracts nothing, so its job's `error` is the only place the failure shows |
 | `status` from the whole Version's jobs | `status` rolled up across every assembly + orthology: `PROCESSING` > `ERROR` > `READY` > `DRAFT`. No file is required, so `MISSING_REQUIRED_FILE` now only means zero assemblies |
 
 ### `POST /versions/{name}/release` — same request, per-assembly behavior
