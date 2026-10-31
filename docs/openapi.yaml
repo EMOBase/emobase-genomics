@@ -2294,9 +2294,16 @@ paths:
           schema:
             type: string
           description: Version name (e.g. `dmel_r6.54`).
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/JobType'
+          description: Return only jobs of this type (exact match, case-sensitive). Omit to list every job.
+          example: GENOMIC.FNA:SETUP_BLAST
       responses:
         '200':
-          description: All jobs belonging to the given version, ordered by creation time ascending.
+          description: The version's jobs (only those of `type`, when given), ordered by creation time ascending. Empty array when none match.
           content:
             application/json:
               schema:
@@ -2309,7 +2316,7 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing `version` query parameter.
+          description: Missing `version` query parameter, or `type` is not a known job type.
           content:
             application/json:
               schema:
@@ -2318,6 +2325,10 @@ paths:
                 missingVersion:
                   value:
                     error: version query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidType:
+                  value:
+                    error: invalid type filter
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.

@@ -12,6 +12,7 @@ import (
 var (
 	ErrVersionNotFound = errors.New("version not found")
 	ErrJobNotFound     = errors.New("job not found")
+	ErrInvalidJobType  = errors.New("invalid job type")
 )
 
 // JobSummary is the API-facing representation of a job for the list endpoint.
@@ -48,7 +49,14 @@ func New(repo IJobRepository, versionRepo IVersionRepository) *UseCase {
 	return &UseCase{repo: repo, versionRepo: versionRepo}
 }
 
-func (uc *UseCase) ListJobsByVersion(ctx context.Context, versionName string) ([]JobSummary, error) {
+// ListJobsByVersion returns the version's jobs, only those of jobType when it
+// is non-empty. An unknown jobType is ErrInvalidJobType rather than an empty
+// list, so a misspelled filter is not mistaken for "no such jobs".
+func (uc *UseCase) ListJobsByVersion(ctx context.Context, versionName, jobType string) ([]JobSummary, error) {
+	if _, ok := entity.JobDescriptions[jobType]; jobType != "" && !ok {
+		return nil, ErrInvalidJobType
+	}
+
 	v, err := uc.versionRepo.FindByName(ctx, versionName)
 	if err != nil {
 		return nil, err
@@ -62,9 +70,12 @@ func (uc *UseCase) ListJobsByVersion(ctx context.Context, versionName string) ([
 		return nil, err
 	}
 
-	summaries := make([]JobSummary, len(jobs))
-	for i, j := range jobs {
-		summaries[i] = toJobSummary(j)
+	summaries := make([]JobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		if jobType != "" && j.Type != jobType {
+			continue
+		}
+		summaries = append(summaries, toJobSummary(j))
 	}
 	return summaries, nil
 }

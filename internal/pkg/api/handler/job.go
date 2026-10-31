@@ -12,7 +12,7 @@ import (
 )
 
 type jobUseCase interface {
-	ListJobsByVersion(ctx context.Context, versionName string) ([]ucjob.JobSummary, error)
+	ListJobsByVersion(ctx context.Context, versionName, jobType string) ([]ucjob.JobSummary, error)
 	GetJob(ctx context.Context, id uint64) (*ucjob.JobDetail, error)
 }
 
@@ -31,8 +31,12 @@ func (h *JobHandler) ListByVersion(c *gin.Context) {
 		return
 	}
 
-	summaries, err := h.uc.ListJobsByVersion(c.Request.Context(), version)
+	summaries, err := h.uc.ListJobsByVersion(c.Request.Context(), version, c.Query("type"))
 	if err != nil {
+		if errors.Is(err, ucjob.ErrInvalidJobType) {
+			apires.Fail(c, http.StatusBadRequest, "invalid type filter")
+			return
+		}
 		if errors.Is(err, ucjob.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return

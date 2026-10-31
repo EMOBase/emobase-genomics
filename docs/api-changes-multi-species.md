@@ -71,6 +71,7 @@ both `null` when unset.
 | `DELETE /versions/{name}` | Also cascades to all assemblies and their JBrowse2 data. |
 | Every response with a `filePath` | The stored file name now carries an 8-character tag from the upload ID before its first dot (`genomic.gff.gz` → `genomic-3fa85f64.gff.gz`), so same-named uploads no longer overwrite each other. Files uploaded before this change keep their old names. Strip `-` plus the tag to show the original name. |
 | `GET /genes/{species}`, `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
+| `GET /jobs` | New optional `type` filter: one job type, exact match (e.g. `?version=v1&type=GENOMIC.FNA:SETUP_BLAST`). An unknown type is `400 invalid type filter`. Without `type`, every job is listed as before. |
 
 ## Deprecated
 
@@ -81,7 +82,7 @@ both `null` when unset.
 
 ## Unchanged
 
-`POST /versions`, `GET /jobs`, `GET/DELETE /upload-files`, `/uploads/{id}` (PATCH/HEAD/DELETE), `/health`, `/docs`.
+`POST /versions`, `GET/DELETE /upload-files`, `/uploads/{id}` (PATCH/HEAD/DELETE), `/health`, `/docs`.
 
 ## Not available yet
 - `GET /upload-files` does not report which assembly a file belongs to, and has no `assembly=` filter.
