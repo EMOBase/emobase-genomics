@@ -195,17 +195,19 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		}
 	}
 
-	// 8. Reject if an active job of the same type already exists for this
-	// assembly. Types in concurrentFileTypes are exempt (see its doc comment).
+	// 8. Reject if a job is still pending or running on one of this assembly's
+	// files of this type, whatever the job's type (a genomic.fna upload's only
+	// job is GENOMIC.FNA:SETUP_JBROWSE2, and a release's BLAST setup reads the
+	// current file). Types in concurrentFileTypes are exempt (see its doc comment).
 	if _, concurrent := concurrentFileTypes[fileType]; !concurrent {
-		hasActive, err := uc.jobRepo.HasActiveJobOfTypeForAssemblyVersion(hook.Context, assemblyVersion.ID, fileType)
+		hasActive, err := uc.jobRepo.HasActiveJobForFileTypeInAssemblyVersion(hook.Context, assemblyVersion.ID, fileType)
 		if err != nil {
 			log.Ctx(hook.Context).Err(err).Msg("job lookup failed in pre-upload hook")
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
 		}
 		if hasActive {
 			return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusConflict,
-				fmt.Sprintf("a job for file type %q is already pending or running for this version", fileType))
+				fmt.Sprintf("a job for file type %q is already pending or running for this assembly", fileType))
 		}
 	}
 

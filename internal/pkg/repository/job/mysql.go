@@ -248,6 +248,24 @@ func (r *MySQLRepository) HasActiveJobOfTypeForAssemblyVersion(ctx context.Conte
 	return count > 0, nil
 }
 
+// HasActiveJobForFileTypeInAssemblyVersion reports whether a PENDING or
+// RUNNING job of any type works on one of the Assembly Version's files of
+// fileType: the file's processing job, the jobs chained from it (a GFF's
+// synonym and JBrowse2 jobs, an FNA's JBrowse2 setup), or a release's BLAST
+// setup reading it.
+func (r *MySQLRepository) HasActiveJobForFileTypeInAssemblyVersion(ctx context.Context, assemblyVersionID uint64, fileType string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM jobs j JOIN upload_files f ON f.id = j.file_id
+		 WHERE j.assembly_version_id = ? AND f.file_type = ? AND j.status IN (?, ?)`,
+		assemblyVersionID, fileType, entity.JobStatusPending, entity.JobStatusRunning,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,

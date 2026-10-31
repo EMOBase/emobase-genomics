@@ -35,7 +35,7 @@ both `null` when unset.
 - `assembly` = the target assembly's numeric `id` (from `GET /versions/{name}/assemblies`), not its species code. Required for every `fileType` **except `orthology.tsv` and `orthology.bundle`** (which take none).
 - `jbrowse.track.bundle` covers exactly one assembly, named by `assembly`; every track in it is filed under that assembly. Its `manifest.csv` columns are unchanged.
 - New `400`s: `"<fileType>" uploads require an "assembly" metadata field`; `"assembly" metadata must be an assembly id, got "X"` (for example a species code); `assembly "X" not found in version "Y"` (unknown id, or an id from another Version).
-- The `409` "job already pending or running" check is now per assembly (per Version for `orthology.tsv`), so two species can upload the same file type concurrently.
+- The `409` "job already pending or running" check is now per assembly, so two species can upload the same file type concurrently. It now blocks while any job works on one of the assembly's files of that type (before: only a job whose type equals the file type, which never matched `genomic.fna`). `jbrowse.track`, `orthology.tsv` and the bundle types are exempt. Message ends `for this assembly` (was `for this version`).
 - `dsrna.csv` is accepted for an assembly of any species (was: only when the global `main_species` was `Tcas`); the `dsrna.csv uploads are only supported…` `400` is gone.
 - `species.synonym` also accepts dsRNA-to-gene mappings named `dsrna_gene*` (as well as `ib_tc*`), 2 columns: dsRNA ID, gene ID. They fill `geneIds` in `GET /silencingseqs/{species}`.
 - `species.synonym` keeps its own `species` field (which species the file describes) and now also needs `assembly`.

@@ -136,10 +136,12 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    `orthology.tsv`, which is shared across the whole Version — resolves a required
    `assembly` metadata field (the target Assembly Version's numeric `id`, not its
    species code) to a concrete `AssemblyVersion` via `assemblyVersionRepo.FindByID`,
-   rejecting ids that belong to another Version. Rejects if an
-   active job of the same file type already exists for that assembly (or, for
-   `orthology.tsv`, for the whole Version) — except `jbrowse.track`, which allows
-   concurrent tracks.
+   rejecting ids that belong to another Version. Rejects with 409 while any
+   pending/running job (of any job type) works on one of that assembly's files of the
+   same file type (`HasActiveJobForFileTypeInAssemblyVersion`, joining jobs to
+   upload_files) — except `concurrentFileTypes` (`jbrowse.track`, `orthology.tsv`,
+   bundles), which may upload concurrently. Don't compare a file type to `jobs.type`:
+   `genomic.fna`'s only upload job is `GENOMIC.FNA:SETUP_JBROWSE2`.
 2. On upload completion (`PreFinishResponseCallback` / `handlePreFinish`), the file is
    signature verified (gzip, or zip for `.zip` bundles), moved from the tus staging dir into
    `{uploadDir}/{version}/{assemblyKey}/{storedName}` (flat `{uploadDir}/{version}/{storedName}`

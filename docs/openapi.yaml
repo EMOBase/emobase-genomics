@@ -2591,7 +2591,12 @@ paths:
                     error: permission denied
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '409':
-          description: A job for this file type is already pending or running for the target assembly (or, for `orthology.tsv`, for the given version). `jbrowse.track` is exempt.
+          description: |
+            A job is still pending or running on one of the target assembly's files of this
+            type, whatever the job's type: the file's processing, a job chained from it (e.g.
+            `GENOMIC.FNA:SETUP_JBROWSE2`, a GFF's `SPECIES.SYNONYM`), or a release's BLAST
+            setup reading it. `jbrowse.track`, `orthology.tsv` and the bundle types are
+            exempt and may upload concurrently.
           content:
             application/json:
               schema:
@@ -2599,7 +2604,7 @@ paths:
               examples:
                 conflict:
                   value:
-                    error: a job for file type "genomic.gff" is already pending or running for this version
+                    error: a job for file type "genomic.gff" is already pending or running for this assembly
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /uploads/{id}:

@@ -420,7 +420,12 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   `orthology.tsv`, which **keeps its existing `version.ID` scoping unchanged** — an
   in-flight `genomic.gff` job for species A no longer blocks species B's `genomic.gff`
   upload in the same Database Version, while orthology uploads continue to dedup at the
-  whole-Database-Version level exactly as today.
+  whole-Database-Version level exactly as today. (Revised: orthology.tsv and the bundles
+  became concurrent types and are not deduped at all. The check now asks whether any
+  pending/running job works on one of the assembly's files of the uploaded type, joining
+  jobs to upload_files: comparing the file type to `jobs.type` only matched through
+  MySQL's case-insensitive collation, and never for `genomic.fna`, whose only upload job
+  is `GENOMIC.FNA:SETUP_JBROWSE2`.)
 - **GFF → SPECIES.SYNONYM cross-job** (line 456): stops passing `uc.mainSpecies`,
   passes the resolved Assembly Version's own `SpeciesCode` field instead. This is the
   single most consequential code change in the whole design — it's what makes the

@@ -17,7 +17,7 @@ type IAssemblyVersionRepository interface {
 type IJobRepository interface {
 	Create(ctx context.Context, j *entity.Job) error
 	HasActiveJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
-	HasActiveJobOfTypeForAssemblyVersion(ctx context.Context, assemblyVersionID uint64, jobType string) (bool, error)
+	HasActiveJobForFileTypeInAssemblyVersion(ctx context.Context, assemblyVersionID uint64, fileType string) (bool, error)
 	HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
