@@ -16,7 +16,7 @@ import (
 func TestVersionCreate_InvalidNameIs400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/versions", NewVersionHandler(ucversion.New(nil, nil, nil, nil, nil, nil, "")).Create)
+	r.POST("/versions", NewVersionHandler(ucversion.New(nil, nil, nil, nil, nil, nil, "", "")).Create)
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/versions", strings.NewReader(`{"name":".."}`)))

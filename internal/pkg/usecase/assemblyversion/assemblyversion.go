@@ -2,6 +2,7 @@ package assemblyversion
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,9 @@ import (
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/blastdb"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/rs/zerolog/log"
 )
@@ -97,17 +100,21 @@ type UseCase struct {
 	jobRepo             IJobRepository
 	uploadFileRepo      IUploadFileRepository
 	esRepo              IESRepository
+	appSettingsRepo     IAppSettingsRepository
 	uploadDir           string
+	blastDBPath         string
 }
 
-func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IESRepository, uploadDir string) *UseCase {
+func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IESRepository, appSettingsRepo IAppSettingsRepository, uploadDir, blastDBPath string) *UseCase {
 	return &UseCase{
 		versionRepo:         versionRepo,
 		assemblyVersionRepo: assemblyVersionRepo,
 		jobRepo:             jobRepo,
 		uploadFileRepo:      uploadFileRepo,
 		esRepo:              esRepo,
+		appSettingsRepo:     appSettingsRepo,
 		uploadDir:           uploadDir,
+		blastDBPath:         blastDBPath,
 	}
 }
 
@@ -409,5 +416,51 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName string
 		log.Ctx(ctx).Warn().Err(err).Str("path", assemblyDir).Msg("failed to remove assembly version directory during delete")
 	}
 
+	uc.removeBlastDatabases(ctx, v, asm)
 	return nil
+}
+
+// removeBlastDatabases removes a deleted assembly's BLAST databases. Those of
+// the default version are being served, and the BLAST server keeps serving
+// them until it restarts, which only a worker can do (the API has no Docker
+// socket), so it enqueues a BLAST:RESTART job for the version. Failures are
+// logged: the assembly is already deleted.
+func (uc *UseCase) removeBlastDatabases(ctx context.Context, v *entity.Version, asm *entity.AssemblyVersion) {
+	logger := log.Ctx(ctx).With().Str("assemblyID", asm.AssemblyID()).Logger()
+	removed, err := blastdb.RemoveAssembly(uc.blastDBPath, asm.AssemblyID())
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to remove BLAST databases during assembly version delete")
+	}
+	if removed == 0 {
+		return
+	}
+
+	defaultID, err := uc.appSettingsRepo.GetDefaultVersionID(ctx)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to read default version; BLAST not restarted after removing databases")
+		return
+	}
+	if defaultID == nil || *defaultID != v.ID {
+		return
+	}
+
+	raw, err := json.Marshal(jobpayload.RestartBlastPayload{RemovedAssemblyID: asm.AssemblyID()})
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to marshal BLAST restart payload")
+		return
+	}
+	payload := json.RawMessage(raw)
+	now := time.Now().UTC()
+	job := &entity.Job{
+		VersionID:   v.ID,
+		Type:        entity.JobTypeBlastRestart,
+		Description: entity.JobDescriptions[entity.JobTypeBlastRestart],
+		Payload:     &payload,
+		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := uc.jobRepo.Create(ctx, job); err != nil {
+		logger.Warn().Err(err).Msg("failed to enqueue BLAST restart; it keeps serving the deleted assembly until its next restart")
+	}
 }

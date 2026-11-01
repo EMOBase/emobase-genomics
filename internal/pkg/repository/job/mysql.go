@@ -280,32 +280,40 @@ func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID 
 }
 
 // StatusCountsByAssemblyVersionID returns job status counts used to compute
-// one Assembly Version's own status, counting only jobs tied to active files
-// (the Database-Version-level status is then a rollup across all of its
-// assemblies, computed in the usecase layer). There's no need to special-case
-// orthology.tsv here: orthology jobs never carry an assembly_version_id, so
-// they're naturally excluded already.
+// one Assembly Version's own status (the Database-Version-level status is then
+// a rollup across all of its assemblies, computed in the usecase layer).
+// Orthology jobs never carry an assembly_version_id, so they're excluded.
+//
+// Only jobs that still describe the assembly count, so that a failure can be
+// cleared: jobs of the latest file of each type, and of those only the latest
+// attempt per file and job type (a re-run replaces an earlier failure). A job
+// with no file (e.g. REMOVE_BLAST) counts only if it is the latest of its type.
 func (r *MySQLRepository) StatusCountsByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) (entity.JobStatusCounts, error) {
 	var counts entity.JobStatusCounts
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(j.status = ?), 0) AS running_count,
-		       COALESCE(SUM(j.status = ?), 0) AS failed_count,
-		       COALESCE(SUM(j.status = ?), 0) AS done_count,
-		       COUNT(*)                        AS total_count
-		FROM jobs j
-		WHERE j.assembly_version_id = ?
-		  AND (
-		    j.file_id IS NULL
-		    OR j.file_id IN (
-		      SELECT id FROM (
-		        SELECT id, file_type,
-		               ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
-		        FROM upload_files
-		        WHERE assembly_version_id = ? AND deleted_at IS NULL
-		      ) ranked
-		      WHERE rn = 1
+		SELECT COALESCE(SUM(status = ?), 0) AS running_count,
+		       COALESCE(SUM(status = ?), 0) AS failed_count,
+		       COALESCE(SUM(status = ?), 0) AS done_count,
+		       COUNT(*)                      AS total_count
+		FROM (
+		  SELECT j.status,
+		         ROW_NUMBER() OVER (PARTITION BY j.file_id, j.type ORDER BY j.id DESC) AS attempt
+		  FROM jobs j
+		  WHERE j.assembly_version_id = ?
+		    AND (
+		      j.file_id IS NULL
+		      OR j.file_id IN (
+		        SELECT id FROM (
+		          SELECT id, file_type,
+		                 ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
+		          FROM upload_files
+		          WHERE assembly_version_id = ? AND deleted_at IS NULL
+		        ) ranked
+		        WHERE rn = 1
+		      )
 		    )
-		  )`,
+		) latest
+		WHERE attempt = 1`,
 		entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone,
 		assemblyVersionID, assemblyVersionID,
 	).Scan(&counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount)
@@ -313,10 +321,16 @@ func (r *MySQLRepository) StatusCountsByAssemblyVersionID(ctx context.Context, a
 }
 
 // StatusCountsForSharedJobs returns job status counts for a Database
-// Version's jobs that are not owned by any single Assembly Version
-// (currently only ORTHOLOGY.TSV and its delete variant, which never carry an
-// assembly_version_id) — used to fold orthology's own status into the
-// Database-Version-level status rollup.
+// Version's shared files, those not owned by any single Assembly Version
+// (orthology.tsv and orthology.bundle) — used to fold orthology's own status
+// into the Database-Version-level status rollup.
+//
+// Only jobs that still describe the Version count, so that a failure can be
+// cleared: jobs of files not deleted, and of those only the latest attempt per
+// file and job type. Every orthology.tsv counts, but only the latest
+// orthology.bundle: a failed bundle extracts nothing and cannot be deleted, so
+// uploading a corrected bundle must clear it. Jobs with no file (e.g. a BLAST
+// restart) are not about the shared files and do not count.
 func (r *MySQLRepository) StatusCountsForSharedJobs(ctx context.Context, versionID uint64) (entity.JobStatusCounts, error) {
 	var counts entity.JobStatusCounts
 	err := r.db.QueryRowContext(ctx, `
@@ -324,10 +338,21 @@ func (r *MySQLRepository) StatusCountsForSharedJobs(ctx context.Context, version
 		       COALESCE(SUM(status = ?), 0) AS failed_count,
 		       COALESCE(SUM(status = ?), 0) AS done_count,
 		       COUNT(*)                      AS total_count
-		FROM jobs
-		WHERE version_id = ? AND assembly_version_id IS NULL`,
+		FROM (
+		  SELECT j.status,
+		         ROW_NUMBER() OVER (PARTITION BY j.file_id, j.type ORDER BY j.id DESC) AS attempt
+		  FROM jobs j
+		  JOIN upload_files f ON f.id = j.file_id
+		  WHERE j.version_id = ? AND j.assembly_version_id IS NULL AND f.deleted_at IS NULL
+		    AND (f.file_type <> ? OR f.id = (
+		      SELECT b.id FROM upload_files b
+		      WHERE b.version_id = ? AND b.file_type = ? AND b.deleted_at IS NULL
+		      ORDER BY b.created_at DESC, b.id DESC LIMIT 1
+		    ))
+		) latest
+		WHERE attempt = 1`,
 		entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone,
-		versionID,
+		versionID, entity.FileTypeOrthologyBundle, versionID, entity.FileTypeOrthologyBundle,
 	).Scan(&counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount)
 	return counts, err
 }

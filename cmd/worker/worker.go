@@ -115,6 +115,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeDsRNACSV:                handlers.NewDsRNACSVHandler(versionRepo, dsrnaUC, dsrnaRepo, indexPrefix),
 		entity.JobTypeJBrowseTrack:            handlers.NewJBrowseTrackHandler(),
 		entity.JobTypeJBrowseTrackDelete:      handlers.NewDeleteJBrowseTrackHandler(uploadFileRepo),
+		entity.JobTypeBlastRestart:            handlers.NewRestartBlastHandler(blastContainerName),
 		entity.JobTypeOrthologyBundle: handlers.NewBundleHandler(
 			uploadspec.Bundles[entity.FileTypeOrthologyBundle], uploadFileRepo, jobRepo, versionRepo,
 		),

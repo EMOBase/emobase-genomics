@@ -25,7 +25,7 @@ func (r *createVersions) Create(_ context.Context, v *entity.Version) error {
 
 func createVersion(existing []string, name string) (*createVersions, error) {
 	repo := &createVersions{names: existing}
-	_, err := New(repo, nil, nil, nil, nil, nil, "").CreateVersion(context.Background(), name)
+	_, err := New(repo, nil, nil, nil, nil, nil, "", "").CreateVersion(context.Background(), name)
 	return repo, err
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/blastdb"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
@@ -190,9 +191,10 @@ type UseCase struct {
 	assemblyVersionRepo IAssemblyVersionRepository
 	esRepo              IVersionESRepository
 	uploadDir           string
+	blastDBPath         string
 }
 
-func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, assemblyVersionRepo IAssemblyVersionRepository, esRepo IVersionESRepository, uploadDir string) *UseCase {
+func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, assemblyVersionRepo IAssemblyVersionRepository, esRepo IVersionESRepository, uploadDir, blastDBPath string) *UseCase {
 	return &UseCase{
 		versionRepo:         versionRepo,
 		appSettingsRepo:     appSettingsRepo,
@@ -201,6 +203,7 @@ func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository,
 		assemblyVersionRepo: assemblyVersionRepo,
 		esRepo:              esRepo,
 		uploadDir:           uploadDir,
+		blastDBPath:         blastDBPath,
 	}
 }
 
@@ -927,6 +930,12 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 	versionDir := filepath.Join(uc.uploadDir, v.Name)
 	if err := os.RemoveAll(versionDir); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("path", versionDir).Msg("failed to remove version directory during version delete")
+	}
+
+	// Not the default version (checked above), so its BLAST databases are not
+	// served; a release that failed part-way can still have left some.
+	if _, err := blastdb.RemoveVersion(uc.blastDBPath, v.ID); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to remove BLAST databases during version delete")
 	}
 
 	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {

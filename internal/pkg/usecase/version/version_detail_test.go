@@ -107,7 +107,7 @@ func TestGetVersionDetail_ListsBundlesWithTheirJobs(t *testing.T) {
 		{ID: 3, FileID: fid("tb1"), Type: entity.JobTypeJBrowseTrackBundle, Status: entity.JobStatusFailed, ResultMetadata: &failed, AssemblyVersionID: &asm},
 		{ID: 4, FileID: fid("t1"), Type: entity.JobTypeJBrowseTrack, Status: entity.JobStatusDone, AssemblyVersionID: &asm},
 	}}
-	uc := New(fakeVersions{}, fakeSettings{}, jobs, uploads, fakeAssemblies{}, nil, t.TempDir())
+	uc := New(fakeVersions{}, fakeSettings{}, jobs, uploads, fakeAssemblies{}, nil, t.TempDir(), "")
 
 	d, err := uc.GetVersionDetail(context.Background(), "v1")
 	if err != nil {

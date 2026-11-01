@@ -94,7 +94,13 @@ components:
               type: string
               enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
               description: |
-                Derived from the state of jobs associated with this version.
+                Derived from the state of the jobs that still describe this version, so a
+                failure can be cleared: per assembly, the jobs of its latest file of each type;
+                for the shared orthology files, the jobs of every file not deleted, but of only
+                the latest `orthology.bundle`. Of those, only the latest attempt of each job
+                type on a file counts, and of a job with no file (e.g. `REMOVE_BLAST`) only the
+                latest of its type. So re-running a job, deleting a failed `orthology.tsv`, or
+                uploading a corrected bundle clears an earlier failure.
                 - `DRAFT` — no jobs exist.
                 - `PROCESSING` — at least one job is PENDING or RUNNING.
                 - `ERROR` — at least one job is FAILED.
@@ -180,6 +186,7 @@ components:
         - JBROWSE.TRACK:DELETE
         - ORTHOLOGY.BUNDLE
         - JBROWSE.TRACK.BUNDLE
+        - BLAST:RESTART
       description: |
         Identifies which file type and pipeline the job processes.
         - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
@@ -199,8 +206,9 @@ components:
         - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track, rebuild the JBrowse2 text index, and select the annotation track in the assembly default session.
         - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences.
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
-        - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
+        - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track (its config entry, its default-session entry and the data files copied into JBrowse2) and soft-delete the upload record.
         - `ORTHOLOGY.BUNDLE` — validate and extract an `orthology.bundle` archive into independent `orthology.tsv` upload files, enqueueing one `ORTHOLOGY.TSV` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
+        - `BLAST:RESTART` — restart the BLAST server, so it stops serving the databases of an assembly deleted from the default version. Version-scoped, with no assembly or file.
         - `JBROWSE.TRACK.BUNDLE` — validate and extract a `jbrowse.track.bundle` archive into independent `jbrowse.track` upload files of one assembly, enqueueing one `JBROWSE.TRACK` job per file. Same all-or-nothing rules as `ORTHOLOGY.BUNDLE`.
 
     JobSummary:
@@ -1677,6 +1685,7 @@ paths:
         - Upload file records are hard-deleted from the database and their files are removed from disk.
         - All jobs for the version are deleted.
         - All Elasticsearch indexes for the version are deleted (`genomiclocation`, `sequence`, `orthology`, `synonym`).
+        - The BLAST databases of its assemblies are removed (a release that failed part-way can leave some).
 
         **Preconditions** (returns 422 if not met):
         - The version must not be the current default version.
@@ -2108,8 +2117,10 @@ paths:
         `orthology.tsv` data, since orthology belongs to no single assembly.
 
         Also removes that species' Elasticsearch indices (genomic, sequence, synonym,
-        dsrna — never orthology) and its JBrowse2 assembly and tracks. These two cleanups
-        are best-effort: a failure is logged but does not fail the request.
+        dsrna — never orthology), its JBrowse2 assembly and tracks, and its BLAST
+        databases. If the assembly is in the default version, whose databases are being
+        served, a `BLAST:RESTART` job is enqueued so a worker restarts the BLAST server. These
+        cleanups are best-effort: a failure is logged but does not fail the request.
 
         **Preconditions** (returns 422 if not met):
         - The assembly must have no active (PENDING or RUNNING) jobs.
@@ -2886,7 +2897,7 @@ paths:
         Enqueues an async delete job for the uploaded file. Only files of type `orthology.tsv`
         and `jbrowse.track` may be deleted. The appropriate job type is selected automatically:
         - `orthology.tsv` → enqueues `ORTHOLOGY.TSV:DELETE`
-        - `jbrowse.track` → enqueues `JBROWSE.TRACK:DELETE` (runs `jbrowse remove-track`, then soft-deletes the record and removes the file from disk)
+        - `jbrowse.track` → enqueues `JBROWSE.TRACK:DELETE` (removes the track's JBrowse2 config entry, its default-session entry and the data files copied into JBrowse2, then soft-deletes the record and removes the file from disk)
 
         The deletion is processed asynchronously by the worker.
       operationId: deleteUploadFile

@@ -131,7 +131,17 @@ unchanged by the Assembly Version model — once a Version is default, *every* o
 assemblies becomes servable (see JBrowse2/BLAST below). Deleting a Version must clean up
 its assembly rows, both the whole-Version and per-assembly-scoped MySQL rows, ES indices
 (`esindex.DeleteIndexesByVersion` for the whole Version; `DeleteIndexesByAssemblyVersion`
-for one assembly), and JBrowse2 data.
+for one assembly), JBrowse2 data, and BLAST databases (`blastdb.RemoveVersion` /
+`RemoveAssembly`). An assembly may be deleted from the default Version: its databases are
+being served, so `DeleteAssemblyVersion` also enqueues a `BLAST:RESTART` job (Version-scoped,
+no assembly or file), since only workers can restart the `blast` container.
+
+Status (`ComputeVersionStatus` over `StatusCountsByAssemblyVersionID` /
+`StatusCountsForSharedJobs`) counts only jobs that still describe the Version, so a failure
+can be cleared: the latest attempt per file and job type, the latest file-less job per type,
+no jobs of deleted files, the latest file of each assembly-scoped type, and only the latest
+`orthology.bundle`. Keep that rule when adding job types, or a failure nobody can clear
+keeps the status at `ERROR` for good.
 
 ### Upload → job pipeline (the core async workflow)
 
@@ -182,7 +192,7 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
 5. Job types are all constants in `entity/job.go` (`JobType*`), each with a
    human-readable entry in `JobDescriptions`. `:DELETE` and `:SETUP_BLAST` /
    `:SETUP_JBROWSE2` suffixes denote job variants derived from a base file type, not
-   separate upload types.
+   separate upload types. `BLAST:RESTART` belongs to no file type.
 
 `ReleaseVersion` (`usecase/version/version.go`) is the other job-enqueuing entrypoint
 (besides upload completion): once per Assembly Version under the released Version, it
@@ -232,14 +242,17 @@ its handler's `OnComplete` (see Elasticsearch conventions).
 ### JBrowse2 and BLAST integration
 
 Workers shell out to the `jbrowse` CLI and scripts in `scripts/` (`setup_jbrowse2_fna.sh`,
-`setup_jbrowse2_gff.sh`, `add_jbrowse_track.sh`, `delete_jbrowse_version.sh`,
-`set_default_jbrowse2_view.sh`, `setup_blast.sh`, `remove_blast.sh`) to mutate the
+`setup_jbrowse2_gff.sh`, `add_jbrowse_track.sh`, `delete_jbrowse_track.sh`,
+`delete_jbrowse_version.sh`, `set_default_jbrowse2_view.sh`, `setup_blast.sh`,
+`remove_blast.sh`) to mutate the
 JBrowse2 web root (`/web`, bind-mounted from `./data/jbrowse2`) and BLAST databases
 (`/db`, via `makeblastdb`, then restarting the `blast` container over the Docker
 socket). `config.json` under the JBrowse2 web root is mutated concurrently by
 multiple workers/scripts — **all writers must flock `/web/data/.jbrowse-config.lock`**
 before touching it (a previously-fixed data-loss bug; see any script that writes
-`config.json` for the pattern).
+`config.json` for the pattern). `jbrowse remove-track` only edits `config.json`: it leaves
+the track's copied data files in the public web root and its id in the default session, so
+`delete_jbrowse_track.sh` removes both (files only if no other track uses them).
 
 JBrowse2 assembly/track creation (`*_SETUP_JBROWSE2` jobs) happens at **upload**
 completion, independent of whether/when a version is released — every Assembly Version

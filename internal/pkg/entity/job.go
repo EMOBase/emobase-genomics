@@ -49,6 +49,11 @@ const (
 	JobTypeProteinFAARemoveBlast = "PROTEIN.FAA:REMOVE_BLAST"
 	JobTypeRNAFNARemoveBlast     = "RNA.FNA:REMOVE_BLAST"
 
+	// BLAST:RESTART restarts the BLAST server so it stops serving databases
+	// removed outside a release: an assembly deleted from the default version.
+	// The API cannot restart it (only workers mount the Docker socket).
+	JobTypeBlastRestart = "BLAST:RESTART"
+
 	// SETUP_JBROWSE2 jobs build JBrowse2 genome browser tracks.
 	// FNA job runs first (add-assembly). GFF job runs after FNA:SETUP_JBROWSE2 is done.
 	JobTypeGenomicFNASetupJBrowse2 = "GENOMIC.FNA:SETUP_JBROWSE2"
@@ -76,6 +81,7 @@ var JobDescriptions = map[string]string{
 	JobTypeGenomicFNARemoveBlast:   "Remove stale genome BLAST database",
 	JobTypeProteinFAARemoveBlast:   "Remove stale protein BLAST database",
 	JobTypeRNAFNARemoveBlast:       "Remove stale RNA BLAST database",
+	JobTypeBlastRestart:            "Restart BLAST server",
 	JobTypeGenomicFNASetupJBrowse2: "Setup JBrowse2 assembly",
 	JobTypeGenomicGFFSetupJBrowse2: "Setup JBrowse2 annotation track",
 }

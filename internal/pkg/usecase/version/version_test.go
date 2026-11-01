@@ -77,7 +77,7 @@ func TestReleaseVersion_GenomicFNANotRequired(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			jobs := &fakeJobs{}
-			uc := New(fakeVersions{}, nil, jobs, fakeUploads{files: tc.files}, fakeAssemblies{}, nil, t.TempDir())
+			uc := New(fakeVersions{}, nil, jobs, fakeUploads{files: tc.files}, fakeAssemblies{}, nil, t.TempDir(), "")
 
 			if _, err := uc.ReleaseVersion(context.Background(), "v1"); err != nil {
 				t.Fatalf("release refused: %v", err)
