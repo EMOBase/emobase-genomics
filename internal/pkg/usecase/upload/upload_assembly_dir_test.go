@@ -49,11 +49,11 @@ func TestStoredPath_OlderUploadKeepsAssemblyIDFolder(t *testing.T) {
 	uc, _ := newTestUseCase()
 	uc.uploadDir = "/up"
 	meta := tusd.MetaData{"version": "v1", "fileName": "rna.fna.gz", "_assemblyKey": "v1a7"}
-	if dir := filepath.Dir(uc.storedPath("aaaaaaaa", meta)); dir != "/up/v1/v1a7" {
+	if dir := filepath.Dir(uc.storedPath(meta)); dir != "/up/v1/v1a7" {
 		t.Errorf("stored in %s, want /up/v1/v1a7", dir)
 	}
 	meta["_assemblyDir"] = "Tribolium"
-	if dir := filepath.Dir(uc.storedPath("aaaaaaaa", meta)); dir != "/up/v1/Tribolium" {
+	if dir := filepath.Dir(uc.storedPath(meta)); dir != "/up/v1/Tribolium" {
 		t.Errorf("stored in %s, want the assembly's folder /up/v1/Tribolium", dir)
 	}
 }

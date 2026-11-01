@@ -41,7 +41,7 @@ func TestBundleHandler_TrackChildrenBelongToBundleAssembly(t *testing.T) {
 	}
 	// Tracks are per assembly, so their files live in the species folder, next to
 	// the archive, and DeleteAssemblyVersion removes that folder with the assembly.
-	wantDir := filepath.Join(root, "v1", "Tcas", testBundleID)
+	wantDir := filepath.Join(root, "v1", "Tcas", bundleDirName(testBundleID+".tar.gz", testBundleID))
 	for _, f := range files.created {
 		if f.FileType != entity.FileTypeJBrowseTrack {
 			t.Errorf("child %s type %q, want %q", f.ID, f.FileType, entity.FileTypeJBrowseTrack)
@@ -91,7 +91,7 @@ func TestBundleHandler_DuplicateTrackNameFailsWholeBundle(t *testing.T) {
 	if len(files.created) != 0 || len(jobs.created) != 0 {
 		t.Errorf("created %d files and %d jobs, want none", len(files.created), len(jobs.created))
 	}
-	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", testBundleID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", bundleDirName(testBundleID+".tar.gz", testBundleID))); !os.IsNotExist(err) {
 		t.Error("no bundle folder may be left behind when validation fails")
 	}
 }

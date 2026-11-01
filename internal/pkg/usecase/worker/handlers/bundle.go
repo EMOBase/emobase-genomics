@@ -104,8 +104,8 @@ func (h *BundleHandler) Handle(ctx context.Context, job entity.Job) (json.RawMes
 
 	// Pass 2: write each file gzipped into a per-bundle directory, so names
 	// never collide with other uploads of the same version.
-	dstDir := filepath.Join(filepath.Dir(payload.FilePath), payload.UploadFileID)
-	if err := extractBundle(payload.FilePath, dstDir, payload.UploadFileID); err != nil {
+	dstDir := filepath.Join(filepath.Dir(payload.FilePath), bundleDirName(filepath.Base(payload.FilePath), payload.UploadFileID))
+	if err := extractBundle(payload.FilePath, dstDir); err != nil {
 		h.removeDirIfNoChildren(ctx, dstDir, payload.UploadFileID, rows)
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (h *BundleHandler) Handle(ctx context.Context, job entity.Job) (json.RawMes
 	for _, meta := range rows {
 		fileName := meta["fileName"]
 		childID := bundleChildID(payload.UploadFileID, fileName)
-		filePath := filepath.Join(dstDir, childFileName(payload.UploadFileID, fileName))
+		filePath := filepath.Join(dstDir, storedName(fileName))
 
 		if err := h.ensureChildFile(ctx, childID, filePath, version.ID, assemblyVersionID, bundle.CreatedBy); err != nil {
 			return nil, err
@@ -143,6 +143,17 @@ func (h *BundleHandler) Handle(ctx context.Context, job entity.Job) (json.RawMes
 // than in Handle keeps the archive available if the worker dies before the
 // job is marked DONE, so the requeued job can still rerun.
 func (h *BundleHandler) OnComplete(ctx context.Context, job entity.Job, _ json.RawMessage) error {
+	return removeArchive(job)
+}
+
+// OnFailure removes the archive too. A failed bundle is fixed by uploading it
+// again, which the upload refuses while an archive of that name is still
+// stored (a stored archive means its bundle is still being processed).
+func (h *BundleHandler) OnFailure(ctx context.Context, job entity.Job, _ error) error {
+	return removeArchive(job)
+}
+
+func removeArchive(job entity.Job) error {
 	var payload jobpayload.ProcessPayload
 	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
 		return fmt.Errorf("failed to unmarshal job payload: %w", err)
@@ -222,13 +233,29 @@ func bundleChildID(bundleID, fileName string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("emobase-bundle:"+bundleID+"/"+fileName)).String()
 }
 
-// childFileName is the on-disk name of an extracted file: gzipped (storedName)
-// and tagged with its child upload's ID like any single upload, so files of the
-// same name from two bundles stay distinct wherever they are copied by name
-// (e.g. add_jbrowse_track.sh's copy into the JBrowse2 data folder). The child ID
-// is deterministic, so a rerun reproduces the same name.
-func childFileName(bundleID, name string) string {
-	return uploadspec.StoredFileName(storedName(name), bundleChildID(bundleID, name))
+// bundleDirTagLength is how many characters of the bundle's upload ID its
+// folder name carries. The tag only needs to tell apart bundles of one archive
+// name in one folder, so 8 hex characters (32 random bits) are plenty.
+const bundleDirTagLength = 8
+
+// bundleDirName names the folder a bundle is extracted into: the archive name
+// without its .tar.gz or .zip, and a short tag from the bundle's upload ID
+// ("tracks.tar.gz" -> "tracks-1a2b3c4d"). Bundles of one name, uploaded one
+// after the other, each keep their own folder, and a rerun of the job finds the
+// one it already wrote.
+func bundleDirName(archiveName, bundleID string) string {
+	stem := archiveName
+	for _, ext := range []string{".tar.gz", ".zip"} {
+		if strings.HasSuffix(strings.ToLower(stem), ext) {
+			stem = stem[:len(stem)-len(ext)]
+			break
+		}
+	}
+	tag := strings.ReplaceAll(bundleID, "-", "")
+	if len(tag) > bundleDirTagLength {
+		tag = tag[:bundleDirTagLength]
+	}
+	return stem + "-" + tag
 }
 
 // storedName is the gzipped name of an extracted file. Child handlers read
@@ -551,11 +578,11 @@ func checkManifestHeader(header, columns []string) error {
 }
 
 // extractBundle writes every data file of an already-validated archive into
-// dstDir under its childFileName, gzipping plain files and copying
+// dstDir under its storedName, gzipping plain files and copying
 // already-gzipped ones unchanged. Each file is written to a temp name and
 // renamed into place, so a rerun never truncates a file that a child job may
 // already be reading.
-func extractBundle(archivePath, dstDir, bundleID string) error {
+func extractBundle(archivePath, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundle directory: %w", err)
 	}
@@ -567,7 +594,7 @@ func extractBundle(archivePath, dstDir, bundleID string) error {
 		if name == "" || name == uploadspec.ManifestFileName {
 			return nil
 		}
-		if err := writeGzipped(m.body, filepath.Join(dstDir, childFileName(bundleID, name))); err != nil {
+		if err := writeGzipped(m.body, filepath.Join(dstDir, storedName(name))); err != nil {
 			return fmt.Errorf("failed to extract %q: %w", name, err)
 		}
 		return nil

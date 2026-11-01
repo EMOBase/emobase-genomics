@@ -266,7 +266,7 @@ func TestExtractBundle_GzipsPlainFilesOnce(t *testing.T) {
 		tarEntry{name: "pre-no-suffix.tsv", body: gzipped(t, "pre-no-suffix-content")},
 	)
 	dst := filepath.Join(t.TempDir(), "bundle-id")
-	if err := extractBundle(p, dst, "bundle-id"); err != nil {
+	if err := extractBundle(p, dst); err != nil {
 		t.Fatal(err)
 	}
 
@@ -275,7 +275,7 @@ func TestExtractBundle_GzipsPlainFilesOnce(t *testing.T) {
 		"pre.tsv.gz":        "pre-content",
 		"pre-no-suffix.tsv": "pre-no-suffix-content",
 	} {
-		if got := readGzip(t, filepath.Join(dst, childFileName("bundle-id", name))); got != want {
+		if got := readGzip(t, filepath.Join(dst, storedName(name))); got != want {
 			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
 	}

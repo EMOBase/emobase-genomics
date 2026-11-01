@@ -225,7 +225,58 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 		newMeta["_displayLabel"] = version.Name + " — " + assemblyVersion.Name
 	}
 
+	// 9. Files are stored under their uploaded name, so refuse one that would
+	// take the place of a stored file it doesn't replace (see storedNameConflict)
+	// before any data is sent.
+	var assemblyVersionID *uint64
+	if assemblyVersion != nil {
+		assemblyVersionID = &assemblyVersion.ID
+	}
+	conflict, err := uc.storedNameConflict(hook.Context, fileType, assemblyVersionID, uc.storedPath(newMeta), fileName)
+	if err != nil {
+		log.Ctx(hook.Context).Err(err).Msg("stored file lookup failed in pre-upload hook")
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, err
+	}
+	if conflict != "" {
+		return tusd.HTTPResponse{}, tusd.FileInfoChanges{}, uploadError(http.StatusConflict, conflict)
+	}
+
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{MetaData: newMeta}, nil
+}
+
+// storedNameConflict says why an upload of fileType may not be stored at path,
+// or returns "" if it may. Only a file of a one-file-per-assembly type
+// (entity.SingleFileTypes) replaces a stored file: an earlier file of its own
+// type and name, which the move then overwrites. A file of any other type is a
+// file of its own (two tracks both named coverage.bw.gz), so taking the path
+// would replace the other file's data, and deleting either would delete both.
+// A bundle's archive is stored only until its job has finished.
+func (uc *UseCase) storedNameConflict(ctx context.Context, fileType string, assemblyVersionID *uint64, path, fileName string) (string, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	if _, isBundle := uploadspec.Bundles[fileType]; isBundle {
+		return fmt.Sprintf("a bundle named %q is still being processed; wait until its job finishes, or upload it under another name", fileName), nil
+	}
+	scope := "this assembly"
+	if isVersionScoped(fileType) {
+		scope = "this version"
+	}
+	if !entity.IsSingleFileType(fileType) || assemblyVersionID == nil {
+		return fmt.Sprintf("%s already has a file named %q; delete it first, or upload it under another name", scope, fileName), nil
+	}
+	files, err := uc.uploadRepo.ListByAssemblyVersionID(ctx, *assemblyVersionID)
+	if err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		if f.FilePath == path && f.FileType != fileType && f.UploadStatus == entity.UploadStatusCompleted {
+			return fmt.Sprintf("%s already has a %s file named %q; delete it first, or upload it under another name", scope, f.FileType, fileName), nil
+		}
+	}
+	return "", nil
 }
 
 func (uc *UseCase) processEvents() {
@@ -257,7 +308,7 @@ func (uc *UseCase) onCreated(event tusd.HookEvent) {
 		ID:                upload.ID,
 		VersionID:         versionID,
 		AssemblyVersionID: assemblyVersionID,
-		FilePath:          uc.storedPath(upload.ID, upload.MetaData),
+		FilePath:          uc.storedPath(upload.MetaData),
 		FileType:          upload.MetaData["fileType"],
 		FileSize:          upload.Size,
 		UploadStatus:      entity.UploadStatusUploading,
@@ -300,7 +351,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity, fmt.Sprintf("uploaded file is not a valid %s", format))
 	}
 
-	dstPath := uc.storedPath(upload.ID, upload.MetaData)
+	dstPath := uc.storedPath(upload.MetaData)
 	dstDir := filepath.Dir(dstPath)
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
@@ -308,17 +359,18 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return uc.discardUnstoredUpload(ctx, upload.ID)
 	}
 
-	// The upload ID tag makes two same-named uploads clash only by a very
-	// unlikely coincidence; refuse rather than overwrite the other file if one
-	// ever does. Uploading again gets a new ID.
-	if _, err := os.Stat(dstPath); err == nil {
-		log.Ctx(ctx).Error().Str("uploadID", upload.ID).Str("path", dstPath).Msg("stored file name already taken, discarding upload")
-		uc.removeUploadFiles(upload.ID)
-		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
-		return tusd.HTTPResponse{}, uploadError(http.StatusConflict, "another upload is already stored under this name; please upload the file again")
-	} else if !os.IsNotExist(err) {
+	// Checked when the upload was created, and again now: another upload may
+	// have been stored under this name meanwhile. A file that replaces the
+	// stored one overwrites it here.
+	assemblyVersionID, _ := parseOptionalAssemblyVersionID(upload.MetaData)
+	if conflict, err := uc.storedNameConflict(ctx, upload.MetaData["fileType"], assemblyVersionID, dstPath, fileName); err != nil {
 		log.Ctx(ctx).Err(err).Str("path", dstPath).Msg("failed to check upload destination")
 		return uc.discardUnstoredUpload(ctx, upload.ID)
+	} else if conflict != "" {
+		log.Ctx(ctx).Warn().Str("uploadID", upload.ID).Str("path", dstPath).Msg("stored file name taken meanwhile, discarding upload")
+		uc.removeUploadFiles(upload.ID)
+		_ = uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusFailed)
+		return tusd.HTTPResponse{}, uploadError(http.StatusConflict, conflict)
 	}
 
 	if err := os.Rename(srcPath, dstPath); err != nil {
@@ -340,7 +392,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 	if err := uc.uploadRepo.UpdateStatus(ctx, upload.ID, entity.UploadStatusCompleted); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("uploadID", upload.ID).Msg("failed to mark upload file as completed")
 	}
-	uc.removeReplacedFiles(ctx, upload.ID, upload.MetaData)
+	uc.removeReplacedFiles(ctx, upload.ID, upload.MetaData, dstPath)
 
 	idStrs := make([]string, len(jobs))
 	for i, j := range jobs {
@@ -383,7 +435,7 @@ func (uc *UseCase) discardUnstoredUpload(ctx context.Context, uploadID string) (
 // counting it. A file with a pending or running job is kept until the next
 // upload of its type, since that job still reads it. Failures are logged and
 // never fail the upload, which is already done.
-func (uc *UseCase) removeReplacedFiles(ctx context.Context, uploadID string, meta tusd.MetaData) {
+func (uc *UseCase) removeReplacedFiles(ctx context.Context, uploadID string, meta tusd.MetaData, storedPath string) {
 	fileType := meta["fileType"]
 	if !entity.IsSingleFileType(fileType) {
 		return
@@ -435,15 +487,26 @@ func (uc *UseCase) removeReplacedFiles(ctx context.Context, uploadID string, met
 		}
 	}
 
+	// Paths whose file stays: the new file's (a replaced file of the same name
+	// had that path, and the move overwrote it) and those of files still in use.
+	keep := map[string]bool{storedPath: true}
+	for _, f := range replaced {
+		if inUse[f.ID] {
+			keep[f.FilePath] = true
+		}
+	}
+
 	deletedBy := auth.UsernameFromContext(ctx)
 	for _, f := range replaced {
 		if inUse[f.ID] {
 			logger.Info().Str("replacedID", f.ID).Msg("replaced file has a pending or running job; keeping it until the next upload of its type")
 			continue
 		}
-		if err := os.Remove(f.FilePath); err != nil && !os.IsNotExist(err) {
-			logger.Warn().Err(err).Str("replacedID", f.ID).Str("path", f.FilePath).Msg("failed to remove replaced file")
-			continue
+		if !keep[f.FilePath] {
+			if err := os.Remove(f.FilePath); err != nil && !os.IsNotExist(err) {
+				logger.Warn().Err(err).Str("replacedID", f.ID).Str("path", f.FilePath).Msg("failed to remove replaced file")
+				continue
+			}
 		}
 		if err := uc.uploadRepo.SoftDelete(ctx, f.ID, deletedBy); err != nil {
 			logger.Warn().Err(err).Str("replacedID", f.ID).Msg("removed replaced file but failed to soft-delete its record")
@@ -986,16 +1049,16 @@ func (uc *UseCase) cleanStaleUploads(maxAge time.Duration) {
 // version-scoped types (assemblyDir == "") which keep the flat
 // {uploadDir}/{versionName} path since they are shared across every assembly
 // in the Database Version rather than owned by one.
-// storedPath is where an upload's file lives once complete: its folder plus its
-// name tagged with the upload ID (see uploadspec.StoredFileName). Creating the
-// upload row and moving the finished file must agree, so both call this.
-func (uc *UseCase) storedPath(uploadID string, meta tusd.MetaData) string {
+// storedPath is where an upload's file lives once complete: its folder plus the
+// file name it was uploaded under. Creating the upload row, checking the name is
+// free and moving the finished file must agree, so all of them call this.
+func (uc *UseCase) storedPath(meta tusd.MetaData) string {
 	assemblyDir := meta["_assemblyDir"]
 	if assemblyDir == "" { // an upload created before _assemblyDir existed
 		assemblyDir = meta["_assemblyKey"]
 	}
 	dir := uc.uploadDirFor(meta["version"], assemblyDir)
-	return filepath.Join(dir, uploadspec.StoredFileName(filepath.Base(meta["fileName"]), uploadID))
+	return filepath.Join(dir, filepath.Base(meta["fileName"]))
 }
 
 func (uc *UseCase) uploadDirFor(versionName, assemblyDir string) string {

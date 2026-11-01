@@ -414,7 +414,13 @@ stores that numeric ID; the on-disk folder and ES index names use the assembly k
   delete a later same-named bundle's archive, and same-named tracks overwrote each other's
   JBrowse2 copy. Since a re-upload then no longer overwrites the previous file, a completed
   upload of a one-file-per-assembly type removes and soft-deletes the assembly's previous
-  files of that type, keeping any that a pending or running job still reads.)
+  files of that type, keeping any that a pending or running job still reads.) (Revised
+  again, 2026-11-01: the tag made stored names hard to read, so files keep their uploaded
+  name. A one-file-per-assembly type uploaded under its predecessor's name overwrites it
+  in place; any other same-named upload is refused with 409, since it is a different
+  file; a bundle's name is taken only while its archive is stored. Bundle files are
+  extracted into `{archive name}-{8 characters of the bundle ID}/` under their own names,
+  and JBrowse2 track copies are named by track ID, so same-named tracks never share a copy.)
 - **Active-job dedup** (`HasActiveJobOfType`, line 179): re-scopes its first argument
   from `version.ID` to the resolved `assemblyVersion.ID` for every type except
   `orthology.tsv`, which **keeps its existing `version.ID` scoping unchanged** — an

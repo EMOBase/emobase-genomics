@@ -169,14 +169,18 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    `{uploadDir}/{version}/{dirName}/{storedName}` (the assembly's `dir_name`; flat `{uploadDir}/{version}/{storedName}`
    for `orthology.tsv`), and one or more `entity.Job` rows are enqueued in MySQL
    (status `PENDING`) via `enqueueProcessJob`, each with `AssemblyVersionID` set
-   (`nil` only for `orthology.tsv`). `storedName` is the upload's `fileName` with an
-   8-character tag from its upload ID before the first dot (`uploadspec.StoredFileName`,
-   e.g. `genomic-1a2b3c4d.gff.gz`), so same-named uploads never share a path; the move
-   refuses to overwrite an existing file. So a re-upload never replaces the old file by
-   itself: for the one-file-per-assembly types (`entity.SingleFileTypes`),
-   `removeReplacedFiles` removes the assembly's other completed files of that type from
-   disk and soft-deletes them once the new upload completes (only if it is the latest,
-   and keeping any file a `PENDING`/`RUNNING` job still reads). Job payloads are typed
+   (`nil` only for `orthology.tsv`). `storedName` is the upload's own `fileName`
+   (`storedPath`; files from 2026-10-24 to 2026-11-01 carry an 8-character upload-ID tag).
+   `storedNameConflict`, checked at upload creation (409 before any data is sent) and
+   again before the move, decides who may take a stored name: only a file of a
+   one-file-per-assembly type (`entity.SingleFileTypes`), over its own type's file, which
+   the move then overwrites. Any other type's file is a file of its own (two tracks both
+   named `coverage.bw.gz`), and a bundle's name is taken while its archive is stored
+   (until its job ends, done or failed). For the single-file types, `removeReplacedFiles`
+   removes the assembly's other completed files of that type from disk and soft-deletes
+   them once the new upload completes (only if it is the latest, and keeping any file a
+   `PENDING`/`RUNNING` job still reads); a replaced file at the new file's own path is
+   only soft-deleted, since that path now holds the new file. Job payloads are typed
    structs in `internal/pkg/jobpayload/*`, JSON-marshaled into `Job.Payload`.
 3. `cmd/worker` polls MySQL for pending jobs (`ClaimNextPending`), dispatches to a
    `map[jobType]Handler` in `internal/pkg/usecase/worker/handlers/`, marks the job
@@ -221,8 +225,11 @@ version-scoped and takes no `assembly`, since orthology belongs to the whole ver
 `jbrowse.track.bundle` covers exactly one assembly, named by the tus `assembly` metadata
 and checked at upload; its tracks are stored under that assembly's folder. The upload
 enqueues a single `*.BUNDLE` job; `handlers/bundle.go` validates the whole archive and manifest before
-writing anything, then extracts into `{uploadDir}/{version}/{bundleID}/` (gzipping
-plain files, each named like a single upload but tagged with its child ID) and creates one independent child `upload_files` row + child job per file.
+writing anything, then extracts into a folder next to the archive, `{archive name}-{8 characters of the bundle ID}`
+(`bundleDirName`, e.g. `tracks-1a2b3c4d`; gzipping plain files, which keep their names) and creates one independent child `upload_files` row + child job per file.
+The archive is removed once the job ends, done (`OnComplete`) or failed (`OnFailure`). `add_jbrowse_track.sh`
+names each track's copy in the shared JBrowse2 data folder `{AssemblyID}.{trackId}.{ext}`, never by file name, since
+tracks from different bundles (or a bundle and a single upload) can have files of one name.
 Children inherit the bundle row's assembly, which is nil for orthology.
 Child IDs are derived from bundle ID + file name, so a requeued bundle job reuses
 what it already created. Per-type metadata validation and child job construction

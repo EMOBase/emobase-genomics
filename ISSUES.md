@@ -210,6 +210,19 @@ noted); **Likely** means it depends on runtime behavior nobody has checked yet.
 - **Fix idea:** pick the latest `COMPLETED` file, as release does.
 - **Status:** Confirmed (code).
 
+### L15. A requeued delete job can remove a newer file of the same name
+
+- **Where:** `internal/pkg/usecase/worker/handlers/delete_synonym.go`, `delete_orthology_tsv.go`,
+  `jbrowse_track.go` (the `:DELETE` handlers).
+- **Problem:** files keep their uploaded name, so once a file is deleted, a new upload may
+  take its path. A delete job removes the file at its record's path. If the worker dies
+  after removing it but before marking the job DONE, the job is requeued 30 minutes later
+  (M1) and removes the path again, which by then can hold the new upload.
+- **Impact:** the new file is gone from disk while its record and indexed data remain.
+  Needs a worker crash in that window plus a same-named upload within 30 minutes.
+- **Fix idea:** skip the removal when another non-deleted record has the same path.
+- **Status:** Confirmed (code).
+
 ## Not yet run on the real stack
 
 Everything else from the multi-species changes was verified against the local Compose stack
