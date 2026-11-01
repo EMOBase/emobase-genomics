@@ -2766,7 +2766,12 @@ paths:
         '404':
           description: Upload not found.
         '422':
-          description: Uploaded file is not a valid gzip (or, for `.zip` bundles, zip) archive.
+          description: |
+            Uploaded file is not a valid gzip (or, for `.zip` bundles, zip) archive, or the server
+            could not store the complete upload. Either way the upload is discarded (a `HEAD`
+            on it is then 404) and must be started again. Storage failures are a 4xx, not a 5xx,
+            on purpose: tus clients retry 5xx responses, which would re-send the whole file again
+            and again while the problem lasts.
           content:
             application/json:
               schema:
@@ -2775,6 +2780,10 @@ paths:
                 notGzip:
                   value:
                     error: uploaded file is not a valid gzip
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                notStored:
+                  value:
+                    error: the server could not store the uploaded file; please contact an administrator
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /upload-files:

@@ -303,7 +303,7 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		log.Ctx(ctx).Err(err).Str("dir", dstDir).Msg("failed to create version directory")
-		return tusd.HTTPResponse{}, err
+		return uc.discardUnstoredUpload(ctx, upload.ID)
 	}
 
 	// The upload ID tag makes two same-named uploads clash only by a very
@@ -316,12 +316,12 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 		return tusd.HTTPResponse{}, uploadError(http.StatusConflict, "another upload is already stored under this name; please upload the file again")
 	} else if !os.IsNotExist(err) {
 		log.Ctx(ctx).Err(err).Str("path", dstPath).Msg("failed to check upload destination")
-		return tusd.HTTPResponse{}, err
+		return uc.discardUnstoredUpload(ctx, upload.ID)
 	}
 
 	if err := os.Rename(srcPath, dstPath); err != nil {
 		log.Ctx(ctx).Err(err).Str("src", srcPath).Str("dst", dstPath).Msg("failed to move upload")
-		return tusd.HTTPResponse{}, err
+		return uc.discardUnstoredUpload(ctx, upload.ID)
 	}
 
 	if err := os.Remove(filepath.Join(uc.uploadDir, upload.ID+".info")); err != nil {
@@ -356,6 +356,20 @@ func (uc *UseCase) handlePreFinish(hook tusd.HookEvent) (tusd.HTTPResponse, erro
 			"X-Jobs":    string(jobsJSON),
 		},
 	}, nil
+}
+
+// discardUnstoredUpload fails a complete upload that could not be moved into
+// place. Its staging files must go: until they do, tusd reports the upload as
+// complete (Upload-Offset equals Upload-Length), so the client's retry ends in
+// "success" without sending anything again, and no job is ever created. The
+// status is a 4xx on purpose, although the failure is the server's:
+// tus-js-client retries any 5xx and resets its retry count whenever bytes went
+// through, so a lasting failure here would re-upload the whole file forever.
+func (uc *UseCase) discardUnstoredUpload(ctx context.Context, uploadID string) (tusd.HTTPResponse, error) {
+	uc.removeUploadFiles(uploadID)
+	_ = uc.uploadRepo.UpdateStatus(ctx, uploadID, entity.UploadStatusFailed)
+	return tusd.HTTPResponse{}, uploadError(http.StatusUnprocessableEntity,
+		"the server could not store the uploaded file; please contact an administrator")
 }
 
 // removeReplacedFiles removes the files that a completed upload of a
