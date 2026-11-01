@@ -158,9 +158,10 @@ noted); **Likely** means it depends on runtime behavior nobody has checked yet.
 ### L9. The JBrowse CLI version isn't pinned
 
 - **Where:** `Dockerfile:51` downloads the latest `@jbrowse/cli`.
-- **Problem:** `delete_jbrowse_track.sh` relies on behavior tested with 4.2.0: `remove-track`
-  exits 0 for an unknown track ID, and track configs list their files as `.uri`. A new CLI
-  release could change either.
+- **Problem:** `delete_jbrowse_track.sh` relies on CLI behavior: `remove-track` exits 0 for an
+  unknown track ID and leaves the copied files and the default-session entry behind, and
+  track configs list their files as `.uri`. Verified with 4.2.0 locally and with 4.3.0 in the
+  image (2026-11-01); a later release could change any of it.
 - **Fix idea:** pin the version.
 - **Status:** Confirmed (code).
 
@@ -187,22 +188,40 @@ noted); **Likely** means it depends on runtime behavior nobody has checked yet.
 - **Problem:** mostly harmless, since auth is a bearer header and not a cookie. Confirm it is
   intended.
 
-## Needs a run on the real stack
+### L13. Synonym `file_id` is mapped as text
 
-These pass the unit tests but have never run against real MySQL, Elasticsearch or Docker
-(Docker was down while they were written):
+- **Where:** `cmd/esmigrate/esmigrate.go` (the synonym template has no `file_id` mapping).
+- **Problem:** `file_id` is mapped automatically as text in every synonym index, so the
+  delete-by-file queries (`DeleteByFileID`, `DeleteByFileIDs`) only match because upload IDs
+  are 32 lowercase hex characters, which the text analyzer leaves unchanged. Verified on
+  Elasticsearch 8.17.4: an ID with capitals (`"A"`) matched nothing.
+- **Fix idea:** map `file_id` as `keyword` in the synonym template (as orthology and sequence
+  do) for new indexes; existing synonym indexes keep the text mapping.
+- **Status:** Confirmed (live test).
 
-- **MySQL:** the status queries `StatusCountsByAssemblyVersionID` and
-  `StatusCountsForSharedJobs` (window functions, `NULL` partitions, a scalar subquery);
-  `HasActiveJobForFileTypeInAssemblyVersion` (join); `ListIDsReplacedBy` (self-join);
-  `ListByVersionIDAndType` with `LIMIT 9223372036854775807`; `ListNames`.
-- **Elasticsearch:** sequence `DeleteReplaced` and synonym `DeleteByFileIDs` (refresh, then
-  `delete_by_query?conflicts=proceed`), on new indexes and on existing ones where `file_id` is
-  mapped automatically as text. Re-run `es:migrate` first.
-- **End to end:** re-upload a single-file type (the old file and its old ES documents go);
-  delete an assembly of the default version (`BLAST:RESTART` restarts the container through
-  the Docker socket); delete a track (`delete_jbrowse_track.sh` with real `flock` in the worker
-  image).
+### L14. Assembly status takes in-progress and failed uploads as the latest file
+
+- **Where:** `internal/pkg/repository/job/mysql.go:291` (`StatusCountsByAssemblyVersionID`).
+- **Problem:** the latest file of each type is picked among all rows not deleted, including
+  uploads still in progress and uploads that failed the gzip check, which have no jobs. While
+  one is the latest, the previous file's jobs don't count: a failed GFF stops showing `ERROR`
+  as soon as another GFF upload starts, or fails to arrive. Release picks the latest
+  *completed* file instead, so the two disagree.
+- **Fix idea:** pick the latest `COMPLETED` file, as release does.
+- **Status:** Confirmed (code).
+
+## Not yet run on the real stack
+
+Everything else from the multi-species changes was verified against the local Compose stack
+on 2026-11-01 (MySQL 8.0.46, Elasticsearch 8.17.4, JBrowse CLI 4.3.0): the status, 409,
+replaced-file and version-name queries; the sequence and synonym cleanup on new and
+existing index mappings; the version, assembly and stale index deletes; and, end to end,
+single-file re-uploads (`rna.fna`, `genomic.gff`), track deletion, a BLAST restart job, and
+deleting a version next to a same-prefix one. Not run live:
+
+- **Deleting an assembly of the default version enqueues `BLAST:RESTART`.** Covered by unit
+  tests, and the restart job itself ran live; exercising it end to end means releasing a
+  version, which replaces the local default version and removes its BLAST databases.
 
 ## Accepted decisions
 
