@@ -681,7 +681,12 @@ decision.
 under the version directory, which now includes both the per-assembly subdirectories and
 the unchanged flat orthology file. A new "delete one assembly" path needs the narrower
 `os.RemoveAll(filepath.Join(uploadDir, v.Name, assembly.AssemblyID()))` — this naturally
-never touches orthology's file, which lives one level up.
+never touches orthology's file, which lives one level up. (Revised: the per-assembly folder
+is now named after the assembly, its `dir_name` column, set once at creation from the name
+with unsafe characters replaced by `_` and unique within the version ignoring case; the
+name is read-only so the folder never goes stale. Assemblies created earlier keep
+`AssemblyID()` as their folder. JBrowse2 keeps `AssemblyID()` as the assembly's `name` and
+shows `{versionName} — {assembly name}` as its `displayName`.)
 
 ### Elasticsearch — the assembly goes into the index name for all 4 non-shared types; no `species` field needed
 

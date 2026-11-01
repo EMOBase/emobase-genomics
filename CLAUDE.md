@@ -103,7 +103,11 @@ release) — a "Database Version" in the design doc's terms. Each Version holds 
 more `AssemblyVersion` rows (MySQL, `entity.AssemblyVersion`), one per assembly: the admin
 enters `species_name` (e.g. `"Homo sapiens"`), and `species_code` is derived from it at creation
 (`SpeciesCodeFromName`: first letter of word 1 + first 3 of word 2, e.g. `"Hsap"`); neither is unique within the Version or addresses an assembly, since the API and upload metadata use the numeric `id`. `name` is a
-free-text human label (e.g. `"Human / GRCh38"`). Every Assembly Version is fully
+free-text human label (e.g. `"Human / GRCh38"`), read-only after creation: it names the
+assembly's upload folder `dir_name` (`AssemblyDirName`: runs of characters other than
+letters, digits, spaces and `._-()` become `_`, e.g. `"Human _ GRCh38"`; unique within the
+Version ignoring case, enforced at create and by a unique key), and its JBrowse2 label.
+Assemblies created before `dir_name` existed keep `v{versionID}a{id}` as their folder. Every Assembly Version is fully
 symmetric — there is no "primary"/"default" one. `upload_files` and `jobs` both keep
 their original `version_id` column (unchanged) and additionally carry a nullable
 `assembly_version_id`: populated for every per-species file type, left `NULL` only for
@@ -162,7 +166,7 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    `genomic.fna`'s only upload job is `GENOMIC.FNA:SETUP_JBROWSE2`.
 2. On upload completion (`PreFinishResponseCallback` / `handlePreFinish`), the file is
    signature verified (gzip, or zip for `.zip` bundles), moved from the tus staging dir into
-   `{uploadDir}/{version}/{assemblyKey}/{storedName}` (flat `{uploadDir}/{version}/{storedName}`
+   `{uploadDir}/{version}/{dirName}/{storedName}` (the assembly's `dir_name`; flat `{uploadDir}/{version}/{storedName}`
    for `orthology.tsv`), and one or more `entity.Job` rows are enqueued in MySQL
    (status `PENDING`) via `enqueueProcessJob`, each with `AssemblyVersionID` set
    (`nil` only for `orthology.tsv`). `storedName` is the upload's `fileName` with an
@@ -259,9 +263,11 @@ completion, independent of whether/when a version is released — every Assembly
 that ever uploads `genomic.fna` gets its own JBrowse2 assembly (keyed by its opaque
 `AssemblyID`, not by Version or species name — those aren't guaranteed unique across
 different Versions and aren't safe as shell/jq matching keys) and `defaultSession.views`
-entry, regardless of release status. `setup_jbrowse2_gff.sh` additionally takes a
-`DISPLAY_LABEL` argument (`"{versionName} — {assembly.name}"`) purely for the
-human-facing track title, since `AssemblyID` itself isn't presentable. Nothing about a
+entry, regardless of release status. `setup_jbrowse2_fna.sh` and `setup_jbrowse2_gff.sh`
+additionally take a `DISPLAY_LABEL` argument (`"{versionName} — {assembly.name}"`, built from
+the stored names at upload) purely for what people see: the assembly's JBrowse2
+`displayName` and the annotation track title, since `AssemblyID` itself isn't presentable.
+Never use the label as the JBrowse2 `name`: scripts prefix and match data files by it. Nothing about a
 view entry reflects "this is the currently active version" by itself, and old entries
 are never removed just because a newer version is released (only explicit
 Version/Assembly-Version deletion, via `delete_jbrowse_version.sh` keyed by

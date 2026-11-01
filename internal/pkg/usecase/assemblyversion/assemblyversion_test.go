@@ -45,6 +45,16 @@ func (m *memAssemblies) FindByID(_ context.Context, id uint64) (*entity.Assembly
 	return &a, nil
 }
 
+func (m *memAssemblies) ListByVersionID(_ context.Context, versionID uint64) ([]entity.AssemblyVersion, error) {
+	var out []entity.AssemblyVersion
+	for _, r := range m.rows {
+		if r.VersionID == versionID {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
 func (m *memAssemblies) Update(_ context.Context, a *entity.AssemblyVersion) error {
 	row := m.rows[a.ID-1]
 	row.Name, row.InfoURL, row.UpdatedBy = a.Name, a.InfoURL, a.UpdatedBy
@@ -204,7 +214,8 @@ func TestSetAssemblyVersionImage_ReplaceRemovesOldFile(t *testing.T) {
 	if err != nil || !bytes.Equal(got, pngBytes) {
 		t.Errorf("new image not stored intact: %v", err)
 	}
-	assemblyDir := filepath.Join(dir, "v1", a.AssemblyID())
+	// Inside the assembly's own upload folder, so deleting the assembly removes it.
+	assemblyDir := filepath.Join(dir, "v1", a.DirName)
 	if filepath.Dir(*second.ImagePath) != assemblyDir || filepath.Ext(*second.ImagePath) != ".png" {
 		t.Errorf("image stored at %s, want a .png inside %s", *second.ImagePath, assemblyDir)
 	}

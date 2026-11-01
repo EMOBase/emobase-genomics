@@ -18,9 +18,12 @@ import (
 // "/" + ImagePath; nil when none was uploaded. InfoURL is an optional external
 // link with more about the assembly.
 type AssemblyVersion struct {
-	ID          uint64    `db:"id"           json:"id"`
-	VersionID   uint64    `db:"version_id"   json:"versionId"`
-	Name        string    `db:"name"         json:"name"`
+	ID        uint64 `db:"id"           json:"id"`
+	VersionID uint64 `db:"version_id"   json:"versionId"`
+	Name      string `db:"name"         json:"name"`
+	// DirName is the assembly's upload folder under its version's folder,
+	// set once from Name at creation (see assemblyversion.AssemblyDirName).
+	DirName     string    `db:"dir_name"     json:"-"`
 	SpeciesName string    `db:"species_name" json:"speciesName"`
 	SpeciesCode string    `db:"species_code" json:"speciesCode"`
 	ImagePath   *string   `db:"image_path"   json:"imagePath"`

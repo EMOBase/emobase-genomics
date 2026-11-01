@@ -59,8 +59,8 @@ func assemblyMeta(fileType, fileName string, extra map[string]string) tusd.MetaD
 		"_versionID":         "1",
 		"_assemblyVersionID": "7",
 		"_assemblySpecies":   "Tcas",
-		"_assemblyName":      "Tribolium",
-		"_assemblyKey":       entity.FormatAssemblyID(1, 7),
+		"_assemblyDir":       "Tribolium",
+		"_displayLabel":      "v1 — Tribolium",
 	}
 	for k, v := range extra {
 		meta[k] = v

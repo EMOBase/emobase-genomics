@@ -11,6 +11,9 @@ type SetupJBrowse2FNAPayload struct {
 	VersionID         uint64 `json:"version_id"`
 	AssemblyVersionID uint64 `json:"assembly_version_id"`
 	GenomicFNAPath    string `json:"genomic_fna_path"`
+	// DisplayLabel is the assembly's name in the JBrowse2 UI,
+	// "{versionName} — {assemblyName}"; empty in jobs enqueued before it existed.
+	DisplayLabel string `json:"display_label"`
 }
 
 // SetupJBrowse2GFFPayload is the JSON payload for GENOMIC.GFF:SETUP_JBROWSE2 jobs.

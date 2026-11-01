@@ -219,8 +219,10 @@ func (uc *UseCase) handlePreUploadCreate(hook tusd.HookEvent) (tusd.HTTPResponse
 	if assemblyVersion != nil {
 		newMeta["_assemblyVersionID"] = strconv.FormatUint(assemblyVersion.ID, 10)
 		newMeta["_assemblySpecies"] = assemblyVersion.SpeciesCode
-		newMeta["_assemblyName"] = assemblyVersion.Name
-		newMeta["_assemblyKey"] = entity.FormatAssemblyID(version.ID, assemblyVersion.ID)
+		newMeta["_assemblyDir"] = assemblyVersion.DirName
+		// The JBrowse2 label of the assembly and its annotation track, from the
+		// stored names (the lookup of meta["version"] ignores case).
+		newMeta["_displayLabel"] = version.Name + " — " + assemblyVersion.Name
 	}
 
 	return tusd.HTTPResponse{}, tusd.FileInfoChanges{MetaData: newMeta}, nil
@@ -462,13 +464,16 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 		return nil, err
 	}
 	assemblySpecies := meta["_assemblySpecies"]
-	displayLabel := meta["version"] + " — " + meta["_assemblyName"]
+	displayLabel := meta["_displayLabel"]
+	if displayLabel == "" { // an upload created before _displayLabel existed
+		displayLabel = meta["version"] + " — " + meta["_assemblyName"]
+	}
 
 	fileType := meta["fileType"]
 
 	// genomic.fna has no parsing step; enqueue only the JBrowse2 assembly setup.
 	if fileType == entity.FileTypeGenomicFNA {
-		job, err := uc.enqueueFNASetupJBrowse2Job(ctx, versionID, assemblyVersionID, uploadID, meta["version"], filePath)
+		job, err := uc.enqueueFNASetupJBrowse2Job(ctx, versionID, assemblyVersionID, uploadID, meta["version"], displayLabel, filePath)
 		if err != nil {
 			return nil, err
 		}
@@ -691,11 +696,12 @@ func (uc *UseCase) enqueueSpeciesSynonymJob(ctx context.Context, versionID uint6
 	return *j, nil
 }
 
-func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uint64, assemblyVersionID *uint64, uploadID, versionName, filePath string) (entity.Job, error) {
+func (uc *UseCase) enqueueFNASetupJBrowse2Job(ctx context.Context, versionID uint64, assemblyVersionID *uint64, uploadID, versionName, displayLabel, filePath string) (entity.Job, error) {
 	rawPayload, err := json.Marshal(jobpayload.SetupJBrowse2FNAPayload{
 		VersionID:         versionID,
 		AssemblyVersionID: *assemblyVersionID,
 		GenomicFNAPath:    filePath,
+		DisplayLabel:      displayLabel,
 	})
 	if err != nil {
 		return entity.Job{}, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeGenomicFNASetupJBrowse2, err)
@@ -976,22 +982,27 @@ func (uc *UseCase) cleanStaleUploads(maxAge time.Duration) {
 }
 
 // uploadDirFor returns the directory an upload's file should live in:
-// {uploadDir}/{versionName}/{assemblyKey}, except orthology.tsv (assemblyKey == "")
-// which keeps the flat {uploadDir}/{versionName} path since it is shared
-// across every assembly in the Database Version rather than owned by one.
+// {uploadDir}/{versionName}/{assemblyDir}, the assembly's DirName, except the
+// version-scoped types (assemblyDir == "") which keep the flat
+// {uploadDir}/{versionName} path since they are shared across every assembly
+// in the Database Version rather than owned by one.
 // storedPath is where an upload's file lives once complete: its folder plus its
 // name tagged with the upload ID (see uploadspec.StoredFileName). Creating the
 // upload row and moving the finished file must agree, so both call this.
 func (uc *UseCase) storedPath(uploadID string, meta tusd.MetaData) string {
-	dir := uc.uploadDirFor(meta["version"], meta["_assemblyKey"])
+	assemblyDir := meta["_assemblyDir"]
+	if assemblyDir == "" { // an upload created before _assemblyDir existed
+		assemblyDir = meta["_assemblyKey"]
+	}
+	dir := uc.uploadDirFor(meta["version"], assemblyDir)
 	return filepath.Join(dir, uploadspec.StoredFileName(filepath.Base(meta["fileName"]), uploadID))
 }
 
-func (uc *UseCase) uploadDirFor(versionName, assemblyKey string) string {
-	if assemblyKey == "" {
+func (uc *UseCase) uploadDirFor(versionName, assemblyDir string) string {
+	if assemblyDir == "" {
 		return filepath.Join(uc.uploadDir, versionName)
 	}
-	return filepath.Join(uc.uploadDir, versionName, assemblyKey)
+	return filepath.Join(uc.uploadDir, versionName, assemblyDir)
 }
 
 // parseOptionalAssemblyVersionID reads "_assemblyVersionID" from upload

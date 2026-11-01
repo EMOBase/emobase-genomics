@@ -291,7 +291,7 @@ components:
             name never share a file; removing `-` plus the tag gives the original name.
             For a type that keeps one file per assembly, a newer upload removes this file
             (see `POST /uploads`).
-          example: public/uploads/dmel_r6.59/v1a7/genomic-3fa85f64.gff.gz
+          example: public/uploads/dmel_r6.59/Drosophila melanogaster _ R6.59/genomic-3fa85f64.gff.gz
         fileSize:
           type: integer
           format: int64
@@ -402,7 +402,10 @@ components:
           example: 1
         name:
           type: string
-          description: Free-text, human-readable label for this assembly.
+          description: |
+            Free-text, human-readable label for this assembly. Read-only after creation: it
+            names the assembly's upload folder and its JBrowse2 label
+            (`{versionName} — {name}`).
           example: Human / GRCh38
         speciesName:
           type: string
@@ -1888,6 +1891,12 @@ paths:
       description: |
         Every Assembly Version is created identically — there is no auto-assigned
         "primary"/"default" species. The admin enters `speciesName`; `speciesCode` is derived from it. Several assemblies may share a species within one Database Version. Use the returned `id` to address this assembly in URLs and upload metadata.
+
+        `name` also names the assembly's upload folder: each run of characters other than
+        letters, digits, spaces and `._-()` becomes `_`, and leading and trailing spaces and
+        dots are trimmed (`Human / GRCh38` → `Human _ GRCh38`). No two assemblies of a version
+        may get the same folder name, compared ignoring case, so such a name returns 400.
+        JBrowse2 shows the assembly as `{versionName} — {name}`. The name cannot be changed later.
       parameters:
         - name: name
           in: path
@@ -1905,6 +1914,7 @@ paths:
               properties:
                 name:
                   type: string
+                  description: Must contain a character other than spaces and dots. Read-only after creation.
                   example: Human / GRCh38
                 speciesName:
                   type: string
@@ -1930,12 +1940,19 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name or speciesName, a speciesName no code can be derived from, or invalid infoUrl.
+          description: |
+            Missing name or speciesName, a speciesName no code can be derived from, invalid
+            infoUrl, a name of only spaces and dots, or a name giving the same upload folder as
+            another assembly of the version.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
+                folderTaken:
+                  value:
+                    error: another assembly in this version already has this name (or one giving the same folder name)
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 invalidInfoUrl:
                   value:
                     error: infoUrl must be an absolute http or https URL of at most 2048 characters
@@ -2015,9 +2032,10 @@ paths:
       operationId: updateAssemblyVersion
       tags: [Assembly Versions]
       description: |
-        Partial update: only fields present in the body change. `speciesName` and
-        `speciesCode` cannot be changed, since the code is copied into indexed data at
-        upload time; sending either returns 400 (delete and recreate the assembly instead). The image has its own
+        Partial update: only fields present in the body change. `name`, `speciesName` and
+        `speciesCode` cannot be changed: the code is copied into indexed data at upload
+        time, and the name names the assembly's upload folder and its JBrowse2 label.
+        Sending any of them returns 400 (delete and recreate the assembly instead). The image has its own
         endpoint, `PUT /versions/{name}/assemblies/{id}/image`.
       parameters:
         - name: name
@@ -2039,10 +2057,6 @@ paths:
             schema:
               type: object
               properties:
-                name:
-                  type: string
-                  description: Must not be empty.
-                  example: Human / GRCh38.p14
                 infoUrl:
                   type: string
                   description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link.
@@ -2060,7 +2074,7 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Empty name, invalid infoUrl, or `speciesName`/`speciesCode` sent.
+          description: Invalid infoUrl, or `name`, `speciesName` or `speciesCode` sent.
           content:
             application/json:
               schema:
@@ -2070,9 +2084,9 @@ paths:
                   value:
                     error: species cannot be changed; delete and recreate the assembly instead
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                emptyName:
+                nameReadOnly:
                   value:
-                    error: name must not be empty
+                    error: "name cannot be changed: it names the assembly's upload folder and its JBrowse2 label; delete and recreate the assembly instead"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 invalidInfoUrl:
                   value:

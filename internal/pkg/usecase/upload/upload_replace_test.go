@@ -2,6 +2,7 @@ package upload
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -90,7 +91,9 @@ func newReplaceFixture(t *testing.T, existing []entity.Job) *replaceFixture {
 func (f *replaceFixture) stored(id string, asm uint64, fileType, fileName string, created time.Time) string {
 	f.t.Helper()
 	meta := assemblyMeta(fileType, fileName, nil)
-	meta["_assemblyKey"] = entity.FormatAssemblyID(1, asm)
+	if asm != 7 { // assemblyMeta describes assembly 7
+		meta["_assemblyDir"] = fmt.Sprintf("Other %d", asm)
+	}
 	path := f.uc.storedPath(id, meta)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		f.t.Fatal(err)

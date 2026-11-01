@@ -51,7 +51,8 @@ func (h *AssemblyVersionHandler) Create(c *gin.Context) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return
 		}
-		if errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) || errors.Is(err, ucassemblyversion.ErrInvalidSpeciesName) {
+		if errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) || errors.Is(err, ucassemblyversion.ErrInvalidSpeciesName) ||
+			errors.Is(err, ucassemblyversion.ErrNameNoFolder) || errors.Is(err, ucassemblyversion.ErrDirNameTaken) {
 			apires.Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -146,16 +147,19 @@ func (h *AssemblyVersionHandler) Update(c *gin.Context) {
 		apires.Fail(c, http.StatusBadRequest, "species cannot be changed; delete and recreate the assembly instead")
 		return
 	}
+	if body.Name != nil {
+		apires.Fail(c, http.StatusBadRequest, "name cannot be changed: it names the assembly's upload folder and its JBrowse2 label; delete and recreate the assembly instead")
+		return
+	}
 
 	a, err := h.uc.UpdateAssemblyVersion(c.Request.Context(), versionName, id, ucassemblyversion.AssemblyVersionUpdate{
-		Name:    body.Name,
 		InfoURL: body.InfoURL,
 	})
 	if err != nil {
 		if failAssemblyNotFound(c, err) {
 			return
 		}
-		if errors.Is(err, ucassemblyversion.ErrEmptyName) || errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) {
+		if errors.Is(err, ucassemblyversion.ErrInvalidInfoURL) {
 			apires.Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
