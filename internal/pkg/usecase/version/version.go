@@ -9,11 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 )
@@ -25,6 +27,7 @@ const deleteJBrowseVersionScript = "/app/scripts/delete_jbrowse_version.sh"
 
 var (
 	ErrVersionAlreadyExists       = errors.New("version already exists")
+	ErrInvalidVersionName         = errors.New(`version name must be 1-64 characters of letters, digits, spaces, ".", "_" or "-", starting with a letter or digit and not ending with a space`)
 	ErrVersionNotFound            = errors.New("version not found")
 	ErrRequiredFileNotUploaded    = errors.New("required file not uploaded")
 	ErrFileJobsNotComplete        = errors.New("file jobs not complete")
@@ -820,13 +823,35 @@ func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assembl
 	return j, nil
 }
 
+// versionNamePattern keeps a version name one path segment, never "." or
+// "..", so the version's upload folder (removed recursively on delete) stays
+// inside the upload directory. For such a name, indexname.FromVersionName
+// only lowercases it and turns each run of spaces into "_".
+var versionNamePattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,62}[A-Za-z0-9._-])?$`)
+
 func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Version, error) {
-	existing, err := uc.versionRepo.FindByName(ctx, name)
+	if !versionNamePattern.MatchString(name) {
+		return nil, ErrInvalidVersionName
+	}
+
+	// Two versions with the same index slug would share every Elasticsearch
+	// index and alias, and deleting one would delete both versions' indexes.
+	// So compare slugs, not names: that ignores letter case and counts a run of
+	// spaces as "_", exactly as the index names do.
+	names, err := uc.versionRepo.ListNames(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil {
-		return nil, ErrVersionAlreadyExists
+	slug := indexname.FromVersionName(name)
+	for _, n := range names {
+		if indexname.FromVersionName(n) != slug {
+			continue
+		}
+		if n == name {
+			return nil, ErrVersionAlreadyExists
+		}
+		return nil, fmt.Errorf(`%w: %q is the same as version %q when letter case is ignored and spaces count as "_"`,
+			ErrVersionAlreadyExists, name, n)
 	}
 
 	v := &entity.Version{

@@ -1515,7 +1515,15 @@ paths:
               properties:
                 name:
                   type: string
-                  example: dmel_r6.54
+                  pattern: '^[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,62}[A-Za-z0-9._-])?$'
+                  maxLength: 64
+                  description: |
+                    1-64 characters of letters (any case), digits, spaces, `.`, `_` or `-`,
+                    starting with a letter or digit and not ending with a space. The name is the
+                    version's upload folder, and its Elasticsearch index names use it lowercased
+                    with each run of spaces as `_`. So it must not match an existing version's
+                    name that way: `tcas_5.2` or `TCAS 5.2` is rejected when `Tcas 5.2` exists.
+                  example: Dmel R6.54
       responses:
         '201':
           description: Version created.
@@ -1529,12 +1537,22 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name, or version already exists.
+          description: Missing or invalid name, or a version with the same name (ignoring letter case, with spaces counted as `_`) already exists.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
+                invalidName:
+                  summary: name does not match the allowed pattern
+                  value:
+                    error: 'version name must be 1-64 characters of letters, digits, spaces, ".", "_" or "-", starting with a letter or digit and not ending with a space'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                sameIndexName:
+                  summary: name matches an existing version ignoring case and spaces
+                  value:
+                    error: 'version already exists: "tcas_5.2" is the same as version "Tcas 5.2" when letter case is ignored and spaces count as "_"'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 missingName:
                   summary: name field is required
                   value:

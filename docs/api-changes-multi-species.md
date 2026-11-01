@@ -66,6 +66,7 @@ both `null` when unset.
 
 | Endpoint | Change |
 |---|---|
+| `POST /versions` | `name` must be 1-64 characters of letters (any case), digits, spaces, `.`, `_` or `-`, starting with a letter or digit and not ending with a space; otherwise `400` with that rule as the message. A name that matches an existing version's ignoring letter case and counting spaces as `_` (`tcas_5.2` when `Tcas 5.2` exists) is `400 version already exists: …`, naming that version. Before, any name was accepted, including `.` or `..` (unsafe as the version's upload folder) and names that shared another version's Elasticsearch indexes. Existing versions are unaffected. |
 | `GET /versions`, `GET /public/versions` | `status` (and the `?status=` filter) uses the rolled-up status above. |
 | `GET /versions`, `GET /versions/{name}/detail` | No longer need a token (were admin-only). Responses are unchanged, so they include `createdBy`/`updatedBy`, file paths and job errors. |
 | `GET /search` | `orthologs` groups are sorted alphabetically by species (was: main species first). A direct `genes` hit is still only returned for the configured `main_species` (`Tcas`); a hit in any other species comes back as `orthologies` when it is in an orthology file, else as `otherGenes` with its `species` (e.g. `{ "species": "Lyst", "gene": "GSLYS_00000001001" }`). |
@@ -85,7 +86,7 @@ both `null` when unset.
 
 ## Unchanged
 
-`POST /versions`, `GET/DELETE /upload-files`, `/uploads/{id}` (PATCH/HEAD/DELETE), `/health`, `/docs`.
+`GET/DELETE /upload-files`, `/uploads/{id}` (PATCH/HEAD/DELETE), `/health`, `/docs`.
 
 ## Not available yet
 - `GET /upload-files` does not report which assembly a file belongs to, and has no `assembly=` filter.

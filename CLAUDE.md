@@ -117,6 +117,14 @@ into indexed ES documents at upload time, so changing it would leave them under 
 assembly's optional image is stored in its own upload directory (`imagePath`, served by
 nginx under `/public/uploads/`), so the assembly/Version directory delete also removes it.
 
+A Version's `name` is validated at create (`CreateVersion` in `usecase/version`): it must
+match `versionNamePattern` (letters of any case, digits, spaces, `.`, `_`, `-`, starting with
+a letter or digit, not ending with a space, at most 64), since it is used raw as the upload
+folder (`{uploadDir}/{name}`, removed recursively on delete). And its ES index slug
+(`indexname.FromVersionName`: lowercased, runs of spaces as `_`) must differ from every
+existing version's, since versions sharing a slug share every index and alias. This slug
+check replaces a plain name-uniqueness check; it runs in the app (no DB constraint on the slug).
+
 One Version can be marked the "default" via `appsettings` (`GetDefaultVersionID`) — the
 public API and `versionresolver` fall back to it when no version name is given; this is
 unchanged by the Assembly Version model — once a Version is default, *every* one of its
