@@ -35,7 +35,7 @@ func (deleteAssemblies) DeleteByVersionID(context.Context, uint64) error { retur
 
 type deleteES struct{}
 
-func (deleteES) DeleteIndexesByVersion(context.Context, string) error { return nil }
+func (deleteES) DeleteIndexesByVersion(context.Context, string, uint64) error { return nil }
 
 // Only the default version's BLAST databases are served, and it cannot be
 // deleted. But a release that failed part-way leaves its new databases

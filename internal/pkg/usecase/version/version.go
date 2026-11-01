@@ -938,7 +938,7 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to remove BLAST databases during version delete")
 	}
 
-	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {
+	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name, v.ID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to delete ES indexes during version delete")
 	}
 

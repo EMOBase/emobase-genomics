@@ -50,5 +50,5 @@ type IAssemblyVersionRepository interface {
 }
 
 type IVersionESRepository interface {
-	DeleteIndexesByVersion(ctx context.Context, versionName string) error
+	DeleteIndexesByVersion(ctx context.Context, versionName string, versionID uint64) error
 }

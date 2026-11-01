@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esbulk"
 	"github.com/elastic/go-elasticsearch/v8"
 )
@@ -154,7 +155,9 @@ func (r *ElasticSearchRepository) DeleteStaleIndexes(ctx context.Context, aliasN
 
 	var toDelete []string
 	for name := range indices {
-		if name != liveIndexName {
+		// The wildcard also matches a version whose name starts with this
+		// one's (e.g. "v1-v1a7-x"); delete only this assembly's own indexes.
+		if name != liveIndexName && indexname.IsAssemblyIndex(name, aliasName, assemblyKey) {
 			toDelete = append(toDelete, name)
 		}
 	}

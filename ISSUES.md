@@ -9,21 +9,6 @@ noted); **Likely** means it depends on runtime behavior nobody has checked yet.
 
 ## High
 
-### H1. Deleting a version also deletes indexes of versions whose name starts the same way
-
-- **Where:** `internal/pkg/repository/esindex/es.go:28` (`DeleteIndexesByVersion`).
-- **Problem:** it deletes the indexes matching `{prefix}-{type}-{slug}-*`. Version names may
-  contain `-`, so deleting `v1` also matches every index of a version named `v1-test`
-  (`…-synonym-v1-test-v2a1-…`), across all 5 index types.
-- **Impact:** deleting one version silently wipes another version's search data. That
-  version's rows, files and JBrowse2 data stay, so it looks intact, but its searches return
-  nothing.
-- **Fix idea:** match by version ID instead of name. The 4 assembly-scoped types carry
-  `v{versionID}a` (`{prefix}-{type}-{slug}-v{id}a*`), and orthology is exactly
-  `{prefix}-orthology-{slug}-{createdAt}`. Or delete the indexes behind the exact alias
-  `{prefix}-{type}-{slug}`.
-- **Status:** Confirmed (code).
-
 ### H2. One failed BLAST job stops the version from ever becoming the default
 
 - **Where:** `internal/pkg/usecase/worker/handlers/blast_shared.go:40`,

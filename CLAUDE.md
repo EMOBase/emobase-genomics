@@ -291,7 +291,10 @@ UI.
   (`action.destructive_requires_name`). Always resolve wildcards with `Indices.Get`
   first, then delete by explicit resolved names — see `esindex.DeleteIndexesByVersion`
   (whole Version, all 5 types) and `esindex.DeleteIndexesByAssemblyVersion` (one assembly, the 4 assembly-scoped types only) for the reference pattern. Never call
-  `Indices.Delete` with a wildcard string directly.
+  `Indices.Delete` with a wildcard string directly. And delete only the resolved names
+  that `indexname.IsVersionIndex` / `IsAssemblyIndex` accept: version names may contain
+  `-`, so `{alias}-*` for `v1` also matches version `v1-test`'s indexes, and
+  `{alias}-v1a7-*` a version named `v1-v1a7-x`.
 - `sequence` and `synonym` use one fixed index per assembly (`version.CreatedAt`, not
   `time.Now()`), shared by all of the assembly's files of those types, so a re-upload
   only rewrites the documents it still has. Every document carries its upload's
