@@ -550,9 +550,7 @@ automatically.
   speculative versioning infrastructure.
 - `GET /versions/:name/detail` — splits today's one flat `VersionDetailFiles` bucket
   into two levels: `orthologyTSV: FileDetail[]` **stays at the top level** (Database
-  Version, unchanged from today — it was already a list, never a single-file bucket;
-  revised: since removed, as an orthology bundle can add many files, so they are paged
-  by `GET /versions/:name/orthologies` instead, and detail lists only `orthologyBundle`) and
+  Version, unchanged from today — it was already a list, never a single-file bucket) and
   every other field (`genomicFNA`, `genomicGFF`, `rnaFNA`, `cdsFNA`, `proteinFAA`,
   `dsrnaCSV`, `jbrowseTrack`, `speciesSynonym`) moves into a new `assemblies:
   {assemblyId, name, speciesName, speciesCode, status, files}[]` array, one entry per Assembly Version.
@@ -619,7 +617,6 @@ GET /versions/v2/detail   (before any release; one shared orthology.tsv uploaded
     ]
   }
   // orthologyTSV is shared — it references genes from BOTH assemblies, not owned by either
-  // (revised: orthologyTSV has since moved to GET /versions/v2/orthologies, paged)
 
 POST /versions/v2/release
 (no body)

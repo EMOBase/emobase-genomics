@@ -13,12 +13,21 @@ type fakeSettings struct{ IAppSettingsRepository }
 
 func (fakeSettings) GetDefaultVersionID(context.Context) (*uint64, error) { return nil, nil }
 
-// detailUploads and detailJobs leave ListByVersionID and FindByVersionID
-// unimplemented: version detail must not load every file and job of the
-// version (its orthology.tsv files can be many), so calling them panics.
+// detailUploads mimics the real repository: ListByVersionID leaves out bundle
+// rows, while ListByVersionIDAndType and ListByAssemblyVersionID do not.
 type detailUploads struct {
 	IUploadFileRepository
 	shared, assembly []entity.UploadFile
+}
+
+func (u detailUploads) ListByVersionID(context.Context, uint64) ([]entity.UploadFile, error) {
+	var out []entity.UploadFile
+	for _, f := range append(slices.Clone(u.shared), u.assembly...) {
+		if !slices.Contains(entity.BundleFileTypes, f.FileType) {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 func (u detailUploads) ListByVersionIDAndType(_ context.Context, _ uint64, fileType string, _, _ int) ([]entity.UploadFile, error) {
@@ -44,14 +53,8 @@ type detailJobs struct {
 	jobs []entity.Job
 }
 
-func (j detailJobs) FindByFileIDs(_ context.Context, fileIDs []string) ([]entity.Job, error) {
-	var out []entity.Job
-	for _, job := range j.jobs {
-		if job.FileID != nil && slices.Contains(fileIDs, *job.FileID) {
-			out = append(out, job)
-		}
-	}
-	return out, nil
+func (j detailJobs) FindByVersionID(context.Context, uint64) ([]entity.Job, error) {
+	return j.jobs, nil
 }
 
 func (j detailJobs) FindByAssemblyVersionID(context.Context, uint64) ([]entity.Job, error) {
@@ -84,8 +87,7 @@ func fileIDs(files []FileDetail) []string {
 // the version or assembly status to ERROR. So version detail must list each
 // bundle with its job and error, in its own bucket: an orthology bundle at the
 // top level, a track bundle in its assembly's files. Bundles must not be mixed
-// into the buckets of the files extracted from them, and orthology.tsv files
-// are left to GET /versions/{name}/orthologies.
+// into the buckets of the files extracted from them.
 func TestGetVersionDetail_ListsBundlesWithTheirJobs(t *testing.T) {
 	asm := uint64(7)
 	fid := func(id string) *string { return &id }
@@ -121,6 +123,7 @@ func TestGetVersionDetail_ListsBundlesWithTheirJobs(t *testing.T) {
 		wantJob string
 	}{
 		"orthologyBundle":             {d.OrthologyBundle, []string{"ob1"}, entity.JobTypeOrthologyBundle},
+		"orthologyTSV":                {d.OrthologyTSV, []string{"ot1"}, entity.JobTypeOrthologyTSV},
 		"files[jbrowse.track.bundle]": {files.JBrowseTrackBundle, []string{"tb1"}, entity.JobTypeJBrowseTrackBundle},
 		"files[jbrowse.track]":        {files.JBrowseTrack, []string{"t1"}, entity.JobTypeJBrowseTrack},
 	} {
