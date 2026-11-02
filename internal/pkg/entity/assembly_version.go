@@ -2,6 +2,8 @@ package entity
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -52,4 +54,23 @@ func (a AssemblyVersion) AssemblyID() string {
 // invoking the JBrowse2/BLAST script that actually needs the opaque form.
 func FormatAssemblyID(versionID, assemblyVersionID uint64) string {
 	return fmt.Sprintf("v%da%d", versionID, assemblyVersionID)
+}
+
+// ParseAssemblyID is the inverse of FormatAssemblyID. It accepts only the
+// exact form FormatAssemblyID builds ("v4a6", not "v04a6" or "v4a+6").
+func ParseAssemblyID(id string) (versionID, assemblyVersionID uint64, ok bool) {
+	rest, ok := strings.CutPrefix(id, "v")
+	if !ok {
+		return 0, 0, false
+	}
+	v, a, ok := strings.Cut(rest, "a")
+	if !ok {
+		return 0, 0, false
+	}
+	versionID, errV := strconv.ParseUint(v, 10, 64)
+	assemblyVersionID, errA := strconv.ParseUint(a, 10, 64)
+	if errV != nil || errA != nil || FormatAssemblyID(versionID, assemblyVersionID) != id {
+		return 0, 0, false
+	}
+	return versionID, assemblyVersionID, true
 }

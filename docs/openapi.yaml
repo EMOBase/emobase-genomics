@@ -673,12 +673,25 @@ components:
 
     GeneDetail:
       type: object
-      required: [id]
+      required: [id, assemblyVersionId, assemblyKey]
       properties:
         id:
           type: string
           description: Gene identifier with the species prefix stripped.
           example: TC016177
+        assemblyVersionId:
+          type: integer
+          format: int64
+          description: |
+            `id` of the Assembly Version this entry's data comes from, as used in
+            `/versions/{name}/assemblies/{id}` and upload metadata.
+          example: 6
+        assemblyKey:
+          type: string
+          description: |
+            Opaque key of the same Assembly Version, `v{versionId}a{assemblyVersionId}`; also
+            the assembly's name in JBrowse2.
+          example: v4a6
         symbol:
           type: string
           description: Gene symbol (SYMBOL synonym type). Omitted when not present.
@@ -1026,6 +1039,10 @@ paths:
         matched gene are omitted: `symbol`/`fullname`/`annotationId` when the species has no
         such synonyms indexed; `start`/`end`/`strand`/`seqname` when no genomic location is
         indexed; `mRNAs`/`proteins`/`CDS` when no sequences are indexed.
+
+        A Database Version can hold several assemblies of one species. A gene found in more
+        than one of them gets one entry per assembly (`assemblyVersionId`/`assemblyKey`),
+        each built from that assembly's data only, ordered by gene, then by `assemblyVersionId`.
       parameters:
         - name: species
           in: path

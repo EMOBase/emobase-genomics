@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
 
 // Characters Elasticsearch forbids anywhere in an index name:
@@ -49,6 +51,24 @@ func IsVersionIndex(index, alias string, versionID uint64) bool {
 func IsAssemblyIndex(index, alias, assemblyKey string) bool {
 	rest, ok := strings.CutPrefix(index, alias+"-"+assemblyKey+"-")
 	return ok && allDigits(rest)
+}
+
+// AssemblyKey returns the assembly key of index when it is a concrete
+// per-assembly index behind alias ("{alias}-{assemblyKey}-{unix}"), the
+// inverse of the name the worker handlers build.
+func AssemblyKey(index, alias string) (string, bool) {
+	rest, ok := strings.CutPrefix(index, alias+"-")
+	if !ok {
+		return "", false
+	}
+	key, unix, ok := strings.Cut(rest, "-")
+	if !ok || !allDigits(unix) {
+		return "", false
+	}
+	if _, _, ok := entity.ParseAssemblyID(key); !ok {
+		return "", false
+	}
+	return key, true
 }
 
 // isAssemblySuffix reports whether s is "{versionKey}{n}-{unix}", e.g.

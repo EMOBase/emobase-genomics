@@ -34,3 +34,25 @@ func TestIsVersionIndexAndIsAssemblyIndex_OnlyOwnIndexes(t *testing.T) {
 		}
 	}
 }
+
+// A gene lookup reports each document's assembly from the concrete index it
+// came from, so only the exact name the worker handlers build may yield a key:
+// anything else would attribute a gene to a wrong or non-existent assembly.
+func TestAssemblyKey_OnlyFromHandlerBuiltNames(t *testing.T) {
+	const alias = "p-synonym-v1"
+	for index, want := range map[string]string{
+		"p-synonym-v1-v1a7-1700000000":         "v1a7",
+		"p-synonym-v1-v1a12-1700000000":        "v1a12",
+		"p-synonym-v1-1700000000":              "", // pre-assembly index: no assembly
+		"p-synonym-v1-v1a7-1700000000-reindex": "",
+		"p-synonym-v1-v1a7":                    "", // no timestamp
+		"p-synonym-v1-v1a07-1700000000":        "", // not FormatAssemblyID's form
+		"p-synonym-v1-va7-1700000000":          "",
+		"p-synonym-v11-v11a7-1700000000":       "", // another alias
+	} {
+		got, ok := AssemblyKey(index, alias)
+		if got != want || ok != (want != "") {
+			t.Errorf("AssemblyKey(%q) = %q, %v, want %q, %v", index, got, ok, want, want != "")
+		}
+	}
+}

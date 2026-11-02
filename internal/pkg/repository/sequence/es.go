@@ -160,6 +160,7 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 	var result struct {
 		Hits struct {
 			Hits []struct {
+				Index  string          `json:"_index"`
 				Source entity.Sequence `json:"_source"`
 			} `json:"hits"`
 		} `json:"hits"`
@@ -171,6 +172,7 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 	sequences := make([]entity.Sequence, len(result.Hits.Hits))
 	for i, h := range result.Hits.Hits {
 		sequences[i] = h.Source
+		sequences[i].Index = h.Index
 	}
 	return sequences, nil
 }

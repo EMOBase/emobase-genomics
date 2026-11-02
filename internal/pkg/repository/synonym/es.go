@@ -328,6 +328,7 @@ func (r *ElasticSearchRepository) searchSynonyms(ctx context.Context, indexName 
 	var result struct {
 		Hits struct {
 			Hits []struct {
+				Index  string         `json:"_index"`
 				Source entity.Synonym `json:"_source"`
 			} `json:"hits"`
 		} `json:"hits"`
@@ -339,6 +340,7 @@ func (r *ElasticSearchRepository) searchSynonyms(ctx context.Context, indexName 
 	synonyms := make([]entity.Synonym, len(result.Hits.Hits))
 	for i, h := range result.Hits.Hits {
 		synonyms[i] = h.Source
+		synonyms[i].Index = h.Index
 	}
 	return synonyms, nil
 }

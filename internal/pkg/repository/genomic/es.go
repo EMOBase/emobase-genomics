@@ -110,6 +110,7 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 	var result struct {
 		Hits struct {
 			Hits []struct {
+				Index  string                 `json:"_index"`
 				Source entity.GenomicLocation `json:"_source"`
 			} `json:"hits"`
 		} `json:"hits"`
@@ -121,6 +122,7 @@ func (r *ElasticSearchRepository) FindByIDs(ctx context.Context, indexName strin
 	locs := make([]entity.GenomicLocation, len(result.Hits.Hits))
 	for i, h := range result.Hits.Hits {
 		locs[i] = h.Source
+		locs[i].Index = h.Index
 	}
 	return locs, nil
 }

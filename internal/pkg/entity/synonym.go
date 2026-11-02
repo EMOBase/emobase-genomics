@@ -10,6 +10,9 @@ type Synonym struct {
 	Type    string `json:"type"`
 	Synonym string `json:"synonym"`
 	FileID  string `json:"file_id"`
+	// Index is the concrete ES index a search read this document from, which
+	// names its assembly. Set on reads only, never stored.
+	Index string `json:"-"`
 }
 
 const (
