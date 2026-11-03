@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
@@ -11,7 +12,8 @@ import (
 )
 
 type jobUseCase interface {
-	ListJobsByVersion(ctx context.Context, versionName string) ([]ucjob.JobSummary, error)
+	ListJobsByVersion(ctx context.Context, versionName, jobType string) ([]ucjob.JobSummary, error)
+	GetJob(ctx context.Context, id uint64) (*ucjob.JobDetail, error)
 }
 
 type JobHandler struct {
@@ -29,8 +31,12 @@ func (h *JobHandler) ListByVersion(c *gin.Context) {
 		return
 	}
 
-	summaries, err := h.uc.ListJobsByVersion(c.Request.Context(), version)
+	summaries, err := h.uc.ListJobsByVersion(c.Request.Context(), version, c.Query("type"))
 	if err != nil {
+		if errors.Is(err, ucjob.ErrInvalidJobType) {
+			apires.Fail(c, http.StatusBadRequest, "invalid type filter")
+			return
+		}
 		if errors.Is(err, ucjob.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
 			return
@@ -39,4 +45,23 @@ func (h *JobHandler) ListByVersion(c *gin.Context) {
 	}
 
 	apires.OK(c, summaries)
+}
+
+func (h *JobHandler) Get(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apires.Fail(c, http.StatusBadRequest, "job id must be an integer")
+		return
+	}
+
+	job, err := h.uc.GetJob(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, ucjob.ErrJobNotFound) {
+			apires.Fail(c, http.StatusNotFound, "job not found")
+			return
+		}
+		panic(err)
+	}
+
+	apires.OK(c, job)
 }
