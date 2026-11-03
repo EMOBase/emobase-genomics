@@ -7,6 +7,7 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/api/middleware"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/apires"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
+	ucassemblyversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/assemblyversion"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	ucsearch "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/search"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
@@ -22,7 +23,7 @@ var skipLogPaths = map[string]struct{}{
 	"/docs/openapi.yaml": {},
 }
 
-func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) *gin.Engine {
+func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		requestid.New(),
@@ -31,12 +32,12 @@ func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *uc
 		middleware.NewCORSMiddleware(),
 	)
 
-	registerRoutes(router, uploadUC, versionUC, jobUC, searchUC, validator)
+	registerRoutes(router, uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator)
 
 	return router
 }
 
-func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) {
+func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) {
 	router.GET("/health", func(c *gin.Context) {
 		apires.OK(c, "OK")
 		c.Abort()
@@ -58,8 +59,15 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 	silencingSeqsHandler := handler.NewSilencingSeqsHandler(searchUC)
 	router.GET("/silencingseqs", silencingSeqsHandler.Get)
 
-	publicVersionHandler := handler.NewVersionHandler(versionUC)
-	router.GET("/public/versions", publicVersionHandler.ListPublic)
+	versionHandler := handler.NewVersionHandler(versionUC)
+	router.GET("/public/versions", versionHandler.ListPublic)
+	router.GET("/versions", versionHandler.List)
+	router.GET("/versions/:name/detail", versionHandler.Detail)
+	router.GET("/versions/:name/orthologies", versionHandler.Orthologies)
+
+	assemblyVersionHandler := handler.NewAssemblyVersionHandler(assemblyVersionUC)
+	router.GET("/versions/:name/assemblies", assemblyVersionHandler.List)
+	router.GET("/versions/:name/assemblies/:id", assemblyVersionHandler.Detail)
 
 	tusHandler := http.StripPrefix("/uploads", uploadUC.Handler)
 	uploadHandler := func(c *gin.Context) {
@@ -72,15 +80,19 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 		authenticated.POST("/uploads", uploadHandler)
 		authenticated.Any("/uploads/*any", uploadHandler)
 
-		versionHandler := handler.NewVersionHandler(versionUC)
-		authenticated.GET("/versions", versionHandler.List)
-		authenticated.GET("/versions/:name/detail", versionHandler.Detail)
 		authenticated.POST("/versions", versionHandler.Create)
 		authenticated.DELETE("/versions/:name", versionHandler.Delete)
 		authenticated.POST("/versions/:name/release", versionHandler.Release)
 
+		authenticated.POST("/versions/:name/assemblies", assemblyVersionHandler.Create)
+		authenticated.PATCH("/versions/:name/assemblies/:id", assemblyVersionHandler.Update)
+		authenticated.PUT("/versions/:name/assemblies/:id/image", assemblyVersionHandler.SetImage)
+		authenticated.DELETE("/versions/:name/assemblies/:id/image", assemblyVersionHandler.DeleteImage)
+		authenticated.DELETE("/versions/:name/assemblies/:id", assemblyVersionHandler.Delete)
+
 		jobHandler := handler.NewJobHandler(jobUC)
 		authenticated.GET("/jobs", jobHandler.ListByVersion)
+		authenticated.GET("/jobs/:id", jobHandler.Get)
 
 		uploadFileHandler := handler.NewUploadFileHandler(uploadUC)
 		authenticated.GET("/upload-files", uploadFileHandler.List)
