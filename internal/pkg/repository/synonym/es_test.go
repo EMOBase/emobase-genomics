@@ -32,3 +32,25 @@ func TestDeleteByFileIDs_RefreshesThenDeletesThoseFilesOnly(t *testing.T) {
 		t.Errorf("body %s, want %s", rt.Requests[1].Body, want)
 	}
 }
+
+// A species search must filter inside the ES query: a search returns at most
+// 1000 synonyms, so filtering afterwards could find none of the species'
+// matches once other species' fill that size. With no species, every
+// species' synonyms are searched, as before.
+func TestFindBySynonymRelaxed_FiltersSpeciesInTheQuery(t *testing.T) {
+	for _, tc := range []struct{ species, want string }{
+		{"Tcas", `{"query":{"bool":{"filter":{"prefix":{"gene":"Tcas:"}},"must":{"match":{"synonym":"vermilion"}}}},"size":1000}`},
+		{"", `{"query":{"match":{"synonym":"vermilion"}},"size":1000}`},
+	} {
+		client, rt := estest.New(t, nil)
+		if _, err := New(client, 10).FindBySynonymRelaxed(context.Background(), "idx", "vermilion", tc.species); err != nil {
+			t.Fatal(err)
+		}
+		if len(rt.Requests) != 1 || rt.Requests[0].Path != "/idx/_search" {
+			t.Fatalf("species %q: requests %+v, want one search of idx", tc.species, rt.Requests)
+		}
+		if got := strings.TrimSpace(rt.Requests[0].Body); got != tc.want {
+			t.Errorf("species %q: body %s, want %s", tc.species, got, tc.want)
+		}
+	}
+}

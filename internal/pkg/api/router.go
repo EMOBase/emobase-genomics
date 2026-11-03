@@ -58,7 +58,7 @@ func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucv
 
 	silencingSeqsHandler := handler.NewSilencingSeqsHandler(searchUC)
 	router.GET("/silencingseqs/:species", silencingSeqsHandler.Get)
-	router.GET("/silencingseqs", silencingSeqsHandler.Get) // deprecated: uses main_species
+	router.GET("/silencingseqs", silencingSeqsHandler.Get) // deprecated: always Tcas
 
 	versionHandler := handler.NewVersionHandler(versionUC)
 	router.GET("/public/versions", versionHandler.ListPublic)

@@ -199,9 +199,18 @@ func (r *ElasticSearchRepository) SetAlias(ctx context.Context, indexName, alias
 
 // FindBySynonymRelaxed returns synonyms whose synonym field matches query using
 // a full-text match query (case-insensitive, hyphen-tolerant via the synonym_analyzer).
-func (r *ElasticSearchRepository) FindBySynonymRelaxed(ctx context.Context, indexName, query string) ([]entity.Synonym, error) {
+// A non-empty species keeps only that species' genes. It filters in the query, so
+// other species' matches can't take the result size from this species' ones.
+func (r *ElasticSearchRepository) FindBySynonymRelaxed(ctx context.Context, indexName, query, species string) ([]entity.Synonym, error) {
+	q := map[string]any{"match": map[string]any{"synonym": query}}
+	if species != "" {
+		q = map[string]any{"bool": map[string]any{
+			"must":   q,
+			"filter": map[string]any{"prefix": map[string]any{"gene": species + ":"}},
+		}}
+	}
 	body, err := json.Marshal(map[string]any{
-		"query": map[string]any{"match": map[string]any{"synonym": query}},
+		"query": q,
 		"size":  1000,
 	})
 	if err != nil {

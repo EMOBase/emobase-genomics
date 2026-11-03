@@ -60,7 +60,7 @@ func newTwoAssemblyGenesUseCase(synonyms []entity.Synonym) *UseCase {
 		{Gene: "Tcas:TC000001", ReferenceSeq: "chr-7", Start: 700, End: 799, Index: "emobase-genomiclocation-v1-v1a7-1700000000"},
 	}}
 	resolver := versionresolver.New(fakeVersionRepo{}, fakeAppSettings{})
-	return New(fakeSynonymRepo{docs: synonyms}, nil, sequences, locations, nil, resolver, "emobase", "Tcas")
+	return New(fakeSynonymRepo{docs: synonyms}, nil, sequences, locations, nil, resolver, "emobase")
 }
 
 // A gene that two assemblies of one species both have is reported once per

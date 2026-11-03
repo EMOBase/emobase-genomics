@@ -544,7 +544,7 @@ components:
           example: OrthoMCL
         orthologs:
           type: array
-          description: Gene groups per species — main species first, then alphabetical.
+          description: Gene groups per species, ordered alphabetically by species.
           items:
             $ref: '#/components/schemas/GeneGroup'
 
@@ -567,9 +567,9 @@ components:
         At most one of `genes`, `orthologies`, or `otherGenes` is populated.
         All three are absent when no match is found.
 
-        - `genes` — query matched a **main-species** gene; contains the matching gene IDs (species prefix stripped).
-        - `orthologies` — query matched a gene from **another species** and orthology groups were found; each group is enriched with synonyms from the query.
-        - `otherGenes` — query matched a gene from **another species** but no orthology groups were found.
+        - `genes` — query matched a gene of the requested `species`; contains the matching gene IDs (species prefix stripped). Never set without `species`.
+        - `orthologies` — query matched genes of other species (every species, without `species`) and orthology groups were found; each group is enriched with synonyms from the query.
+        - `otherGenes` — query matched genes of other species but no orthology groups were found.
       properties:
         genes:
           type: array
@@ -912,10 +912,13 @@ paths:
 
         The query is case-insensitive and treats hyphens as spaces (via the `synonym_analyzer`).
 
-        The result shape depends on where the match is found:
-        - If the query matches a **main-species** gene → `genes` is populated.
-        - If the query matches a gene from **another species** and orthology groups are found → `orthologies` is populated, each group enriched with the synonyms returned by the query.
-        - If the query matches a gene from **another species** with no orthology data → `otherGenes` is populated.
+        The result shape depends on `species` and on where the match is found:
+        - With `species`, if the query matches a gene of that species → `genes` is populated
+          with that species' gene IDs.
+        - Otherwise (no `species`, a search of every species that prefers none, or no match
+          in that species), every match counts as another species' gene:
+          - if orthology groups contain them → `orthologies` is populated, each group enriched with the synonyms returned by the query;
+          - else → `otherGenes` is populated, each with its `species`.
 
         All three fields are absent when no match is found.
       parameters:
@@ -926,6 +929,16 @@ paths:
             type: string
           description: Search term (gene ID, name, symbol, …). Case-insensitive; hyphens treated as spaces.
           example: TC016177
+        - name: species
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Species code (e.g. `Tcas`, `Dmel`), the prefix of its gene IDs. That species'
+            matches come back as `genes`. Omit it to search every species; `genes` is then
+            never returned.
+          example: Tcas
         - name: version
           in: query
           required: false
@@ -948,8 +961,8 @@ paths:
                   requestId:
                     type: string
               examples:
-                mainSpeciesMatch:
-                  summary: Query matched main-species genes
+                speciesMatch:
+                  summary: Query matched genes of the requested species
                   value:
                     data:
                       genes: ["TC016177", "TC016178"]
@@ -1301,7 +1314,7 @@ paths:
 
   /silencingseqs:
     get:
-      summary: Get silencing sequences (main species)
+      summary: Get silencing sequences (Tcas)
       operationId: getSilencingSeqs
       security: []
       tags: [Search]
@@ -1310,8 +1323,8 @@ paths:
         **Deprecated:** use `GET /silencingseqs/{species}` instead. Kept until the
         frontend has migrated, then removed.
 
-        Same as `GET /silencingseqs/{species}` with `species` set to the configured
-        `main_species`. Takes the same query params and returns the same responses.
+        Same as `GET /silencingseqs/{species}` with `species` set to `Tcas`. Takes the
+        same query params and returns the same responses.
       parameters:
         - name: ids
           in: query
@@ -1330,7 +1343,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Silencing sequence records of the main species. Empty array when none are found.
+          description: Silencing sequence records of Tcas. Empty array when none are found.
           content:
             application/json:
               schema:

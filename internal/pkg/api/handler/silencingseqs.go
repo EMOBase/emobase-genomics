@@ -24,7 +24,7 @@ func NewSilencingSeqsHandler(uc silencingSeqsUseCase) *SilencingSeqsHandler {
 }
 
 // Get serves GET /silencingseqs/:species and the deprecated GET /silencingseqs,
-// whose empty species means the configured main species.
+// whose empty species means Tcas.
 func (h *SilencingSeqsHandler) Get(c *gin.Context) {
 	ids := splitCSV(c.Query("ids"))
 	geneIDs := splitCSV(c.Query("geneIds"))

@@ -73,13 +73,14 @@ both `null` when unset.
 | `DELETE /versions/{name}` | Also removes its assemblies' BLAST databases. |
 | `DELETE /upload-files/{id}` (`jbrowse.track`) | Also removes the track's copied data files from JBrowse2 (before: they stayed publicly served under `/jbrowse2/`) and its default-session entry. |
 | `GET /versions`, `GET /versions/{name}/detail` | No longer need a token (were admin-only). Responses are unchanged, so they include `createdBy`/`updatedBy`, file paths and job errors. |
-| `GET /search` | `orthologs` groups are sorted alphabetically by species (was: main species first). A direct `genes` hit is still only returned for the configured `main_species` (`Tcas`); a hit in any other species comes back as `orthologies` when it is in an orthology file, else as `otherGenes` with its `species` (e.g. `{ "species": "Lyst", "gene": "GSLYS_00000001001" }`). |
+| `GET /search` | New optional `species` param: that species' matches come back as `genes`. Without it the search covers every species and prefers none, so `genes` is never returned (was: matches of the configured `main_species` always came back as `genes`); send `species=Tcas` for the old behaviour. Every other match comes back as `orthologies` when it is in an orthology file, else as `otherGenes` with its `species` (e.g. `{ "species": "Lyst", "gene": "GSLYS_00000001001" }`). `orthologs` groups are sorted alphabetically by species (was: main species first). |
 | `DELETE /versions/{name}` | Also cascades to all assemblies and their JBrowse2 data. |
 | Every response with a `filePath` | Files are stored under the name they were uploaded with again (between 2026-10-24 and 2026-11-01 the name carried an 8-character tag from the upload ID, `genomic-3fa85f64.gff.gz`; those files keep it). Bundle files are extracted into `{archive name}-{8 characters of the bundle's upload ID}/` (was: the bundle's full upload ID) and keep their own names. |
 | `POST /uploads` (tus) | A file of a one-file-per-assembly type (below) uploaded under its predecessor's name replaces it in place. Any other upload whose name is already stored in its assembly's folder (the version's folder for orthology) is refused with 409 at creation: delete the stored file, or rename. A bundle name is refused while a bundle of that name is still being processed. If two same-named uploads were both in progress, the second is refused with 409 when it completes. |
 | `POST /uploads` (tus) | When an upload of `genomic.fna`, `genomic.gff`, `rna.fna`, `cds.fna`, `protein.faa` or `dsrna.csv` completes, the assembly's previous files of that type are removed from disk and soft-deleted (gone from `GET /upload-files`, no longer in `totalFileSize`), whatever their name. A previous file with a `PENDING`/`RUNNING` job is kept until the next upload of its type. |
 | `GET /search`, `GET /search/_suggest`, `GET /genes/{species}` | After a `genomic.gff`, `rna.fna`, `cds.fna` or `protein.faa` is replaced and the new file's jobs are done, genes, synonyms and sequences that only the replaced file had are no longer returned (before: they stayed searchable). |
-| `GET /genes/{species}`, `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
+| `GET /genes/{species}` | Each entry gains `assemblyVersionId` and `assemblyKey` (e.g. `6`, `"v4a6"`), the assembly its data comes from. A gene that several assemblies of the species have comes back once per assembly, each with that assembly's data only (was: one merged entry). |
+| `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
 | `GET /jobs` | New optional `type` filter: one job type, exact match (e.g. `?version=v1&type=GENOMIC.FNA:SETUP_BLAST`). An unknown type is `400 invalid type filter`. Without `type`, every job is listed as before. |
 
 ## Deprecated
@@ -87,7 +88,7 @@ both `null` when unset.
 | Endpoint | Use instead |
 |---|---|
 | `GET /public/versions` | `GET /versions` (now public, paged, same `status`). Kept until the frontend has migrated, then removed. |
-| `GET /silencingseqs` | `GET /silencingseqs/{species}`. The old route now means the configured `main_species` and no longer returns `400` for a non-`Tcas` `main_species`. Kept until the frontend has migrated, then removed. |
+| `GET /silencingseqs` | `GET /silencingseqs/{species}`. The old route now always means `Tcas` (was: the configured `main_species`, `400` unless it was `Tcas`). Kept until the frontend has migrated, then removed. |
 
 ## Unchanged
 

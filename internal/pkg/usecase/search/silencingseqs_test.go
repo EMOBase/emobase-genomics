@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -11,8 +12,16 @@ import (
 
 type fakeSynonymRepo struct{ docs []entity.Synonym }
 
-func (f fakeSynonymRepo) FindBySynonymRelaxed(context.Context, string, string) ([]entity.Synonym, error) {
-	return nil, nil
+// FindBySynonymRelaxed matches the whole synonym exactly (enough for these
+// tests) and, like the real query, keeps only species' genes when it is set.
+func (f fakeSynonymRepo) FindBySynonymRelaxed(_ context.Context, _ string, query, species string) ([]entity.Synonym, error) {
+	var out []entity.Synonym
+	for _, d := range f.docs {
+		if d.Synonym == query && (species == "" || strings.HasPrefix(d.Gene, species+":")) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 func (f fakeSynonymRepo) Suggest(context.Context, string, string) ([]string, error) { return nil, nil }
 func (f fakeSynonymRepo) FindBySynonyms(_ context.Context, _ string, synonyms []string) ([]entity.Synonym, error) {
@@ -70,12 +79,13 @@ func newSilencingSeqsUseCase() *UseCase {
 		{Gene: "Dmel:ds-1", Seq: "DMEL-SEQ"},
 	}}
 	resolver := versionresolver.New(fakeVersionRepo{}, fakeAppSettings{})
-	return New(synonyms, nil, nil, nil, dsrnas, resolver, "emobase", "Tcas")
+	return New(synonyms, nil, nil, nil, dsrnas, resolver, "emobase")
 }
 
 // A request for one species must return only that species' sequence and genes,
-// even when another species uses the same dsRNA ID; the empty species of the
-// deprecated GET /silencingseqs must still mean the configured main species.
+// even when another species uses the same dsRNA ID. The deprecated
+// GET /silencingseqs names no species and must keep meaning Tcas, which the
+// frontend still calling it reads; there is no configured main species anymore.
 func TestGetSilencingSeqs_ScopedToRequestedSpecies(t *testing.T) {
 	uc := newSilencingSeqsUseCase()
 	for _, tc := range []struct {
@@ -83,10 +93,10 @@ func TestGetSilencingSeqs_ScopedToRequestedSpecies(t *testing.T) {
 		ids, geneIDs      []string
 		wantSeq, wantGene string
 	}{
-		{"by id, non-main species", "Dmel", []string{"ds-1"}, nil, "DMEL-SEQ", "FBgn0000001"},
-		{"by gene, non-main species", "Dmel", nil, []string{"FBgn0000001"}, "DMEL-SEQ", "FBgn0000001"},
-		{"by id, main species", "Tcas", []string{"ds-1"}, nil, "TCAS-SEQ", "TC016177"},
-		{"deprecated route, no species", "", []string{"ds-1"}, nil, "TCAS-SEQ", "TC016177"},
+		{"by id, Dmel", "Dmel", []string{"ds-1"}, nil, "DMEL-SEQ", "FBgn0000001"},
+		{"by gene, Dmel", "Dmel", nil, []string{"FBgn0000001"}, "DMEL-SEQ", "FBgn0000001"},
+		{"by id, Tcas", "Tcas", []string{"ds-1"}, nil, "TCAS-SEQ", "TC016177"},
+		{"deprecated route, no species: Tcas", "", []string{"ds-1"}, nil, "TCAS-SEQ", "TC016177"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := uc.GetSilencingSeqs(context.Background(), tc.species, tc.ids, tc.geneIDs, "v1")

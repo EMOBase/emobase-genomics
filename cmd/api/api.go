@@ -74,7 +74,6 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		repodsrna.New(esClient, batchSize),
 		versionresolver.New(versionRepo, appSettingsRepo),
 		config.Elasticsearch.IndexPrefix,
-		config.MainSpecies,
 	)
 
 	uploadUC, err := upload.New(
