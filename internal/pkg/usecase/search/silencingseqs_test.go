@@ -23,7 +23,9 @@ func (f fakeSynonymRepo) FindBySynonymRelaxed(_ context.Context, _ string, query
 	}
 	return out, nil
 }
-func (f fakeSynonymRepo) Suggest(context.Context, string, string) ([]string, error) { return nil, nil }
+func (f fakeSynonymRepo) Suggest(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
 func (f fakeSynonymRepo) FindBySynonyms(_ context.Context, _ string, synonyms []string) ([]entity.Synonym, error) {
 	var out []entity.Synonym
 	for _, d := range f.docs {

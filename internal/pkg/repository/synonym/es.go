@@ -22,6 +22,45 @@ func New(esClient *elasticsearch.Client, batchSize int) *ElasticSearchRepository
 	return &ElasticSearchRepository{esClient: esClient, batchSize: batchSize}
 }
 
+// suggestTypeBoosts are the synonym types Suggest suggests, ranked by boost.
+// Other types (TRANSCRIPT, PROTEIN) are never suggested.
+var suggestTypeBoosts = []struct {
+	synonymType string
+	boost       int
+}{
+	{entity.SYNONYM_TYPE_SYMBOL, 12},
+	{entity.SYNONYM_TYPE_NAME, 8},
+	{entity.SYNONYM_TYPE_CURRENT_ID, 4},
+	{entity.SYNONYM_TYPE_DSRNA, 4},
+	{entity.SYNONYM_TYPE_OLD_ID, 4},
+	{entity.SYNONYM_TYPE_OTHER, 1},
+}
+
+// synonymDoc is a synonym as stored: the synonym plus its species_type.
+type synonymDoc struct {
+	entity.Synonym
+	SpeciesType string `json:"species_type"`
+}
+
+// speciesType is the species_type of a synonym, "{species}|{type}" (e.g.
+// "Tcas|SYMBOL"): the one context of synonym.suggest_species, so a suggestion
+// can be filtered by species and ranked by type at once. Two separate contexts
+// would not do: ES matches a suggestion that has any one of the query's
+// contexts. es:migrate's backfill script builds the same value.
+func speciesType(species, synonymType string) string {
+	return species + "|" + synonymType
+}
+
+// geneSpecies returns the species prefix of a "Species:GeneID" gene, or "" if
+// it has none.
+func geneSpecies(gene string) string {
+	species, _, ok := strings.Cut(gene, ":")
+	if !ok {
+		return ""
+	}
+	return species
+}
+
 func (r *ElasticSearchRepository) SaveMany(
 	ctx context.Context,
 	indexName string,
@@ -51,7 +90,7 @@ func (r *ElasticSearchRepository) bulkIndex(
 		if err := enc.Encode(meta); err != nil {
 			return err
 		}
-		if err := enc.Encode(synonym); err != nil {
+		if err := enc.Encode(synonymDoc{Synonym: synonym, SpeciesType: speciesType(geneSpecies(synonym.Gene), synonym.Type)}); err != nil {
 			return err
 		}
 	}
@@ -251,26 +290,31 @@ func (r *ElasticSearchRepository) FindByGenes(ctx context.Context, indexName str
 
 // Suggest returns up to 100 autocomplete suggestions for the given prefix,
 // ranked by synonym type (SYMBOL > NAME > CURRENT_ID/DSRNA/OLD_ID > OTHER).
-func (r *ElasticSearchRepository) Suggest(ctx context.Context, indexName, prefix string) ([]string, error) {
+// A non-empty species suggests only that species' synonyms, from
+// synonym.suggest_species; without one, every species' from synonym.suggest.
+func (r *ElasticSearchRepository) Suggest(ctx context.Context, indexName, prefix, species string) ([]string, error) {
+	field, contextName := "synonym.suggest", "synonym_type"
+	if species != "" {
+		field, contextName = "synonym.suggest_species", "species_type"
+	}
+	contexts := make([]map[string]any, len(suggestTypeBoosts))
+	for i, t := range suggestTypeBoosts {
+		context := t.synonymType
+		if species != "" {
+			context = speciesType(species, t.synonymType)
+		}
+		contexts[i] = map[string]any{"context": context, "boost": t.boost}
+	}
 	body, err := json.Marshal(map[string]any{
 		"size": 0,
 		"suggest": map[string]any{
 			"suggest": map[string]any{
 				"prefix": prefix,
 				"completion": map[string]any{
-					"field":           "synonym.suggest",
+					"field":           field,
 					"size":            100,
 					"skip_duplicates": true,
-					"contexts": map[string]any{
-						"synonym_type": []map[string]any{
-							{"context": "SYMBOL", "boost": 12},
-							{"context": "NAME", "boost": 8},
-							{"context": "CURRENT_ID", "boost": 4},
-							{"context": "DSRNA", "boost": 4},
-							{"context": "OLD_ID", "boost": 4},
-							{"context": "OTHER", "boost": 1},
-						},
-					},
+					"contexts":        map[string]any{contextName: contexts},
 				},
 			},
 		},

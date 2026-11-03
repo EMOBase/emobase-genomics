@@ -825,7 +825,8 @@ paths:
       tags: [Search]
       description: |
         Returns up to 100 autocomplete suggestions for the given prefix using the
-        Elasticsearch completion suggester on the `synonym.suggest` field.
+        Elasticsearch completion suggester: on the `synonym.suggest` field (every species),
+        or on `synonym.suggest_species` when `species` is given (that species only).
 
         Results are ranked by synonym type:
         - `SYMBOL` → boost 12
@@ -843,6 +844,16 @@ paths:
             type: string
           description: Prefix to autocomplete (e.g. `"TC01"`).
           example: TC01
+        - name: species
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Species code (e.g. `Tcas`, `Dmel`), the prefix of its gene IDs. Suggests only
+            synonyms of that species' genes, ranked the same way. Omit it to suggest every
+            species' synonyms.
+          example: Tcas
         - name: version
           in: query
           required: false

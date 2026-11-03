@@ -10,7 +10,7 @@ type ISynonymRepository interface {
 	FindBySynonymRelaxed(ctx context.Context, indexName, query, species string) ([]entity.Synonym, error)
 	FindBySynonyms(ctx context.Context, indexName string, synonyms []string) ([]entity.Synonym, error)
 	FindByGenes(ctx context.Context, indexName string, genes []string) ([]entity.Synonym, error)
-	Suggest(ctx context.Context, indexName, prefix string) ([]string, error)
+	Suggest(ctx context.Context, indexName, prefix, species string) ([]string, error)
 }
 
 type IOrthologyRepository interface {

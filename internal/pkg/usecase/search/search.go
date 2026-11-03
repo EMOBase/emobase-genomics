@@ -73,13 +73,15 @@ func New(
 	}
 }
 
-func (uc *UseCase) Suggest(ctx context.Context, prefix, versionName string) ([]string, error) {
+// Suggest returns autocomplete suggestions for prefix: only species' synonyms
+// when it is set, else every species'.
+func (uc *UseCase) Suggest(ctx context.Context, prefix, species, versionName string) ([]string, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
 		return nil, err
 	}
 	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
-	return uc.synonymRepo.Suggest(ctx, synonymIndex, prefix)
+	return uc.synonymRepo.Suggest(ctx, synonymIndex, prefix, species)
 }
 
 // Search finds the genes whose synonyms match query. With a species, that

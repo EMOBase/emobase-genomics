@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/estest"
 )
 
@@ -51,6 +52,58 @@ func TestFindBySynonymRelaxed_FiltersSpeciesInTheQuery(t *testing.T) {
 		}
 		if got := strings.TrimSpace(rt.Requests[0].Body); got != tc.want {
 			t.Errorf("species %q: body %s, want %s", tc.species, got, tc.want)
+		}
+	}
+}
+
+// A species-filtered suggestion reads synonym.suggest_species, whose only
+// context is species_type: ES matches a suggestion having any one of the
+// query's contexts, so species and type in two contexts would let every
+// species' SYMBOLs through. Each type keeps its boost. Without a species the
+// request is exactly the one sent before species existed.
+func TestSuggest_SpeciesUsesTheCombinedContextElseUnchanged(t *testing.T) {
+	for _, tc := range []struct{ species, want string }{
+		{"", `{"size":0,"suggest":{"suggest":{"completion":{"contexts":{"synonym_type":[` +
+			`{"boost":12,"context":"SYMBOL"},{"boost":8,"context":"NAME"},{"boost":4,"context":"CURRENT_ID"},` +
+			`{"boost":4,"context":"DSRNA"},{"boost":4,"context":"OLD_ID"},{"boost":1,"context":"OTHER"}]},` +
+			`"field":"synonym.suggest","size":100,"skip_duplicates":true},"prefix":"ver"}}}`},
+		{"Tcas", `{"size":0,"suggest":{"suggest":{"completion":{"contexts":{"species_type":[` +
+			`{"boost":12,"context":"Tcas|SYMBOL"},{"boost":8,"context":"Tcas|NAME"},{"boost":4,"context":"Tcas|CURRENT_ID"},` +
+			`{"boost":4,"context":"Tcas|DSRNA"},{"boost":4,"context":"Tcas|OLD_ID"},{"boost":1,"context":"Tcas|OTHER"}]},` +
+			`"field":"synonym.suggest_species","size":100,"skip_duplicates":true},"prefix":"ver"}}}`},
+	} {
+		client, rt := estest.New(t, nil)
+		if _, err := New(client, 10).Suggest(context.Background(), "idx", "ver", tc.species); err != nil {
+			t.Fatal(err)
+		}
+		if len(rt.Requests) != 1 {
+			t.Fatalf("species %q: requests %+v, want one", tc.species, rt.Requests)
+		}
+		if got := strings.TrimSpace(rt.Requests[0].Body); got != tc.want {
+			t.Errorf("species %q: body\n %s\nwant\n %s", tc.species, got, tc.want)
+		}
+	}
+}
+
+// Every stored synonym carries the species_type a species-filtered suggestion
+// matches on, built from its gene's species prefix and its type, the same
+// value es:migrate fills into older documents. The read-only Index is not stored.
+func TestSaveMany_StoresSpeciesType(t *testing.T) {
+	client, rt := estest.New(t, nil)
+	err := New(client, 10).SaveMany(context.Background(), "idx", []entity.Synonym{
+		{Gene: "Tcas:TC016177", Type: entity.SYNONYM_TYPE_SYMBOL, Synonym: "vermilion", FileID: "f1", Index: "ignored"},
+		{Gene: "nospecies", Type: entity.SYNONYM_TYPE_NAME, Synonym: "x", FileID: "f1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(rt.Requests[0].Body), "\n")
+	for i, want := range []string{
+		`{"gene":"Tcas:TC016177","type":"SYMBOL","synonym":"vermilion","file_id":"f1","species_type":"Tcas|SYMBOL"}`,
+		`{"gene":"nospecies","type":"NAME","synonym":"x","file_id":"f1","species_type":"|NAME"}`,
+	} {
+		if got := lines[2*i+1]; got != want {
+			t.Errorf("document %d: %s, want %s", i, got, want)
 		}
 	}
 }

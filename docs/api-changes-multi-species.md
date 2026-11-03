@@ -81,6 +81,7 @@ both `null` when unset.
 | `GET /search`, `GET /search/_suggest`, `GET /genes/{species}` | After a `genomic.gff`, `rna.fna`, `cds.fna` or `protein.faa` is replaced and the new file's jobs are done, genes, synonyms and sequences that only the replaced file had are no longer returned (before: they stayed searchable). |
 | `GET /genes/{species}` | Each entry gains `assemblyVersionId` and `assemblyKey` (e.g. `6`, `"v4a6"`), the assembly its data comes from. A gene that several assemblies of the species have comes back once per assembly, each with that assembly's data only (was: one merged entry). |
 | `GET /orthology/{species}` | No request/response change; reads now span every species' index in the Version. |
+| `GET /search/_suggest` | New optional `species` param: suggests only that species' synonyms, ranked the same way. Without it, unchanged (every species). Needs `es:migrate` on deploy, which adds the field it reads to existing synonym indexes. |
 | `GET /jobs` | New optional `type` filter: one job type, exact match (e.g. `?version=v1&type=GENOMIC.FNA:SETUP_BLAST`). An unknown type is `400 invalid type filter`. Without `type`, every job is listed as before. |
 
 ## Deprecated

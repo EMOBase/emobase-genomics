@@ -319,6 +319,14 @@ UI.
   `delete_by_query` with `conflicts=proceed`, so a document the new file just rewrote is
   never deleted. The sequence template maps `file_id` as `keyword`; re-run `es:migrate`
   after changing a template (existing indices keep their mapping).
+- Synonym suggestions filter by species through one combined completion context,
+  `species_type` = `"{species}|{type}"` on `synonym.suggest_species`, because ES matches a
+  suggestion having *any one* of the query's contexts (separate species and type contexts
+  would let every species through). The synonym repo writes `species_type` on every document;
+  `es:migrate` adds the field to existing synonym indexes (a completion field's contexts can't
+  change in place, so it is a second field beside `synonym.suggest`) and fills it on documents
+  missing it. The template and that put share `synonymProperties`, since ES rejects a put
+  that changes an existing field.
 
 ### Auth
 
