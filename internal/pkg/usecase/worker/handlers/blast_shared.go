@@ -6,11 +6,10 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 
+	"github.com/EMOBase/emobase-genomics/internal/pkg/blastdb"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/rs/zerolog/log"
 )
@@ -122,23 +121,10 @@ func setDefaultJBrowse2View(ctx context.Context, assemblyID string) error {
 }
 
 // removeStaleBlastFiles deletes every BLAST database file belonging to any
-// assembly under the given (now-superseded) Database Version ID. AssemblyID
-// values are shaped "v{versionID}a{assemblyID}", so a plain glob on the
-// version-ID prefix (followed by the literal "a" delimiter, which prevents a
-// version ID from matching as a prefix of a longer one, e.g. "v1a*" vs.
-// "v12a3...") finds every type/extension for every one of that version's
-// assemblies without needing to query which assemblies it had.
+// assembly under the given (now-superseded) Database Version ID.
 func removeStaleBlastFiles(ctx context.Context, blastDBPath string, oldVersionID uint64) {
-	pattern := filepath.Join(blastDBPath, fmt.Sprintf("v%da*", oldVersionID))
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		log.Ctx(ctx).Warn().Err(err).Str("pattern", pattern).Msg("failed to glob stale blast files")
-		return
-	}
-	for _, m := range matches {
-		if err := os.Remove(m); err != nil && !os.IsNotExist(err) {
-			log.Ctx(ctx).Warn().Err(err).Str("path", m).Msg("failed to remove stale blast file")
-		}
+	if _, err := blastdb.RemoveVersion(blastDBPath, oldVersionID); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Uint64("versionID", oldVersionID).Msg("failed to remove stale blast files")
 	}
 }
 

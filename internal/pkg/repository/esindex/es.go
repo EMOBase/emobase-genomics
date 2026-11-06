@@ -19,23 +19,33 @@ func New(esClient *elasticsearch.Client, prefix string) *Repository {
 	return &Repository{esClient: esClient, prefix: prefix}
 }
 
+// indexTypes lists every index type; all but orthology are per assembly.
+var indexTypes = []string{"genomiclocation", "sequence", "orthology", "synonym", "dsrna"}
+
 // DeleteIndexesByVersion deletes all Elasticsearch indexes associated with the
 // given version across all index types (genomic, sequence, orthology, synonym, dsrna).
 //
 // ES 8 sets action.destructive_requires_name=true by default, which rejects wildcard
 // expressions in DELETE. We resolve wildcards with a GET first, then delete by
-// explicit name.
-func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName string) error {
+// explicit name — only the names indexname.IsVersionIndex accepts, since the
+// wildcard also matches indexes of a version whose name starts with this one's.
+func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName string, versionID uint64) error {
 	vn := indexname.FromVersionName(versionName)
-	p := r.prefix + "-"
-	patterns := []string{
-		p + "genomiclocation-" + vn + "-*",
-		p + "sequence-" + vn + "-*",
-		p + "orthology-" + vn + "-*",
-		p + "synonym-" + vn + "-*",
-		p + "dsrna-" + vn + "-*",
+	aliases := make([]string, len(indexTypes))
+	patterns := make([]string, len(indexTypes))
+	for i, t := range indexTypes {
+		aliases[i] = r.prefix + "-" + t + "-" + vn
+		patterns[i] = aliases[i] + "-*"
 	}
-	return r.deleteByPatterns(ctx, patterns, fmt.Sprintf("version %q", versionName))
+	own := func(index string) bool {
+		for _, a := range aliases {
+			if indexname.IsVersionIndex(index, a, versionID) {
+				return true
+			}
+		}
+		return false
+	}
+	return r.deleteByPatterns(ctx, patterns, own, fmt.Sprintf("version %q", versionName))
 }
 
 // DeleteIndexesByAssemblyVersion deletes the ES indexes belonging to one
@@ -45,20 +55,31 @@ func (r *Repository) DeleteIndexesByVersion(ctx context.Context, versionName str
 // owned by any single assembly (never deleted by removing one assembly).
 func (r *Repository) DeleteIndexesByAssemblyVersion(ctx context.Context, versionName, assemblyKey string) error {
 	vn := indexname.FromVersionName(versionName)
-	p := r.prefix + "-"
-	patterns := []string{
-		p + "genomiclocation-" + vn + "-" + assemblyKey + "-*",
-		p + "sequence-" + vn + "-" + assemblyKey + "-*",
-		p + "synonym-" + vn + "-" + assemblyKey + "-*",
-		p + "dsrna-" + vn + "-" + assemblyKey + "-*",
+	var aliases, patterns []string
+	for _, t := range indexTypes {
+		if t == "orthology" {
+			continue
+		}
+		alias := r.prefix + "-" + t + "-" + vn
+		aliases = append(aliases, alias)
+		patterns = append(patterns, alias+"-"+assemblyKey+"-*")
 	}
-	return r.deleteByPatterns(ctx, patterns, fmt.Sprintf("version %q assembly %q", versionName, assemblyKey))
+	own := func(index string) bool {
+		for _, a := range aliases {
+			if indexname.IsAssemblyIndex(index, a, assemblyKey) {
+				return true
+			}
+		}
+		return false
+	}
+	return r.deleteByPatterns(ctx, patterns, own, fmt.Sprintf("version %q assembly %q", versionName, assemblyKey))
 }
 
 // deleteByPatterns resolves the given wildcard index patterns with a GET
 // (ES 8 sets action.destructive_requires_name=true by default, which rejects
-// wildcard expressions in DELETE), then deletes the resolved concrete names.
-func (r *Repository) deleteByPatterns(ctx context.Context, patterns []string, desc string) error {
+// wildcard expressions in DELETE), then deletes the resolved concrete names
+// that own accepts.
+func (r *Repository) deleteByPatterns(ctx context.Context, patterns []string, own func(index string) bool, desc string) error {
 	getRes, err := r.esClient.Indices.Get(
 		patterns,
 		r.esClient.Indices.Get.WithContext(ctx),
@@ -81,14 +102,15 @@ func (r *Repository) deleteByPatterns(ctx context.Context, patterns []string, de
 	if err := json.NewDecoder(getRes.Body).Decode(&indices); err != nil {
 		return fmt.Errorf("failed to decode index list for %s: %w", desc, err)
 	}
-	if len(indices) == 0 {
-		return nil
-	}
-
 	// Delete by explicit names — no wildcards, safe under any ES security setting.
 	names := make([]string, 0, len(indices))
 	for name := range indices {
-		names = append(names, name)
+		if own(name) {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
 	}
 
 	delRes, err := r.esClient.Indices.Delete(

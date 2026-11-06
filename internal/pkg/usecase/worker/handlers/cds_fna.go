@@ -17,14 +17,16 @@ func NewCDSFNAHandler(
 	versionRepo IVersionRepository,
 	sequenceUC ISequenceUseCase,
 	sequenceRepo ISequenceRepository,
+	uploadFileRepo IReplacedFileRepository,
 	indexPrefix string,
 ) *CDSFNAHandler {
 	return &CDSFNAHandler{sequenceFASTAHandler{
-		versionRepo:  versionRepo,
-		sequenceUC:   sequenceUC,
-		sequenceRepo: sequenceRepo,
-		sequenceType: ucsequence.SEQUENCE_TYPE_CDS,
-		indexPrefix:  indexPrefix,
+		versionRepo:    versionRepo,
+		sequenceUC:     sequenceUC,
+		sequenceRepo:   sequenceRepo,
+		uploadFileRepo: uploadFileRepo,
+		sequenceType:   ucsequence.SEQUENCE_TYPE_CDS,
+		indexPrefix:    indexPrefix,
 	}}
 }
 

@@ -17,11 +17,12 @@ type IAssemblyVersionRepository interface {
 type IJobRepository interface {
 	Create(ctx context.Context, j *entity.Job) error
 	HasActiveJobOfType(ctx context.Context, versionID uint64, jobType string) (bool, error)
-	HasActiveJobOfTypeForAssemblyVersion(ctx context.Context, assemblyVersionID uint64, jobType string) (bool, error)
+	HasActiveJobForFileTypeInAssemblyVersion(ctx context.Context, assemblyVersionID uint64, fileType string) (bool, error)
 	HasActiveJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasDoneJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	HasNonFailedJobOfTypeForFile(ctx context.Context, fileID string, jobType string) (bool, error)
 	FindLatestByFileAndType(ctx context.Context, fileID string, jobType string) (*entity.Job, error)
+	FindByFileIDs(ctx context.Context, fileIDs []string) ([]entity.Job, error)
 }
 
 type IUploadFileRepository interface {
@@ -32,4 +33,5 @@ type IUploadFileRepository interface {
 	SoftDelete(ctx context.Context, id string, deletedBy string) error
 	TotalFileSizeByVersionIDs(ctx context.Context, versionIDs []uint64) (map[uint64]int64, error)
 	FindLatestCompletedByAssemblyVersionAndType(ctx context.Context, assemblyVersionID uint64, fileType string) (*entity.UploadFile, error)
+	ListByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
 }

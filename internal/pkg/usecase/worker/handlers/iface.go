@@ -19,6 +19,13 @@ type IUploadFileRepository interface {
 	FindLatestCompletedByVersionAndType(ctx context.Context, versionID uint64, fileType string) (*entity.UploadFile, error)
 }
 
+// IReplacedFileRepository finds the files a completed upload replaced, whose
+// indexed documents are then stale.
+type IReplacedFileRepository interface {
+	FindByID(ctx context.Context, id string) (*entity.UploadFile, error)
+	ListIDsReplacedBy(ctx context.Context, fileID string) ([]string, error)
+}
+
 type IVersionRepository interface {
 	FindByID(ctx context.Context, id uint64) (*entity.Version, error)
 }

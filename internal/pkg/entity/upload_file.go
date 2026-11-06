@@ -2,6 +2,7 @@ package entity
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 )
 
@@ -26,6 +27,16 @@ const (
 // BundleFileTypes lists every bundle file type. Bundle rows are excluded from
 // version-level file queries since their extracted children are counted instead.
 var BundleFileTypes = []string{FileTypeOrthologyBundle, FileTypeJBrowseTrackBundle}
+
+// SingleFileTypes keep one file per assembly: a completed upload replaces the
+// assembly's earlier files of its type. Their stored files are removed at
+// upload, and their indexed documents once the new file's jobs are done.
+var SingleFileTypes = []string{
+	FileTypeGenomicFNA, FileTypeGenomicGFF, FileTypeRNAFNA, FileTypeCDSFNA, FileTypeProteinFAA, FileTypeDsRNACSV,
+}
+
+// IsSingleFileType reports whether fileType is one of SingleFileTypes.
+func IsSingleFileType(fileType string) bool { return slices.Contains(SingleFileTypes, fileType) }
 
 type UploadStatus string
 

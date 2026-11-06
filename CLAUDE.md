@@ -90,7 +90,7 @@ and explicit in each `Action` function.
 - `api/handler/*` — thin Gin handlers calling into use cases; `api/router.go` wires
   routes and marks the admin-only route group behind `middleware.RequireAdmin`.
   Public (unauthenticated) routes: `/health`, `/docs`, `/docs/openapi.yaml`, `/search`,
-  `/search/_suggest`, `/orthology/:species`, `/genes/:species`, `/silencingseqs`,
+  `/search/_suggest`, `/orthology/:species`, `/genes/:species`, `/silencingseqs/:species` (and the deprecated `/silencingseqs`),
   `/public/versions`, and every `GET` under `/versions` (`/versions`,
   `/versions/:name/detail`, `/versions/:name/orthologies`, `/versions/:name/assemblies`,
   `/versions/:name/assemblies/:id`). Everything else (`/uploads`, non-GET `/versions/*`,
@@ -103,7 +103,11 @@ release) — a "Database Version" in the design doc's terms. Each Version holds 
 more `AssemblyVersion` rows (MySQL, `entity.AssemblyVersion`), one per assembly: the admin
 enters `species_name` (e.g. `"Homo sapiens"`), and `species_code` is derived from it at creation
 (`SpeciesCodeFromName`: first letter of word 1 + first 3 of word 2, e.g. `"Hsap"`); neither is unique within the Version or addresses an assembly, since the API and upload metadata use the numeric `id`. `name` is a
-free-text human label (e.g. `"Human / GRCh38"`). Every Assembly Version is fully
+free-text human label (e.g. `"Human / GRCh38"`), read-only after creation: it names the
+assembly's upload folder `dir_name` (`AssemblyDirName`: runs of characters other than
+letters, digits, spaces and `._-()` become `_`, e.g. `"Human _ GRCh38"`; unique within the
+Version ignoring case, enforced at create and by a unique key), and its JBrowse2 label.
+Assemblies created before `dir_name` existed keep `v{versionID}a{id}` as their folder. Every Assembly Version is fully
 symmetric — there is no "primary"/"default" one. `upload_files` and `jobs` both keep
 their original `version_id` column (unchanged) and additionally carry a nullable
 `assembly_version_id`: populated for every per-species file type, left `NULL` only for
@@ -117,13 +121,31 @@ into indexed ES documents at upload time, so changing it would leave them under 
 assembly's optional image is stored in its own upload directory (`imagePath`, served by
 nginx under `/public/uploads/`), so the assembly/Version directory delete also removes it.
 
+A Version's `name` is validated at create (`CreateVersion` in `usecase/version`): it must
+match `versionNamePattern` (letters of any case, digits, spaces, `.`, `_`, `-`, starting with
+a letter or digit, not ending with a space, at most 64), since it is used raw as the upload
+folder (`{uploadDir}/{name}`, removed recursively on delete). And its ES index slug
+(`indexname.FromVersionName`: lowercased, runs of spaces as `_`) must differ from every
+existing version's, since versions sharing a slug share every index and alias. This slug
+check replaces a plain name-uniqueness check; it runs in the app (no DB constraint on the slug).
+
 One Version can be marked the "default" via `appsettings` (`GetDefaultVersionID`) — the
 public API and `versionresolver` fall back to it when no version name is given; this is
 unchanged by the Assembly Version model — once a Version is default, *every* one of its
 assemblies becomes servable (see JBrowse2/BLAST below). Deleting a Version must clean up
 its assembly rows, both the whole-Version and per-assembly-scoped MySQL rows, ES indices
 (`esindex.DeleteIndexesByVersion` for the whole Version; `DeleteIndexesByAssemblyVersion`
-for one assembly), and JBrowse2 data.
+for one assembly), JBrowse2 data, and BLAST databases (`blastdb.RemoveVersion` /
+`RemoveAssembly`). An assembly may be deleted from the default Version: its databases are
+being served, so `DeleteAssemblyVersion` also enqueues a `BLAST:RESTART` job (Version-scoped,
+no assembly or file), since only workers can restart the `blast` container.
+
+Status (`ComputeVersionStatus` over `StatusCountsByAssemblyVersionID` /
+`StatusCountsForSharedJobs`) counts only jobs that still describe the Version, so a failure
+can be cleared: the latest attempt per file and job type, the latest file-less job per type,
+no jobs of deleted files, the latest file of each assembly-scoped type, and only the latest
+`orthology.bundle`. Keep that rule when adding job types, or a failure nobody can clear
+keeps the status at `ERROR` for good.
 
 ### Upload → job pipeline (the core async workflow)
 
@@ -136,20 +158,30 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
    `orthology.tsv`, which is shared across the whole Version — resolves a required
    `assembly` metadata field (the target Assembly Version's numeric `id`, not its
    species code) to a concrete `AssemblyVersion` via `assemblyVersionRepo.FindByID`,
-   rejecting ids that belong to another Version. Rejects if an
-   active job of the same file type already exists for that assembly (or, for
-   `orthology.tsv`, for the whole Version) — except `jbrowse.track`, which allows
-   concurrent tracks.
+   rejecting ids that belong to another Version. Rejects with 409 while any
+   pending/running job (of any job type) works on one of that assembly's files of the
+   same file type (`HasActiveJobForFileTypeInAssemblyVersion`, joining jobs to
+   upload_files) — except `concurrentFileTypes` (`jbrowse.track`, `orthology.tsv`,
+   bundles), which may upload concurrently. Don't compare a file type to `jobs.type`:
+   `genomic.fna`'s only upload job is `GENOMIC.FNA:SETUP_JBROWSE2`.
 2. On upload completion (`PreFinishResponseCallback` / `handlePreFinish`), the file is
    signature verified (gzip, or zip for `.zip` bundles), moved from the tus staging dir into
-   `{uploadDir}/{version}/{assemblyKey}/{storedName}` (flat `{uploadDir}/{version}/{storedName}`
+   `{uploadDir}/{version}/{dirName}/{storedName}` (the assembly's `dir_name`; flat `{uploadDir}/{version}/{storedName}`
    for `orthology.tsv`), and one or more `entity.Job` rows are enqueued in MySQL
    (status `PENDING`) via `enqueueProcessJob`, each with `AssemblyVersionID` set
-   (`nil` only for `orthology.tsv`). `storedName` is the upload's `fileName` with an
-   8-character tag from its upload ID before the first dot (`uploadspec.StoredFileName`,
-   e.g. `genomic-1a2b3c4d.gff.gz`), so same-named uploads never share a path; the move
-   refuses to overwrite an existing file. Job payloads are typed structs in
-   `internal/pkg/jobpayload/*`, JSON-marshaled into `Job.Payload`.
+   (`nil` only for `orthology.tsv`). `storedName` is the upload's own `fileName`
+   (`storedPath`; files from 2026-10-24 to 2026-11-01 carry an 8-character upload-ID tag).
+   `storedNameConflict`, checked at upload creation (409 before any data is sent) and
+   again before the move, decides who may take a stored name: only a file of a
+   one-file-per-assembly type (`entity.SingleFileTypes`), over its own type's file, which
+   the move then overwrites. Any other type's file is a file of its own (two tracks both
+   named `coverage.bw.gz`), and a bundle's name is taken while its archive is stored
+   (until its job ends, done or failed). For the single-file types, `removeReplacedFiles`
+   removes the assembly's other completed files of that type from disk and soft-deletes
+   them once the new upload completes (only if it is the latest, and keeping any file a
+   `PENDING`/`RUNNING` job still reads); a replaced file at the new file's own path is
+   only soft-deleted, since that path now holds the new file. Job payloads are typed
+   structs in `internal/pkg/jobpayload/*`, JSON-marshaled into `Job.Payload`.
 3. `cmd/worker` polls MySQL for pending jobs (`ClaimNextPending`), dispatches to a
    `map[jobType]Handler` in `internal/pkg/usecase/worker/handlers/`, marks the job
    `DONE`/`FAILED`, and calls optional `OnCompleteHook`/`OnFailureHook` on the handler.
@@ -168,7 +200,7 @@ Uploads use `tus` (resumable uploads) via `usecase/upload`, mounted at `/uploads
 5. Job types are all constants in `entity/job.go` (`JobType*`), each with a
    human-readable entry in `JobDescriptions`. `:DELETE` and `:SETUP_BLAST` /
    `:SETUP_JBROWSE2` suffixes denote job variants derived from a base file type, not
-   separate upload types.
+   separate upload types. `BLAST:RESTART` belongs to no file type.
 
 `ReleaseVersion` (`usecase/version/version.go`) is the other job-enqueuing entrypoint
 (besides upload completion): once per Assembly Version under the released Version, it
@@ -193,42 +225,56 @@ version-scoped and takes no `assembly`, since orthology belongs to the whole ver
 `jbrowse.track.bundle` covers exactly one assembly, named by the tus `assembly` metadata
 and checked at upload; its tracks are stored under that assembly's folder. The upload
 enqueues a single `*.BUNDLE` job; `handlers/bundle.go` validates the whole archive and manifest before
-writing anything, then extracts into `{uploadDir}/{version}/{bundleID}/` (gzipping
-plain files, each named like a single upload but tagged with its child ID) and creates one independent child `upload_files` row + child job per file.
+writing anything, then extracts into a folder next to the archive, `{archive name}-{8 characters of the bundle ID}`
+(`bundleDirName`, e.g. `tracks-1a2b3c4d`; gzipping plain files, which keep their names) and creates one independent child `upload_files` row + child job per file.
+The archive is removed once the job ends, done (`OnComplete`) or failed (`OnFailure`). `add_jbrowse_track.sh`
+names each track's copy in the shared JBrowse2 data folder `{AssemblyID}.{trackId}.{ext}`, never by file name, since
+tracks from different bundles (or a bundle and a single upload) can have files of one name.
 Children inherit the bundle row's assembly, which is nil for orthology.
 Child IDs are derived from bundle ID + file name, so a requeued bundle job reuses
 what it already created. Per-type metadata validation and child job construction
 live in `internal/pkg/uploadspec`, shared by single uploads and bundles. The bundle
 row is kept as an audit record but excluded from version-level file queries
-(`notBundleSQL` in the uploadfile repo). To support bundles for another type, add
-an `uploadspec.Bundles` entry, its file/job type constants, and register
+(`notBundleSQL` in the uploadfile repo). Version/assembly detail still lists it, with its
+bundle job, in its own bucket (`orthologyBundle`, `files["jbrowse.track.bundle"]`), since a
+bundle that fails validation extracts nothing and its job is the only place the error
+shows. To support bundles for another type, add an `uploadspec.Bundles` entry, its
+file/job type constants, a detail bucket in `usecase/version`, and register
 `handlers.NewBundleHandler` in `cmd/worker/worker.go`.
 
 When adding a new upload-driven file type: add validation in `handlePreUploadCreate`,
 a payload struct in `jobpayload/`, a job-creation branch in `enqueueProcessJob`, a
 handler in `usecase/worker/handlers/` registered in `cmd/worker/worker.go`'s
-`jobHandlers` map, and (if deletable) an entry in `upload.deletableFileTypes`.
+`jobHandlers` map, and (if deletable) an entry in `upload.deletableFileTypes`. If an
+assembly keeps only one file of the type, add it to `entity.SingleFileTypes`, and if its
+documents share a fixed index with other files, remove a replaced file's documents in
+its handler's `OnComplete` (see Elasticsearch conventions).
 
 ### JBrowse2 and BLAST integration
 
 Workers shell out to the `jbrowse` CLI and scripts in `scripts/` (`setup_jbrowse2_fna.sh`,
-`setup_jbrowse2_gff.sh`, `add_jbrowse_track.sh`, `delete_jbrowse_version.sh`,
-`set_default_jbrowse2_view.sh`, `setup_blast.sh`, `remove_blast.sh`) to mutate the
+`setup_jbrowse2_gff.sh`, `add_jbrowse_track.sh`, `delete_jbrowse_track.sh`,
+`delete_jbrowse_version.sh`, `set_default_jbrowse2_view.sh`, `setup_blast.sh`,
+`remove_blast.sh`) to mutate the
 JBrowse2 web root (`/web`, bind-mounted from `./data/jbrowse2`) and BLAST databases
 (`/db`, via `makeblastdb`, then restarting the `blast` container over the Docker
 socket). `config.json` under the JBrowse2 web root is mutated concurrently by
 multiple workers/scripts — **all writers must flock `/web/data/.jbrowse-config.lock`**
 before touching it (a previously-fixed data-loss bug; see any script that writes
-`config.json` for the pattern).
+`config.json` for the pattern). `jbrowse remove-track` only edits `config.json`: it leaves
+the track's copied data files in the public web root and its id in the default session, so
+`delete_jbrowse_track.sh` removes both (files only if no other track uses them).
 
 JBrowse2 assembly/track creation (`*_SETUP_JBROWSE2` jobs) happens at **upload**
 completion, independent of whether/when a version is released — every Assembly Version
 that ever uploads `genomic.fna` gets its own JBrowse2 assembly (keyed by its opaque
 `AssemblyID`, not by Version or species name — those aren't guaranteed unique across
 different Versions and aren't safe as shell/jq matching keys) and `defaultSession.views`
-entry, regardless of release status. `setup_jbrowse2_gff.sh` additionally takes a
-`DISPLAY_LABEL` argument (`"{versionName} — {assembly.name}"`) purely for the
-human-facing track title, since `AssemblyID` itself isn't presentable. Nothing about a
+entry, regardless of release status. `setup_jbrowse2_fna.sh` and `setup_jbrowse2_gff.sh`
+additionally take a `DISPLAY_LABEL` argument (`"{versionName} — {assembly.name}"`, built from
+the stored names at upload) purely for what people see: the assembly's JBrowse2
+`displayName` and the annotation track title, since `AssemblyID` itself isn't presentable.
+Never use the label as the JBrowse2 `name`: scripts prefix and match data files by it. Nothing about a
 view entry reflects "this is the currently active version" by itself, and old entries
 are never removed just because a newer version is released (only explicit
 Version/Assembly-Version deletion, via `delete_jbrowse_version.sh` keyed by
@@ -258,7 +304,29 @@ UI.
   (`action.destructive_requires_name`). Always resolve wildcards with `Indices.Get`
   first, then delete by explicit resolved names — see `esindex.DeleteIndexesByVersion`
   (whole Version, all 5 types) and `esindex.DeleteIndexesByAssemblyVersion` (one assembly, the 4 assembly-scoped types only) for the reference pattern. Never call
-  `Indices.Delete` with a wildcard string directly.
+  `Indices.Delete` with a wildcard string directly. And delete only the resolved names
+  that `indexname.IsVersionIndex` / `IsAssemblyIndex` accept: version names may contain
+  `-`, so `{alias}-*` for `v1` also matches version `v1-test`'s indexes, and
+  `{alias}-v1a7-*` a version named `v1-v1a7-x`.
+- `sequence` and `synonym` use one fixed index per assembly (`version.CreatedAt`, not
+  `time.Now()`), shared by all of the assembly's files of those types, so a re-upload
+  only rewrites the documents it still has. Every document carries its upload's
+  `file_id`. Once a single-file type's job is `DONE`, its handler's `OnComplete` deletes
+  the documents of the files it replaced (`uploadfile.ListIDsReplacedBy`: same assembly
+  and type, created earlier, soft-deleted rows included): the sequence handlers
+  (`sequence_fasta.go`) those of their sequence type plus untagged legacy ones, `SynonymHandler` only for `genomic.gff`
+  (a `species.synonym` file replaces nothing). Both refresh the index first and run
+  `delete_by_query` with `conflicts=proceed`, so a document the new file just rewrote is
+  never deleted. The sequence template maps `file_id` as `keyword`; re-run `es:migrate`
+  after changing a template (existing indices keep their mapping).
+- Synonym suggestions filter by species through one combined completion context,
+  `species_type` = `"{species}|{type}"` on `synonym.suggest_species`, because ES matches a
+  suggestion having *any one* of the query's contexts (separate species and type contexts
+  would let every species through). The synonym repo writes `species_type` on every document;
+  `es:migrate` adds the field to existing synonym indexes (a completion field's contexts can't
+  change in place, so it is a second field beside `synonym.suggest`) and fills it on documents
+  missing it. The template and that put share `synonymProperties`, since ES rejects a put
+  that changes an existing field.
 
 ### Auth
 

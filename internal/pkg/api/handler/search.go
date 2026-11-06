@@ -11,8 +11,8 @@ import (
 )
 
 type searchUseCase interface {
-	Search(ctx context.Context, query, versionName string) (*ucsearch.SearchResult, error)
-	Suggest(ctx context.Context, prefix, versionName string) ([]string, error)
+	Search(ctx context.Context, query, species, versionName string) (*ucsearch.SearchResult, error)
+	Suggest(ctx context.Context, prefix, species, versionName string) ([]string, error)
 }
 
 type SearchHandler struct {
@@ -30,7 +30,7 @@ func (h *SearchHandler) Suggest(c *gin.Context) {
 		return
 	}
 
-	suggestions, err := h.uc.Suggest(c.Request.Context(), prefix, c.Query("version"))
+	suggestions, err := h.uc.Suggest(c.Request.Context(), prefix, c.Query("species"), c.Query("version"))
 	if err != nil {
 		if errors.Is(err, ucsearch.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")
@@ -56,7 +56,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
-	result, err := h.uc.Search(c.Request.Context(), query, c.Query("version"))
+	result, err := h.uc.Search(c.Request.Context(), query, c.Query("species"), c.Query("version"))
 	if err != nil {
 		if errors.Is(err, ucsearch.ErrVersionNotFound) {
 			apires.Fail(c, http.StatusNotFound, "version not found")

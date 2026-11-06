@@ -2,6 +2,7 @@ package assemblyversion
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,11 +11,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/blastdb"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	ucversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/version"
 	"github.com/rs/zerolog/log"
 )
@@ -30,7 +34,8 @@ var (
 	ErrVersionNotFound              = ucversion.ErrVersionNotFound
 	ErrAssemblyVersionNotFound      = errors.New("assembly version not found")
 	ErrAssemblyVersionHasActiveJobs = errors.New("assembly version has active jobs")
-	ErrEmptyName                    = errors.New("name must not be empty")
+	ErrNameNoFolder                 = errors.New("name must contain a character other than spaces and dots, since it names the assembly's upload folder")
+	ErrDirNameTaken                 = errors.New("another assembly in this version already has this name (or one giving the same folder name)")
 	ErrInvalidSpeciesName           = errors.New(`speciesName must be at least two words, the first starting with a letter and the second with 3 letters (e.g. "Tribolium castaneum")`)
 	ErrInvalidInfoURL               = fmt.Errorf("infoUrl must be an absolute http or https URL of at most %d characters", maxInfoURLLength)
 	ErrImageTooLarge                = fmt.Errorf("image must be at most %d MiB", MaxImageSize>>20)
@@ -97,17 +102,21 @@ type UseCase struct {
 	jobRepo             IJobRepository
 	uploadFileRepo      IUploadFileRepository
 	esRepo              IESRepository
+	appSettingsRepo     IAppSettingsRepository
 	uploadDir           string
+	blastDBPath         string
 }
 
-func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IESRepository, uploadDir string) *UseCase {
+func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, esRepo IESRepository, appSettingsRepo IAppSettingsRepository, uploadDir, blastDBPath string) *UseCase {
 	return &UseCase{
 		versionRepo:         versionRepo,
 		assemblyVersionRepo: assemblyVersionRepo,
 		jobRepo:             jobRepo,
 		uploadFileRepo:      uploadFileRepo,
 		esRepo:              esRepo,
+		appSettingsRepo:     appSettingsRepo,
 		uploadDir:           uploadDir,
+		blastDBPath:         blastDBPath,
 	}
 }
 
@@ -116,8 +125,29 @@ func New(versionRepo IVersionRepository, assemblyVersionRepo IAssemblyVersionRep
 // "primary"/"default" one (§2 of the design doc).
 // The species code is derived from speciesName (see SpeciesCodeFromName).
 // infoURL is optional; "" leaves it unset.
+// unsafeInDirName matches each run of characters an upload folder name does
+// not keep: anything but letters, digits, spaces and "._-()". That rules out
+// path separators, and characters that would need escaping in a URL.
+var unsafeInDirName = regexp.MustCompile(`[^A-Za-z0-9 ._()-]+`)
+
+// AssemblyDirName turns an assembly name into its upload folder name: each run
+// of unsafe characters becomes "_", and leading and trailing spaces and dots
+// are trimmed ("Tribolium castaneum / Tcas5.2" -> "Tribolium castaneum _
+// Tcas5.2"), so it is one folder, never "." or "..", and never hidden.
+func AssemblyDirName(name string) (string, error) {
+	dir := strings.Trim(unsafeInDirName.ReplaceAllString(name, "_"), " .")
+	if dir == "" {
+		return "", ErrNameNoFolder
+	}
+	return dir, nil
+}
+
 func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name, speciesName, infoURL string) (*entity.AssemblyVersion, error) {
 	speciesCode, err := SpeciesCodeFromName(speciesName)
+	if err != nil {
+		return nil, err
+	}
+	dirName, err := AssemblyDirName(name)
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +168,23 @@ func (uc *UseCase) CreateAssemblyVersion(ctx context.Context, versionName, name,
 		return nil, ErrVersionNotFound
 	}
 
+	// Two assemblies sharing a folder would mix their files, and deleting one
+	// would remove the other's. Compared ignoring case, as the database's
+	// unique key does, and as a case-insensitive file system would.
+	existing, err := uc.assemblyVersionRepo.ListByVersionID(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range existing {
+		if strings.EqualFold(e.DirName, dirName) {
+			return nil, ErrDirNameTaken
+		}
+	}
+
 	a := &entity.AssemblyVersion{
 		VersionID:   v.ID,
 		Name:        name,
+		DirName:     dirName,
 		SpeciesName: strings.TrimSpace(speciesName),
 		SpeciesCode: speciesCode,
 		InfoURL:     info,
@@ -224,18 +268,15 @@ func (uc *UseCase) findAssemblyVersion(ctx context.Context, versionName string, 
 // AssemblyVersionUpdate holds the fields PATCH may change; a nil field is left
 // as is. The species fields are not here: the code is copied into every
 // indexed document at upload time, so changing it (or the name it is derived
-// from) would leave those documents under the old one.
+// from) would leave those documents under the old one. Nor is the name: it
+// names the assembly's upload folder and its JBrowse2 label.
 type AssemblyVersionUpdate struct {
-	Name *string
 	// InfoURL set to "" clears the link.
 	InfoURL *string
 }
 
 // UpdateAssemblyVersion applies a partial update to one assembly.
 func (uc *UseCase) UpdateAssemblyVersion(ctx context.Context, versionName string, assemblyVersionID uint64, upd AssemblyVersionUpdate) (*entity.AssemblyVersion, error) {
-	if upd.Name != nil && strings.TrimSpace(*upd.Name) == "" {
-		return nil, ErrEmptyName
-	}
 	if upd.InfoURL != nil && *upd.InfoURL != "" {
 		if err := validateInfoURL(*upd.InfoURL); err != nil {
 			return nil, err
@@ -247,9 +288,6 @@ func (uc *UseCase) UpdateAssemblyVersion(ctx context.Context, versionName string
 		return nil, err
 	}
 
-	if upd.Name != nil {
-		asm.Name = *upd.Name
-	}
 	if upd.InfoURL != nil {
 		asm.InfoURL = upd.InfoURL
 		if *upd.InfoURL == "" {
@@ -290,7 +328,7 @@ func (uc *UseCase) SetAssemblyVersionImage(ctx context.Context, versionName stri
 		return nil, err
 	}
 
-	dir := filepath.Join(uc.uploadDir, v.Name, asm.AssemblyID())
+	dir := filepath.Join(uc.uploadDir, v.Name, asm.DirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
@@ -404,10 +442,56 @@ func (uc *UseCase) DeleteAssemblyVersion(ctx context.Context, versionName string
 		}
 	}
 
-	assemblyDir := filepath.Join(uc.uploadDir, v.Name, asm.AssemblyID())
+	assemblyDir := filepath.Join(uc.uploadDir, v.Name, asm.DirName)
 	if err := os.RemoveAll(assemblyDir); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("path", assemblyDir).Msg("failed to remove assembly version directory during delete")
 	}
 
+	uc.removeBlastDatabases(ctx, v, asm)
 	return nil
+}
+
+// removeBlastDatabases removes a deleted assembly's BLAST databases. Those of
+// the default version are being served, and the BLAST server keeps serving
+// them until it restarts, which only a worker can do (the API has no Docker
+// socket), so it enqueues a BLAST:RESTART job for the version. Failures are
+// logged: the assembly is already deleted.
+func (uc *UseCase) removeBlastDatabases(ctx context.Context, v *entity.Version, asm *entity.AssemblyVersion) {
+	logger := log.Ctx(ctx).With().Str("assemblyID", asm.AssemblyID()).Logger()
+	removed, err := blastdb.RemoveAssembly(uc.blastDBPath, asm.AssemblyID())
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to remove BLAST databases during assembly version delete")
+	}
+	if removed == 0 {
+		return
+	}
+
+	defaultID, err := uc.appSettingsRepo.GetDefaultVersionID(ctx)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to read default version; BLAST not restarted after removing databases")
+		return
+	}
+	if defaultID == nil || *defaultID != v.ID {
+		return
+	}
+
+	raw, err := json.Marshal(jobpayload.RestartBlastPayload{RemovedAssemblyID: asm.AssemblyID()})
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to marshal BLAST restart payload")
+		return
+	}
+	payload := json.RawMessage(raw)
+	now := time.Now().UTC()
+	job := &entity.Job{
+		VersionID:   v.ID,
+		Type:        entity.JobTypeBlastRestart,
+		Description: entity.JobDescriptions[entity.JobTypeBlastRestart],
+		Payload:     &payload,
+		Status:      entity.JobStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := uc.jobRepo.Create(ctx, job); err != nil {
+		logger.Warn().Err(err).Msg("failed to enqueue BLAST restart; it keeps serving the deleted assembly until its next restart")
+	}
 }

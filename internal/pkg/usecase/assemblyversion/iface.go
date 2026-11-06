@@ -36,6 +36,10 @@ type IUploadFileRepository interface {
 	HardDeleteByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) error
 }
 
+type IAppSettingsRepository interface {
+	GetDefaultVersionID(ctx context.Context) (*uint64, error)
+}
+
 // IESRepository cleans up one assembly's ES indexes on delete, across the 4
 // assembly-scoped types (orthology is shared and never touched by this).
 type IESRepository interface {

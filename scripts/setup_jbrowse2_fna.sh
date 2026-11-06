@@ -3,9 +3,13 @@ set -e
 
 GENOMIC_FNA_GZ="$1"
 ASSEMBLY_ID="$2"
+# Optional: the assembly's name in the JBrowse2 UI ("{version} — {assembly}").
+# ASSEMBLY_ID stays its identifier: tracks, sessions and the data file names
+# below refer to it, so it must stay shell- and filename-safe.
+DISPLAY_LABEL="${3:-}"
 
 if [ -z "$GENOMIC_FNA_GZ" ] || [ -z "$ASSEMBLY_ID" ]; then
-  echo "Usage: $0 <genomic_fna.gz> <assembly_id>" >&2
+  echo "Usage: $0 <genomic_fna.gz> <assembly_id> [display_label]" >&2
   exit 1
 fi
 
@@ -30,6 +34,10 @@ mkdir -p /web/data
 # and each does a non-atomic read-modify-write of that file.
 exec 200>/web/data/.jbrowse-config.lock
 flock -x 200
-jbrowse add-assembly "$TMPDIR/${ASSEMBLY_ID}.genomic.fna" --name "$ASSEMBLY_ID" --load copy --out /web/data --force
+DISPLAY_ARG=()
+if [ -n "$DISPLAY_LABEL" ]; then
+  DISPLAY_ARG=(--displayName "$DISPLAY_LABEL")
+fi
+jbrowse add-assembly "$TMPDIR/${ASSEMBLY_ID}.genomic.fna" --name "$ASSEMBLY_ID" "${DISPLAY_ARG[@]}" --load copy --out /web/data --force
 
 echo "JBrowse2 FNA setup complete."

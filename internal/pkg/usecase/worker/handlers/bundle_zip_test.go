@@ -32,7 +32,7 @@ func TestBundleHandler_ZipTrackBundleExtractsLikeTar(t *testing.T) {
 	if len(files.created) != 2 || len(jobs.created) != 2 {
 		t.Fatalf("created %d files and %d jobs, want 2 each", len(files.created), len(jobs.created))
 	}
-	wantDir := filepath.Join(root, "v1", "Tcas", testBundleID)
+	wantDir := filepath.Join(root, "v1", "Tcas", bundleDirName(testBundleID+".zip", testBundleID))
 	for _, f := range files.created {
 		if f.AssemblyVersionID == nil || *f.AssemblyVersionID != 7 {
 			t.Errorf("child %s assembly %v, want 7", f.ID, f.AssemblyVersionID)
@@ -93,7 +93,7 @@ func TestBundleHandler_ZipFolderEntryFailsWholeBundle(t *testing.T) {
 	if len(files.created) != 0 || len(jobs.created) != 0 {
 		t.Errorf("created %d files and %d jobs, want none", len(files.created), len(jobs.created))
 	}
-	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", testBundleID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", bundleDirName(testBundleID+".zip", testBundleID))); !os.IsNotExist(err) {
 		t.Error("no bundle folder may be left behind when validation fails")
 	}
 }
@@ -128,7 +128,7 @@ func TestBundleHandler_TruncatedZipFailsBeforeWriting(t *testing.T) {
 	if len(files.created) != 0 || len(jobs.created) != 0 {
 		t.Errorf("created %d files and %d jobs, want none", len(files.created), len(jobs.created))
 	}
-	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", testBundleID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", bundleDirName(testBundleID+".zip", testBundleID))); !os.IsNotExist(err) {
 		t.Error("no bundle folder may be left behind when validation fails")
 	}
 }

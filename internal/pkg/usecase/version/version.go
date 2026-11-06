@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"time"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/auth"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/blastdb"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
+	"github.com/EMOBase/emobase-genomics/internal/pkg/indexname"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 	"github.com/rs/zerolog/log"
 )
@@ -24,6 +28,7 @@ const deleteJBrowseVersionScript = "/app/scripts/delete_jbrowse_version.sh"
 
 var (
 	ErrVersionAlreadyExists       = errors.New("version already exists")
+	ErrInvalidVersionName         = errors.New(`version name must be 1-64 characters of letters, digits, spaces, ".", "_" or "-", starting with a letter or digit and not ending with a space`)
 	ErrVersionNotFound            = errors.New("version not found")
 	ErrRequiredFileNotUploaded    = errors.New("required file not uploaded")
 	ErrFileJobsNotComplete        = errors.New("file jobs not complete")
@@ -136,10 +141,11 @@ type FileDetail struct {
 }
 
 // VersionDetailFiles holds the latest uploaded file for each single-file type
-// and all uploaded files for jbrowse.track / species.synonym, scoped to a
-// single Assembly Version. orthology.tsv is shared across every species in a
-// Database Version rather than owned by one assembly, so it is not part of
-// this type — it surfaces at the top level of VersionDetail instead.
+// and all uploaded files for jbrowse.track / jbrowse.track.bundle /
+// species.synonym, scoped to a single Assembly Version. orthology.tsv is
+// shared across every species in a Database Version rather than owned by one
+// assembly, so it is not part of this type — it surfaces at the top level of
+// VersionDetail instead.
 type VersionDetailFiles struct {
 	GenomicFNA     *FileDetail  `json:"genomic.fna"`
 	GenomicGFF     *FileDetail  `json:"genomic.gff"`
@@ -149,6 +155,10 @@ type VersionDetailFiles struct {
 	DsRNACSV       *FileDetail  `json:"dsrna.csv"`
 	JBrowseTrack   []FileDetail `json:"jbrowse.track"`
 	SpeciesSynonym []FileDetail `json:"species.synonym"`
+	// JBrowseTrackBundle lists the bundle archives, apart from the tracks
+	// extracted from them (which are in JBrowseTrack). A bundle that fails
+	// validation extracts nothing, so its job is the only place its error shows.
+	JBrowseTrackBundle []FileDetail `json:"jbrowse.track.bundle"`
 }
 
 // AssemblyVersionDetail is the per-assembly (per-species) representation
@@ -168,6 +178,10 @@ type VersionDetail struct {
 	TotalFileSize int64                   `json:"totalFileSize"`
 	OrthologyTSV  []FileDetail            `json:"orthologyTSV"`
 	Assemblies    []AssemblyVersionDetail `json:"assemblies"`
+	// OrthologyBundle lists the orthology bundle archives, apart from the files
+	// extracted from them (which are in OrthologyTSV), for the same reason as
+	// VersionDetailFiles.JBrowseTrackBundle.
+	OrthologyBundle []FileDetail `json:"orthologyBundle"`
 }
 
 type UseCase struct {
@@ -178,9 +192,10 @@ type UseCase struct {
 	assemblyVersionRepo IAssemblyVersionRepository
 	esRepo              IVersionESRepository
 	uploadDir           string
+	blastDBPath         string
 }
 
-func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, assemblyVersionRepo IAssemblyVersionRepository, esRepo IVersionESRepository, uploadDir string) *UseCase {
+func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository, jobRepo IJobRepository, uploadFileRepo IUploadFileRepository, assemblyVersionRepo IAssemblyVersionRepository, esRepo IVersionESRepository, uploadDir, blastDBPath string) *UseCase {
 	return &UseCase{
 		versionRepo:         versionRepo,
 		appSettingsRepo:     appSettingsRepo,
@@ -189,6 +204,7 @@ func New(versionRepo IVersionRepository, appSettingsRepo IAppSettingsRepository,
 		assemblyVersionRepo: assemblyVersionRepo,
 		esRepo:              esRepo,
 		uploadDir:           uploadDir,
+		blastDBPath:         blastDBPath,
 	}
 }
 
@@ -263,7 +279,7 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 		return nil, err
 	}
 
-	orthologyTSV, err := uc.listOrthologyFileDetails(ctx, v.ID)
+	orthologyTSV, orthologyBundle, err := uc.listOrthologyFileDetails(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -301,28 +317,36 @@ func (uc *UseCase) GetVersionDetail(ctx context.Context, name string) (*VersionD
 	}
 
 	return &VersionDetail{
-		Version:       *v,
-		IsDefault:     defaultVersionID != nil && *defaultVersionID == v.ID,
-		Status:        status,
-		TotalFileSize: fileSizes[v.ID],
-		OrthologyTSV:  orthologyTSV,
-		Assemblies:    assemblies,
+		Version:         *v,
+		IsDefault:       defaultVersionID != nil && *defaultVersionID == v.ID,
+		Status:          status,
+		TotalFileSize:   fileSizes[v.ID],
+		OrthologyTSV:    orthologyTSV,
+		OrthologyBundle: orthologyBundle,
+		Assemblies:      assemblies,
 	}, nil
 }
 
 // listOrthologyFileDetails returns FileDetail entries for every orthology.tsv
-// upload in a Database Version — shared across every species rather than
-// owned by one assembly (§2 of the design doc), so this reads all files for
-// the whole version (unchanged, existing method) and keeps only orthology.tsv.
-func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint64) ([]FileDetail, error) {
+// and orthology.bundle upload in a Database Version — shared across every
+// species rather than owned by one assembly (§2 of the design doc), so this
+// reads all files for the whole version and keeps only those two types.
+func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint64) (tsv, bundles []FileDetail, err error) {
 	files, err := uc.uploadFileRepo.ListByVersionID(ctx, versionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	// ListByVersionID leaves out bundle rows, so read them on their own.
+	// math.MaxInt64 is MySQL's "no limit" for LIMIT.
+	bundleFiles, err := uc.uploadFileRepo.ListByVersionIDAndType(ctx, versionID, entity.FileTypeOrthologyBundle, 0, math.MaxInt64)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, bundleFiles...)
 
 	jobs, err := uc.jobRepo.FindByVersionID(ctx, versionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	jobsByFileID := make(map[string][]JobSummary)
 	for _, j := range jobs {
@@ -332,9 +356,9 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 		jobsByFileID[*j.FileID] = append(jobsByFileID[*j.FileID], toJobSummary(j))
 	}
 
-	orthologyTSV := []FileDetail{}
+	tsv, bundles = []FileDetail{}, []FileDetail{}
 	for _, f := range files {
-		if f.FileType != entity.FileTypeOrthologyTSV {
+		if f.FileType != entity.FileTypeOrthologyTSV && f.FileType != entity.FileTypeOrthologyBundle {
 			continue
 		}
 		fd := FileDetail{
@@ -350,9 +374,13 @@ func (uc *UseCase) listOrthologyFileDetails(ctx context.Context, versionID uint6
 		if fd.Jobs == nil {
 			fd.Jobs = []JobSummary{}
 		}
-		orthologyTSV = append(orthologyTSV, fd)
+		if f.FileType == entity.FileTypeOrthologyBundle {
+			bundles = append(bundles, fd)
+		} else {
+			tsv = append(tsv, fd)
+		}
 	}
-	return orthologyTSV, nil
+	return tsv, bundles, nil
 }
 
 // OrthologyFileList is the response for GET /versions/{name}/orthologies.
@@ -447,7 +475,7 @@ func BuildAssemblyVersionDetail(ctx context.Context, jobRepo IJobRepository, upl
 
 	// files is ordered by created_at DESC, so the first file of each type is the latest.
 	seen := make(map[string]bool)
-	detailFiles := VersionDetailFiles{JBrowseTrack: []FileDetail{}, SpeciesSynonym: []FileDetail{}}
+	detailFiles := VersionDetailFiles{JBrowseTrack: []FileDetail{}, JBrowseTrackBundle: []FileDetail{}, SpeciesSynonym: []FileDetail{}}
 
 	for _, f := range files {
 		fd := FileDetail{
@@ -467,6 +495,8 @@ func BuildAssemblyVersionDetail(ctx context.Context, jobRepo IJobRepository, upl
 		switch f.FileType {
 		case entity.FileTypeJBrowseTrack:
 			detailFiles.JBrowseTrack = append(detailFiles.JBrowseTrack, fd)
+		case entity.FileTypeJBrowseTrackBundle:
+			detailFiles.JBrowseTrackBundle = append(detailFiles.JBrowseTrackBundle, fd)
 		case entity.FileTypeSpeciesSynonym:
 			detailFiles.SpeciesSynonym = append(detailFiles.SpeciesSynonym, fd)
 		default:
@@ -811,13 +841,35 @@ func (uc *UseCase) enqueueRemoveBlastJob(ctx context.Context, versionID, assembl
 	return j, nil
 }
 
+// versionNamePattern keeps a version name one path segment, never "." or
+// "..", so the version's upload folder (removed recursively on delete) stays
+// inside the upload directory. For such a name, indexname.FromVersionName
+// only lowercases it and turns each run of spaces into "_".
+var versionNamePattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,62}[A-Za-z0-9._-])?$`)
+
 func (uc *UseCase) CreateVersion(ctx context.Context, name string) (*entity.Version, error) {
-	existing, err := uc.versionRepo.FindByName(ctx, name)
+	if !versionNamePattern.MatchString(name) {
+		return nil, ErrInvalidVersionName
+	}
+
+	// Two versions with the same index slug would share every Elasticsearch
+	// index and alias, and deleting one would delete both versions' indexes.
+	// So compare slugs, not names: that ignores letter case and counts a run of
+	// spaces as "_", exactly as the index names do.
+	names, err := uc.versionRepo.ListNames(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil {
-		return nil, ErrVersionAlreadyExists
+	slug := indexname.FromVersionName(name)
+	for _, n := range names {
+		if indexname.FromVersionName(n) != slug {
+			continue
+		}
+		if n == name {
+			return nil, ErrVersionAlreadyExists
+		}
+		return nil, fmt.Errorf(`%w: %q is the same as version %q when letter case is ignored and spaces count as "_"`,
+			ErrVersionAlreadyExists, name, n)
 	}
 
 	v := &entity.Version{
@@ -895,7 +947,13 @@ func (uc *UseCase) DeleteVersion(ctx context.Context, name string) error {
 		log.Ctx(ctx).Warn().Err(err).Str("path", versionDir).Msg("failed to remove version directory during version delete")
 	}
 
-	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name); err != nil {
+	// Not the default version (checked above), so its BLAST databases are not
+	// served; a release that failed part-way can still have left some.
+	if _, err := blastdb.RemoveVersion(uc.blastDBPath, v.ID); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to remove BLAST databases during version delete")
+	}
+
+	if err := uc.esRepo.DeleteIndexesByVersion(ctx, v.Name, v.ID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Str("version", v.Name).Msg("failed to delete ES indexes during version delete")
 	}
 

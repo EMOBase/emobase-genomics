@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -88,5 +90,74 @@ func TestJobHandlerGet_BadOrUnknownID(t *testing.T) {
 	}
 	if code, body := getJob(t, repo, "/jobs/abc"); code != http.StatusBadRequest || body["error"] != "job id must be an integer" {
 		t.Errorf("non-integer id: got %d %v, want 400", code, body)
+	}
+}
+
+func (r fakeJobRepo) FindByVersionID(_ context.Context, versionID uint64) ([]entity.Job, error) {
+	var out []entity.Job
+	for _, j := range r.jobs {
+		if j.VersionID == versionID {
+			out = append(out, j)
+		}
+	}
+	slices.SortFunc(out, func(a, b entity.Job) int { return cmp.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+type fakeJobVersionRepo struct{}
+
+func (fakeJobVersionRepo) FindByName(_ context.Context, name string) (*entity.Version, error) {
+	return &entity.Version{ID: 1, Name: name}, nil
+}
+
+func listJobIDs(t *testing.T, repo fakeJobRepo, path string) (int, []float64, map[string]any) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/jobs", NewJobHandler(ucjob.New(repo, fakeJobVersionRepo{})).ListByVersion)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not JSON: %s", w.Body.String())
+	}
+	var ids []float64
+	if data, ok := body["data"].([]any); ok {
+		ids = []float64{}
+		for _, item := range data {
+			ids = append(ids, item.(map[string]any)["id"].(float64))
+		}
+	}
+	return w.Code, ids, body
+}
+
+// A client lists one kind of a version's jobs (e.g. its BLAST setups after a
+// release) by type: only jobs of that type may come back, and leaving the
+// filter out must still list every job. A misspelled type must be a 400, not
+// an empty list that reads as "no such jobs"; a real type with no jobs is [].
+func TestJobHandlerListByVersion_FiltersByType(t *testing.T) {
+	repo := fakeJobRepo{jobs: map[uint64]entity.Job{
+		1: {ID: 1, VersionID: 1, Type: entity.JobTypeGenomicFNASetupBlast},
+		2: {ID: 2, VersionID: 1, Type: entity.JobTypeGenomicGFF},
+		3: {ID: 3, VersionID: 1, Type: entity.JobTypeGenomicFNASetupBlast},
+	}}
+
+	for _, tc := range []struct {
+		name, path string
+		wantIDs    []float64
+	}{
+		{"one type", "/jobs?version=v1&type=GENOMIC.FNA:SETUP_BLAST", []float64{1, 3}},
+		{"no filter", "/jobs?version=v1", []float64{1, 2, 3}},
+		{"type with no jobs", "/jobs?version=v1&type=DSRNA.CSV", []float64{}},
+	} {
+		code, ids, body := listJobIDs(t, repo, tc.path)
+		if code != http.StatusOK || !slices.Equal(ids, tc.wantIDs) {
+			t.Errorf("%s: got %d ids %v (body %v), want 200 ids %v", tc.name, code, ids, body, tc.wantIDs)
+		}
+	}
+
+	if code, _, body := listJobIDs(t, repo, "/jobs?version=v1&type=genomic.fna:setup_blast"); code != http.StatusBadRequest || body["error"] != "invalid type filter" {
+		t.Errorf("unknown type: got %d %v, want 400 invalid type filter", code, body)
 	}
 }

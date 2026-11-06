@@ -3,55 +3,35 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
-	"github.com/EMOBase/emobase-genomics/internal/pkg/uploadspec"
-	synonymparser "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/synonym/parser"
 )
 
-// The synonym parser is picked from the stored file name, which now carries an
-// upload ID tag. Every supported kind of file must still be recognized.
-func TestSynonymParserForFile_RecognizesTaggedNames(t *testing.T) {
-	const id = "1a2b3c4d5e6f708192a3b4c5d6e7f809"
-	h := &SynonymHandler{}
-	for name, want := range map[string]any{
-		"genomic.gff.gz":                   &synonymparser.GFF3SynonymParser{},
-		"annotation.v2.gff3.gz":            &synonymparser.GFF3SynonymParser{},
-		"fb_synonym_fb_2024_01.tsv.gz":     &synonymparser.FlyBaseSynonymParser{},
-		"fbgn_fbtr_fbpp_fb_2024_01.tsv.gz": &synonymparser.FlyBaseGeneRNAProteinMapParser{},
-		"IB_TC_mapping.tsv.gz":             &synonymparser.IBTCParser{},
+// A bundle is extracted into a folder named after its archive, so people can
+// find it, plus a tag from the bundle's ID: a later bundle of the same name
+// gets its own folder instead of writing over the earlier bundle's files, and a
+// rerun of the job finds the folder it already wrote.
+func TestBundleDirName(t *testing.T) {
+	const id = "1a2b3c4d5e6f708192a3b4c5d6e7f809" // tusd ID: 32 hex characters
+	for archive, want := range map[string]string{
+		"tracks.tar.gz":      "tracks-1a2b3c4d",
+		"Tracks.TAR.GZ":      "Tracks-1a2b3c4d",
+		"orthology.v2.zip":   "orthology.v2-1a2b3c4d",
+		"RNA-seq tracks.zip": "RNA-seq tracks-1a2b3c4d",
 	} {
-		path := filepath.Join("public/uploads/v1/v1a7", uploadspec.StoredFileName(name, id))
-		got := h.parserForFile(jobpayload.SpeciesSynonymPayload{FilePath: path})
-		if got == nil {
-			t.Errorf("%s (stored as %s): not recognized", name, filepath.Base(path))
-		} else if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", want) {
-			t.Errorf("%s: parser %T, want %T", name, got, want)
+		if got := bundleDirName(archive, id); got != want {
+			t.Errorf("bundleDirName(%q) = %q, want %q", archive, got, want)
 		}
 	}
-}
-
-// Tracks are copied into the JBrowse2 data folder under their stored name, so
-// files of one name from two bundles must get different names there, and keep
-// the .gz ending add_jbrowse_track.sh strips to find the track format.
-func TestChildFileName_DistinctAcrossBundles(t *testing.T) {
-	a, b := childFileName("bundle-a", "IT23_Ga8.bw"), childFileName("bundle-b", "IT23_Ga8.bw")
-	if a == b {
-		t.Fatalf("both bundles store %q", a)
+	if bundleDirName("tracks.tar.gz", "aaaaaaaa11111111") == bundleDirName("tracks.tar.gz", "bbbbbbbb22222222") {
+		t.Error("two bundles of one name must get different folders")
 	}
-	for _, n := range []string{a, b} {
-		if !strings.HasPrefix(n, "IT23_Ga8-") || !strings.HasSuffix(n, ".bw.gz") {
-			t.Errorf("stored name %q must keep the original stem and end in .bw.gz", n)
-		}
-	}
-	if childFileName("bundle-a", "IT23_Ga8.bw") != a {
-		t.Error("a rerun of the bundle job must reproduce the same name")
+	if bundleDirName("tracks.tar.gz", id) != bundleDirName("tracks.tar.gz", id) {
+		t.Error("a rerun of the bundle job must find the same folder")
 	}
 }
 

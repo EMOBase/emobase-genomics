@@ -60,8 +60,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 	uploadFileRepo := repouploadfile.New(db)
 	assemblyVersionRepo := repoassemblyversion.New(db)
 	esIndexRepo := esindex.New(esClient, config.Elasticsearch.IndexPrefix)
-	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, assemblyVersionRepo, esIndexRepo, config.Uploads.Dir)
-	assemblyVersionUC := ucassemblyversion.New(versionRepo, assemblyVersionRepo, jobRepo, uploadFileRepo, esIndexRepo, config.Uploads.Dir)
+	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, assemblyVersionRepo, esIndexRepo, config.Uploads.Dir, config.Blast.DBPath)
+	assemblyVersionUC := ucassemblyversion.New(versionRepo, assemblyVersionRepo, jobRepo, uploadFileRepo, esIndexRepo, appSettingsRepo, config.Uploads.Dir, config.Blast.DBPath)
 
 	jobUC := ucjob.New(jobRepo, versionRepo)
 
@@ -74,7 +74,6 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		repodsrna.New(esClient, batchSize),
 		versionresolver.New(versionRepo, appSettingsRepo),
 		config.Elasticsearch.IndexPrefix,
-		config.MainSpecies,
 	)
 
 	uploadUC, err := upload.New(

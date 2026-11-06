@@ -37,7 +37,7 @@ func (h *SetupFNAJBrowse2Handler) Handle(ctx context.Context, job entity.Job) (j
 
 	assemblyID := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
 
-	cmd := exec.CommandContext(ctx, setupJBrowse2FNAScript, payload.GenomicFNAPath, assemblyID)
+	cmd := exec.CommandContext(ctx, setupJBrowse2FNAScript, payload.GenomicFNAPath, assemblyID, payload.DisplayLabel)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s script failed: %w\noutput: %s", entity.JobTypeGenomicFNASetupJBrowse2, err, out)

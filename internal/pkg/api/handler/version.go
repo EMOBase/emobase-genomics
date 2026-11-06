@@ -162,7 +162,11 @@ func (h *VersionHandler) Create(c *gin.Context) {
 	v, err := h.uc.CreateVersion(c.Request.Context(), body.Name)
 	if err != nil {
 		if errors.Is(err, ucversion.ErrVersionAlreadyExists) {
-			apires.Fail(c, http.StatusBadRequest, "version already exists")
+			apires.Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, ucversion.ErrInvalidVersionName) {
+			apires.Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
 		panic(err)

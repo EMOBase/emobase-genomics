@@ -326,6 +326,32 @@ func (r *MySQLRepository) FindLatestCompletedByAssemblyVersionAndType(ctx contex
 	return f, nil
 }
 
+// ListIDsReplacedBy returns the IDs of the files that fileID replaces: its
+// Assembly Version's files of the same type created before it, soft-deleted
+// ones included, since their indexed documents may still be there.
+func (r *MySQLRepository) ListIDsReplacedBy(ctx context.Context, fileID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT o.id FROM upload_files o JOIN upload_files f ON f.id = ?
+		 WHERE o.assembly_version_id = f.assembly_version_id AND o.file_type = f.file_type
+		   AND o.created_at < f.created_at`,
+		fileID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *MySQLRepository) SoftDelete(ctx context.Context, id string, deletedBy string) error {
 	now := time.Now().UTC()
 	_, err := r.db.ExecContext(ctx,

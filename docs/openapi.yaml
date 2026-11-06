@@ -94,7 +94,13 @@ components:
               type: string
               enum: [DRAFT, PROCESSING, MISSING_REQUIRED_FILE, ERROR, READY]
               description: |
-                Derived from the state of jobs associated with this version.
+                Derived from the state of the jobs that still describe this version, so a
+                failure can be cleared: per assembly, the jobs of its latest file of each type;
+                for the shared orthology files, the jobs of every file not deleted, but of only
+                the latest `orthology.bundle`. Of those, only the latest attempt of each job
+                type on a file counts, and of a job with no file (e.g. `REMOVE_BLAST`) only the
+                latest of its type. So re-running a job, deleting a failed `orthology.tsv`, or
+                uploading a corrected bundle clears an earlier failure.
                 - `DRAFT` — no jobs exist.
                 - `PROCESSING` — at least one job is PENDING or RUNNING.
                 - `ERROR` — at least one job is FAILED.
@@ -180,6 +186,7 @@ components:
         - JBROWSE.TRACK:DELETE
         - ORTHOLOGY.BUNDLE
         - JBROWSE.TRACK.BUNDLE
+        - BLAST:RESTART
       description: |
         Identifies which file type and pipeline the job processes.
         - `GENOMIC.GFF` — parse genomic feature annotations (GFF3).
@@ -197,10 +204,11 @@ components:
         - `RNA.FNA:REMOVE_BLAST` — remove a stale RNA BLAST database left by a previous version that released without a `rna.fna` file.
         - `GENOMIC.FNA:SETUP_JBROWSE2` — register the genome assembly in JBrowse2.
         - `GENOMIC.GFF:SETUP_JBROWSE2` — add the annotation track, rebuild the JBrowse2 text index, and select the annotation track in the assembly default session.
-        - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences (tcas only).
+        - `DSRNA.CSV` — parse dsRNA CSV and index silencing sequences.
         - `JBROWSE.TRACK` — register an uploaded track file in JBrowse2 (`jbrowse add-track`).
-        - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track and soft-delete the upload record (`jbrowse remove-track`).
+        - `JBROWSE.TRACK:DELETE` — remove a JBrowse2 track (its config entry, its default-session entry and the data files copied into JBrowse2) and soft-delete the upload record.
         - `ORTHOLOGY.BUNDLE` — validate and extract an `orthology.bundle` archive into independent `orthology.tsv` upload files, enqueueing one `ORTHOLOGY.TSV` job per file. Fails without creating anything if the archive or manifest is invalid, listing every problem. On success, `resultMetadata` is `{"fileIds": [...], "jobIds": [...]}`.
+        - `BLAST:RESTART` — restart the BLAST server, so it stops serving the databases of an assembly deleted from the default version. Version-scoped, with no assembly or file.
         - `JBROWSE.TRACK.BUNDLE` — validate and extract a `jbrowse.track.bundle` archive into independent `jbrowse.track` upload files of one assembly, enqueueing one `JBROWSE.TRACK` job per file. Same all-or-nothing rules as `ORTHOLOGY.BUNDLE`.
 
     JobSummary:
@@ -278,10 +286,12 @@ components:
         filePath:
           type: string
           description: |
-            Where the file is stored. The file name is the uploaded name with an 8-character
-            tag from the upload ID inserted before its first dot, so two uploads of the same
-            name never share a file; removing `-` plus the tag gives the original name.
-          example: public/uploads/dmel_r6.59/v1a7/genomic-3fa85f64.gff.gz
+            Where the file is stored, under the name it was uploaded with (see "File names"
+            under `POST /uploads`). Files uploaded before 2026-11-01 carry an 8-character tag
+            from the upload ID before the first dot (`genomic-1a2b3c4d.gff.gz`).
+            For a type that keeps one file per assembly, a newer upload removes this file
+            (see `POST /uploads`).
+          example: public/uploads/dmel_r6.59/Drosophila melanogaster _ R6.59/genomic-3fa85f64.gff.gz
         fileSize:
           type: integer
           format: int64
@@ -334,10 +344,10 @@ components:
         Uploaded files grouped by type, scoped to a single Assembly Version (species).
         `orthology.tsv` is shared across every species in a Database Version rather than
         owned by one assembly, so it is not part of this type — see
-        `VersionDetail.orthologyTSV` instead. For all types except `jbrowse.track` and
-        `species.synonym`, only the latest non-deleted file is returned (or `null` if
-        none exists). For `jbrowse.track` and `species.synonym`, all non-deleted files
-        for this assembly are returned.
+        `VersionDetail.orthologyTSV` instead. For all types except `jbrowse.track`,
+        `jbrowse.track.bundle` and `species.synonym`, only the latest non-deleted file is
+        returned (or `null` if none exists). For those three, all non-deleted files for
+        this assembly are returned.
       properties:
         genomic.fna:
           $ref: '#/components/schemas/FileDetail'
@@ -357,10 +367,19 @@ components:
         dsrna.csv:
           $ref: '#/components/schemas/FileDetail'
           nullable: true
-          description: Latest non-deleted dsRNA CSV file, or `null`. Only available when this assembly's `speciesCode` is `Tcas`.
+          description: Latest non-deleted dsRNA CSV file, or `null`.
         jbrowse.track:
           type: array
-          description: All non-deleted JBrowse2 track files for this assembly.
+          description: All non-deleted JBrowse2 track files for this assembly, including the tracks extracted from bundles.
+          items:
+            $ref: '#/components/schemas/FileDetail'
+        jbrowse.track.bundle:
+          type: array
+          description: |
+            All non-deleted `jbrowse.track.bundle` archives for this assembly, each with its
+            `JBROWSE.TRACK.BUNDLE` job. The tracks extracted from them are in `jbrowse.track`.
+            A bundle that fails validation extracts nothing, so its job's `error` is the only
+            place the failure shows.
           items:
             $ref: '#/components/schemas/FileDetail'
         species.synonym:
@@ -383,7 +402,10 @@ components:
           example: 1
         name:
           type: string
-          description: Free-text, human-readable label for this assembly.
+          description: |
+            Free-text, human-readable label for this assembly. Read-only after creation: it
+            names the assembly's upload folder and its JBrowse2 label
+            (`{versionName} — {name}`).
           example: Human / GRCh38
         speciesName:
           type: string
@@ -522,7 +544,7 @@ components:
           example: OrthoMCL
         orthologs:
           type: array
-          description: Gene groups per species — main species first, then alphabetical.
+          description: Gene groups per species, ordered alphabetically by species.
           items:
             $ref: '#/components/schemas/GeneGroup'
 
@@ -545,9 +567,9 @@ components:
         At most one of `genes`, `orthologies`, or `otherGenes` is populated.
         All three are absent when no match is found.
 
-        - `genes` — query matched a **main-species** gene; contains the matching gene IDs (species prefix stripped).
-        - `orthologies` — query matched a gene from **another species** and orthology groups were found; each group is enriched with synonyms from the query.
-        - `otherGenes` — query matched a gene from **another species** but no orthology groups were found.
+        - `genes` — query matched a gene of the requested `species`; contains the matching gene IDs (species prefix stripped). Never set without `species`.
+        - `orthologies` — query matched genes of other species (every species, without `species`) and orthology groups were found; each group is enriched with synonyms from the query.
+        - `otherGenes` — query matched genes of other species but no orthology groups were found.
       properties:
         genes:
           type: array
@@ -651,12 +673,25 @@ components:
 
     GeneDetail:
       type: object
-      required: [id]
+      required: [id, assemblyVersionId, assemblyKey]
       properties:
         id:
           type: string
           description: Gene identifier with the species prefix stripped.
           example: TC016177
+        assemblyVersionId:
+          type: integer
+          format: int64
+          description: |
+            `id` of the Assembly Version this entry's data comes from, as used in
+            `/versions/{name}/assemblies/{id}` and upload metadata.
+          example: 6
+        assemblyKey:
+          type: string
+          description: |
+            Opaque key of the same Assembly Version, `v{versionId}a{assemblyVersionId}`; also
+            the assembly's name in JBrowse2.
+          example: v4a6
         symbol:
           type: string
           description: Gene symbol (SYMBOL synonym type). Omitted when not present.
@@ -703,7 +738,7 @@ components:
 
     VersionDetail:
       type: object
-      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, assemblies]
+      required: [id, name, isDefault, status, createdAt, createdBy, updatedAt, updatedBy, orthologyTSV, orthologyBundle, assemblies]
       properties:
         id:
           type: integer
@@ -745,6 +780,15 @@ components:
           description: All non-deleted orthology.tsv uploads for this Database Version — shared across every species rather than owned by one assembly.
           items:
             $ref: '#/components/schemas/FileDetail'
+        orthologyBundle:
+          type: array
+          description: |
+            All non-deleted `orthology.bundle` archives for this Database Version, each with
+            its `ORTHOLOGY.BUNDLE` job. The files extracted from them are in `orthologyTSV`.
+            A bundle that fails validation extracts nothing, so its job's `error` is the only
+            place the failure shows.
+          items:
+            $ref: '#/components/schemas/FileDetail'
         assemblies:
           type: array
           description: One entry per Assembly Version (species) in this Database Version.
@@ -781,7 +825,8 @@ paths:
       tags: [Search]
       description: |
         Returns up to 100 autocomplete suggestions for the given prefix using the
-        Elasticsearch completion suggester on the `synonym.suggest` field.
+        Elasticsearch completion suggester: on the `synonym.suggest` field (every species),
+        or on `synonym.suggest_species` when `species` is given (that species only).
 
         Results are ranked by synonym type:
         - `SYMBOL` → boost 12
@@ -799,6 +844,16 @@ paths:
             type: string
           description: Prefix to autocomplete (e.g. `"TC01"`).
           example: TC01
+        - name: species
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Species code (e.g. `Tcas`, `Dmel`), the prefix of its gene IDs. Suggests only
+            synonyms of that species' genes, ranked the same way. Omit it to suggest every
+            species' synonyms.
+          example: Tcas
         - name: version
           in: query
           required: false
@@ -868,10 +923,13 @@ paths:
 
         The query is case-insensitive and treats hyphens as spaces (via the `synonym_analyzer`).
 
-        The result shape depends on where the match is found:
-        - If the query matches a **main-species** gene → `genes` is populated.
-        - If the query matches a gene from **another species** and orthology groups are found → `orthologies` is populated, each group enriched with the synonyms returned by the query.
-        - If the query matches a gene from **another species** with no orthology data → `otherGenes` is populated.
+        The result shape depends on `species` and on where the match is found:
+        - With `species`, if the query matches a gene of that species → `genes` is populated
+          with that species' gene IDs.
+        - Otherwise (no `species`, a search of every species that prefers none, or no match
+          in that species), every match counts as another species' gene:
+          - if orthology groups contain them → `orthologies` is populated, each group enriched with the synonyms returned by the query;
+          - else → `otherGenes` is populated, each with its `species`.
 
         All three fields are absent when no match is found.
       parameters:
@@ -882,6 +940,16 @@ paths:
             type: string
           description: Search term (gene ID, name, symbol, …). Case-insensitive; hyphens treated as spaces.
           example: TC016177
+        - name: species
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Species code (e.g. `Tcas`, `Dmel`), the prefix of its gene IDs. That species'
+            matches come back as `genes`. Omit it to search every species; `genes` is then
+            never returned.
+          example: Tcas
         - name: version
           in: query
           required: false
@@ -904,8 +972,8 @@ paths:
                   requestId:
                     type: string
               examples:
-                mainSpeciesMatch:
-                  summary: Query matched main-species genes
+                speciesMatch:
+                  summary: Query matched genes of the requested species
                   value:
                     data:
                       genes: ["TC016177", "TC016178"]
@@ -995,6 +1063,10 @@ paths:
         matched gene are omitted: `symbol`/`fullname`/`annotationId` when the species has no
         such synonyms indexed; `start`/`end`/`strand`/`seqname` when no genomic location is
         indexed; `mRNAs`/`proteins`/`CDS` when no sequences are indexed.
+
+        A Database Version can hold several assemblies of one species. A gene found in more
+        than one of them gets one entry per assembly (`assemblyVersionId`/`assemblyKey`),
+        each built from that assembly's data only, ordered by gene, then by `assemblyVersionId`.
       parameters:
         - name: species
           in: path
@@ -1131,29 +1203,38 @@ paths:
                     error: no default version configured
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
-  /silencingseqs:
+  /silencingseqs/{species}:
     get:
-      summary: Get silencing sequences
-      operationId: getSilencingSeqs
+      summary: Get silencing sequences for a species
+      operationId: getSilencingSeqsBySpecies
       security: []
       tags: [Search]
       description: |
-        Returns dsRNA silencing sequence records for the given iB numbers (`ids`) or
-        gene IDs (`geneIds`).
+        Returns `species`' dsRNA silencing sequence records for the given dsRNA IDs
+        (`ids`, e.g. Tcas iB numbers) or gene IDs (`geneIds`). Reads every assembly of
+        `species` in the Version. Records and genes of other species are never returned,
+        even when they use the same dsRNA ID.
 
         **Constraints:**
-        - Only available when `main_species` is `tcas`. Returns 400 otherwise.
         - `ids` and `geneIds` are mutually exclusive — pass exactly one. Returns 400 if both are provided.
         - When querying by `geneIds`, the response includes all silencing sequences that have the
-          given genes as synonyms via a `DSRNA` synonym relationship.
+          given genes as synonyms via a `DSRNA` synonym relationship (from a `species.synonym`
+          upload named `ib_tc*` or `dsrna_gene*`).
         - When neither parameter is provided an empty array is returned.
       parameters:
+        - name: species
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Four-letter species code (e.g. `Tcas`, `Dmel`).
+          example: Tcas
         - name: ids
           in: query
           required: false
           schema:
             type: string
-          description: Comma-separated list of iB numbers (without species prefix) to look up directly.
+          description: Comma-separated list of dsRNA IDs (without species prefix) to look up directly.
           example: iB-00001,iB-00002
         - name: geneIds
           in: query
@@ -1208,7 +1289,7 @@ paths:
                     data: []
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '400':
-          description: Both `ids` and `geneIds` provided, or `main_species` is not `tcas`.
+          description: Both `ids` and `geneIds` provided.
           content:
             application/json:
               schema:
@@ -1217,12 +1298,7 @@ paths:
                 bothParams:
                   summary: ids and geneIds are mutually exclusive
                   value:
-                    error: ids and geneIds are mutually exclusive
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                notTcas:
-                  summary: main_species is not tcas
-                  value:
-                    error: silencingseqs is only supported when main_species is "tcas"
+                    error: '"ids" and "geneIds" must not be used together'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: The specified version does not exist.
@@ -1246,6 +1322,62 @@ paths:
                   value:
                     error: no default version configured
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+
+  /silencingseqs:
+    get:
+      summary: Get silencing sequences (Tcas)
+      operationId: getSilencingSeqs
+      security: []
+      tags: [Search]
+      deprecated: true
+      description: |
+        **Deprecated:** use `GET /silencingseqs/{species}` instead. Kept until the
+        frontend has migrated, then removed.
+
+        Same as `GET /silencingseqs/{species}` with `species` set to `Tcas`. Takes the
+        same query params and returns the same responses.
+      parameters:
+        - name: ids
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: geneIds
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Silencing sequence records of Tcas. Empty array when none are found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SilencingSeq'
+                  requestId:
+                    type: string
+        '400':
+          description: Both `ids` and `geneIds` provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /orthology/{species}:
     get:
@@ -1439,7 +1571,15 @@ paths:
               properties:
                 name:
                   type: string
-                  example: dmel_r6.54
+                  pattern: '^[A-Za-z0-9](?:[A-Za-z0-9 ._-]{0,62}[A-Za-z0-9._-])?$'
+                  maxLength: 64
+                  description: |
+                    1-64 characters of letters (any case), digits, spaces, `.`, `_` or `-`,
+                    starting with a letter or digit and not ending with a space. The name is the
+                    version's upload folder, and its Elasticsearch index names use it lowercased
+                    with each run of spaces as `_`. So it must not match an existing version's
+                    name that way: `tcas_5.2` or `TCAS 5.2` is rejected when `Tcas 5.2` exists.
+                  example: Dmel R6.54
       responses:
         '201':
           description: Version created.
@@ -1453,12 +1593,22 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name, or version already exists.
+          description: Missing or invalid name, or a version with the same name (ignoring letter case, with spaces counted as `_`) already exists.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
+                invalidName:
+                  summary: name does not match the allowed pattern
+                  value:
+                    error: 'version name must be 1-64 characters of letters, digits, spaces, ".", "_" or "-", starting with a letter or digit and not ending with a space'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                sameIndexName:
+                  summary: name matches an existing version ignoring case and spaces
+                  value:
+                    error: 'version already exists: "tcas_5.2" is the same as version "Tcas 5.2" when letter case is ignored and spaces count as "_"'
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 missingName:
                   summary: name field is required
                   value:
@@ -1584,6 +1734,7 @@ paths:
         - Upload file records are hard-deleted from the database and their files are removed from disk.
         - All jobs for the version are deleted.
         - All Elasticsearch indexes for the version are deleted (`genomiclocation`, `sequence`, `orthology`, `synonym`).
+        - The BLAST databases of its assemblies are removed (a release that failed part-way can leave some).
 
         **Preconditions** (returns 422 if not met):
         - The version must not be the current default version.
@@ -1786,6 +1937,12 @@ paths:
       description: |
         Every Assembly Version is created identically — there is no auto-assigned
         "primary"/"default" species. The admin enters `speciesName`; `speciesCode` is derived from it. Several assemblies may share a species within one Database Version. Use the returned `id` to address this assembly in URLs and upload metadata.
+
+        `name` also names the assembly's upload folder: each run of characters other than
+        letters, digits, spaces and `._-()` becomes `_`, and leading and trailing spaces and
+        dots are trimmed (`Human / GRCh38` → `Human _ GRCh38`). No two assemblies of a version
+        may get the same folder name, compared ignoring case, so such a name returns 400.
+        JBrowse2 shows the assembly as `{versionName} — {name}`. The name cannot be changed later.
       parameters:
         - name: name
           in: path
@@ -1803,6 +1960,7 @@ paths:
               properties:
                 name:
                   type: string
+                  description: Must contain a character other than spaces and dots. Read-only after creation.
                   example: Human / GRCh38
                 speciesName:
                   type: string
@@ -1828,12 +1986,19 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing name or speciesName, a speciesName no code can be derived from, or invalid infoUrl.
+          description: |
+            Missing name or speciesName, a speciesName no code can be derived from, invalid
+            infoUrl, a name of only spaces and dots, or a name giving the same upload folder as
+            another assembly of the version.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
+                folderTaken:
+                  value:
+                    error: another assembly in this version already has this name (or one giving the same folder name)
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 invalidInfoUrl:
                   value:
                     error: infoUrl must be an absolute http or https URL of at most 2048 characters
@@ -1913,9 +2078,10 @@ paths:
       operationId: updateAssemblyVersion
       tags: [Assembly Versions]
       description: |
-        Partial update: only fields present in the body change. `speciesName` and
-        `speciesCode` cannot be changed, since the code is copied into indexed data at
-        upload time; sending either returns 400 (delete and recreate the assembly instead). The image has its own
+        Partial update: only fields present in the body change. `name`, `speciesName` and
+        `speciesCode` cannot be changed: the code is copied into indexed data at upload
+        time, and the name names the assembly's upload folder and its JBrowse2 label.
+        Sending any of them returns 400 (delete and recreate the assembly instead). The image has its own
         endpoint, `PUT /versions/{name}/assemblies/{id}/image`.
       parameters:
         - name: name
@@ -1937,10 +2103,6 @@ paths:
             schema:
               type: object
               properties:
-                name:
-                  type: string
-                  description: Must not be empty.
-                  example: Human / GRCh38.p14
                 infoUrl:
                   type: string
                   description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link.
@@ -1958,7 +2120,7 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Empty name, invalid infoUrl, or `speciesName`/`speciesCode` sent.
+          description: Invalid infoUrl, or `name`, `speciesName` or `speciesCode` sent.
           content:
             application/json:
               schema:
@@ -1968,9 +2130,9 @@ paths:
                   value:
                     error: species cannot be changed; delete and recreate the assembly instead
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                emptyName:
+                nameReadOnly:
                   value:
-                    error: name must not be empty
+                    error: "name cannot be changed: it names the assembly's upload folder and its JBrowse2 label; delete and recreate the assembly instead"
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 invalidInfoUrl:
                   value:
@@ -2015,8 +2177,10 @@ paths:
         `orthology.tsv` data, since orthology belongs to no single assembly.
 
         Also removes that species' Elasticsearch indices (genomic, sequence, synonym,
-        dsrna — never orthology) and its JBrowse2 assembly and tracks. These two cleanups
-        are best-effort: a failure is logged but does not fail the request.
+        dsrna — never orthology), its JBrowse2 assembly and tracks, and its BLAST
+        databases. If the assembly is in the default version, whose databases are being
+        served, a `BLAST:RESTART` job is enqueued so a worker restarts the BLAST server. These
+        cleanups are best-effort: a failure is logged but does not fail the request.
 
         **Preconditions** (returns 422 if not met):
         - The assembly must have no active (PENDING or RUNNING) jobs.
@@ -2234,9 +2398,16 @@ paths:
           schema:
             type: string
           description: Version name (e.g. `dmel_r6.54`).
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/JobType'
+          description: Return only jobs of this type (exact match, case-sensitive). Omit to list every job.
+          example: GENOMIC.FNA:SETUP_BLAST
       responses:
         '200':
-          description: All jobs belonging to the given version, ordered by creation time ascending.
+          description: The version's jobs (only those of `type`, when given), ordered by creation time ascending. Empty array when none match.
           content:
             application/json:
               schema:
@@ -2249,7 +2420,7 @@ paths:
                   requestId:
                     type: string
         '400':
-          description: Missing `version` query parameter.
+          description: Missing `version` query parameter, or `type` is not a known job type.
           content:
             application/json:
               schema:
@@ -2258,6 +2429,10 @@ paths:
                 missingVersion:
                   value:
                     error: version query parameter is required
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                invalidType:
+                  value:
+                    error: invalid type filter
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
@@ -2269,6 +2444,17 @@ paths:
                 forbidden:
                   value:
                     error: permission denied
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        '404':
+          description: The specified version does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notFound:
+                  value:
+                    error: version not found
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /jobs/{id}:
@@ -2366,9 +2552,28 @@ paths:
         - `cds.fna`
         - `protein.faa`
         - `orthology.tsv` *(shared across the whole Version; takes no `assembly`; 1 active per version)*
-        - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files)*
-        - `dsrna.csv` *(only for an assembly whose `speciesCode` is `Tcas`; 1 active per assembly — re-upload replaces that assembly's previous index)*
+        - `species.synonym` *(requires `species` metadata; accepts `fb_synonym_*.tsv.gz` and `fbgn_fbtr_fbpp_*.tsv.gz` files, and dsRNA-to-gene mappings named `ib_tc*` or `dsrna_gene*` (2 columns: dsRNA ID, gene ID))*
+        - `dsrna.csv` *(any species; 1 active per assembly — re-upload replaces that assembly's previous index)*
         - `jbrowse.track` *(multiple tracks allowed per assembly; requires `trackName` metadata; optional `category`; deletable)*
+
+        **One file per assembly** (`genomic.fna`, `genomic.gff`, `rna.fna`, `cds.fna`,
+        `protein.faa`, `dsrna.csv`): when an upload of one of these types completes, the
+        assembly's previous files of that type (whatever their name) are removed from
+        disk and soft-deleted, so they no longer appear in listings or count in
+        `totalFileSize`. Uploaded under the previous file's name, the new file takes its
+        place. A previous file that still has a `PENDING` or `RUNNING` job is
+        kept until the next upload of its type. Once the new file's jobs are done, the
+        sequences (`rna.fna`, `cds.fna`, `protein.faa`) and GFF synonyms indexed from the
+        files it replaced are removed too, so search and `GET /genes/{species}` no longer
+        return genes, names or sequences the new file dropped.
+        **File names:** a file is stored under the name it was uploaded with, in its
+        assembly's folder (the version's folder for `orthology.tsv` and `orthology.bundle`).
+        Only a file of a one-file-per-assembly type may take the name of a stored file, and
+        only its own type's: it replaces that file. Any other upload whose name is already
+        stored there is refused with 409 before any data is sent: delete the stored file
+        first, or upload under another name. A bundle's archive is stored only until its
+        job ends, so its name is free again once the bundle is processed, or has failed.
+
         - `orthology.bundle` *(many `orthology.tsv` files in one upload; version-scoped, takes no `assembly`; see below)*
         - `jbrowse.track.bundle` *(many `jbrowse.track` files of one assembly in one upload; requires `assembly`; see below)*
 
@@ -2376,11 +2581,12 @@ paths:
 
         - The file must be a `.tar.gz` or `.zip` archive. Metadata is `fileType`, `fileName` and `version`, plus `assembly` for `jbrowse.track.bundle` only. Do not send `assembly` for `orthology.bundle`: orthology belongs to the whole version.
         - `jbrowse.track.bundle` covers exactly one assembly. An unknown `assembly` is rejected at upload with 400, and no archive is stored. Its tracks are stored under that assembly's folder.
+        - The data files are extracted into a folder of their own next to the archive, named after the archive plus 8 characters of the bundle's upload ID (`tracks.tar.gz` → `tracks-1a2b3c4d/`), and keep their names (plain files gain `.gz`).
         - The archive holds the data files plus a `manifest.csv`, all at the archive root (no folders, links or macOS `._*` files). Build it with e.g. `COPYFILE_DISABLE=1 tar czf bundle.tar.gz -C <folder> .`, or `zip -j bundle.zip <folder>/*` for a .zip (the same rules apply: no folders, and no `__MACOSX` entries from Finder).
         - Data files may be plain or already gzipped; plain files are gzipped on the server.
         - `manifest.csv` has one row per data file and exactly the template's columns (any order). Download the template from `GET /upload-files/templates/{fileType}`. Each row's metadata follows the same rules as a single upload of the child type. In `jbrowse.track.bundle`, `trackName` must be unique within the bundle.
         - The upload enqueues one `ORTHOLOGY.BUNDLE` / `JBROWSE.TRACK.BUNDLE` job. It validates everything first: if any file or row is invalid, the job fails listing every problem and nothing is created.
-        - On success, each data file becomes an independent upload file (listed, processed and deletable exactly like a single upload). The bundle itself is not listed in `GET /upload-files`.
+        - On success, each data file becomes an independent upload file (listed, processed and deletable exactly like a single upload). The bundle itself is not listed in `GET /upload-files`, but is listed with its job in `GET /versions/{name}/detail` (`orthologyBundle`, or the assembly's `files["jbrowse.track.bundle"]`) and `GET /versions/{name}/assemblies/{id}`.
 
         On success, the `Location` response header contains the URL for subsequent PATCH / HEAD requests.
       operationId: createUpload
@@ -2475,11 +2681,6 @@ paths:
                   value:
                     error: 'jbrowse.track uploads require a "trackName" metadata field'
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
-                dsrnaNotSupported:
-                  summary: dsrna.csv upload attempted on an assembly whose species is not Tcas
-                  value:
-                    error: 'dsrna.csv uploads are only supported for the "Tcas" species'
-                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '403':
           description: Missing or invalid token.
           content:
@@ -2492,7 +2693,15 @@ paths:
                     error: permission denied
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '409':
-          description: A job for this file type is already pending or running for the target assembly (or, for `orthology.tsv`, for the given version). `jbrowse.track` is exempt.
+          description: |
+            A job is still pending or running on one of the target assembly's files of this
+            type, whatever the job's type: the file's processing, a job chained from it (e.g.
+            `GENOMIC.FNA:SETUP_JBROWSE2`, a GFF's `SPECIES.SYNONYM`), or a release's BLAST
+            setup reading it. `jbrowse.track`, `orthology.tsv` and the bundle types are
+            exempt and may upload concurrently.
+
+            Or the file name is already stored and this upload may not replace it (see "File
+            names" above), or a bundle of that name is still being processed.
           content:
             application/json:
               schema:
@@ -2500,7 +2709,15 @@ paths:
               examples:
                 conflict:
                   value:
-                    error: a job for file type "genomic.gff" is already pending or running for this version
+                    error: a job for file type "genomic.gff" is already pending or running for this assembly
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                nameTaken:
+                  value:
+                    error: this assembly already has a file named "coverage.bw.gz"; delete it first, or upload it under another name
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                bundleInProgress:
+                  value:
+                    error: a bundle named "tracks.tar.gz" is still being processed; wait until its job finishes, or upload it under another name
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /uploads/{id}:
@@ -2629,8 +2846,27 @@ paths:
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '404':
           description: Upload not found.
+        '409':
+          description: |
+            Another upload was stored under this file name while this one was in progress, and
+            this one may not replace it (see "File names" under `POST /uploads`). The upload is
+            discarded; a retried creation is refused with the same 409 before any data is sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                nameTaken:
+                  value:
+                    error: this assembly already has a file named "coverage.bw.gz"; delete it first, or upload it under another name
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
         '422':
-          description: Uploaded file is not a valid gzip (or, for `.zip` bundles, zip) archive.
+          description: |
+            Uploaded file is not a valid gzip (or, for `.zip` bundles, zip) archive, or the server
+            could not store the complete upload. Either way the upload is discarded (a `HEAD`
+            on it is then 404) and must be started again. Storage failures are a 4xx, not a 5xx,
+            on purpose: tus clients retry 5xx responses, which would re-send the whole file again
+            and again while the problem lasts.
           content:
             application/json:
               schema:
@@ -2639,6 +2875,10 @@ paths:
                 notGzip:
                   value:
                     error: uploaded file is not a valid gzip
+                    requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+                notStored:
+                  value:
+                    error: the server could not store the uploaded file; please contact an administrator
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
 
   /upload-files:
@@ -2761,7 +3001,7 @@ paths:
         Enqueues an async delete job for the uploaded file. Only files of type `orthology.tsv`
         and `jbrowse.track` may be deleted. The appropriate job type is selected automatically:
         - `orthology.tsv` → enqueues `ORTHOLOGY.TSV:DELETE`
-        - `jbrowse.track` → enqueues `JBROWSE.TRACK:DELETE` (runs `jbrowse remove-track`, then soft-deletes the record and removes the file from disk)
+        - `jbrowse.track` → enqueues `JBROWSE.TRACK:DELETE` (removes the track's JBrowse2 config entry, its default-session entry and the data files copied into JBrowse2, then soft-deletes the record and removes the file from disk)
 
         The deletion is processed asynchronously by the worker.
       operationId: deleteUploadFile

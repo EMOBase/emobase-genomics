@@ -45,6 +45,16 @@ func (m *memAssemblies) FindByID(_ context.Context, id uint64) (*entity.Assembly
 	return &a, nil
 }
 
+func (m *memAssemblies) ListByVersionID(_ context.Context, versionID uint64) ([]entity.AssemblyVersion, error) {
+	var out []entity.AssemblyVersion
+	for _, r := range m.rows {
+		if r.VersionID == versionID {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
 func (m *memAssemblies) Update(_ context.Context, a *entity.AssemblyVersion) error {
 	row := m.rows[a.ID-1]
 	row.Name, row.InfoURL, row.UpdatedBy = a.Name, a.InfoURL, a.UpdatedBy
@@ -64,7 +74,7 @@ func (fakeAssemblies) FindByID(_ context.Context, id uint64) (*entity.AssemblyVe
 // id from another version must read as not found, and must not reach the job,
 // upload or ES repositories: they are nil here, so reaching them panics.
 func TestDeleteAssemblyVersion_IDFromAnotherVersionIsNotFound(t *testing.T) {
-	uc := New(fakeVersions{}, fakeAssemblies{}, nil, nil, nil, t.TempDir())
+	uc := New(fakeVersions{}, fakeAssemblies{}, nil, nil, nil, nil, t.TempDir(), "")
 
 	err := uc.DeleteAssemblyVersion(context.Background(), "v1", 8)
 	if !errors.Is(err, ErrAssemblyVersionNotFound) {
@@ -76,7 +86,7 @@ func TestDeleteAssemblyVersion_IDFromAnotherVersionIsNotFound(t *testing.T) {
 // does not identify an assembly, so creating a second one must not be refused.
 func TestCreateAssemblyVersion_AllowsSameSpeciesTwice(t *testing.T) {
 	repo := &memAssemblies{}
-	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, t.TempDir(), "")
 
 	first, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas Tcas5.2", "Tribolium castaneum", "")
 	if err != nil {
@@ -106,7 +116,7 @@ func TestCreateAssemblyVersion_InfoURLMustBeAbsoluteHTTP(t *testing.T) {
 	}
 	for _, raw := range bad {
 		repo := &memAssemblies{}
-		uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+		uc := New(fakeVersions{}, repo, nil, nil, nil, nil, t.TempDir(), "")
 		if _, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", raw); !errors.Is(err, ErrInvalidInfoURL) {
 			t.Errorf("infoUrl %.40q: got %v, want ErrInvalidInfoURL", raw, err)
 		}
@@ -116,7 +126,7 @@ func TestCreateAssemblyVersion_InfoURLMustBeAbsoluteHTTP(t *testing.T) {
 	}
 
 	repo := &memAssemblies{}
-	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, t.TempDir(), "")
 	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "https://example.org/tcas?x=1")
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +140,7 @@ func TestCreateAssemblyVersion_InfoURLMustBeAbsoluteHTTP(t *testing.T) {
 // removes the optional info link (null cannot be told apart from left out).
 func TestUpdateAssemblyVersion_EmptyInfoURLClearsLinkAndKeepsName(t *testing.T) {
 	repo := &memAssemblies{}
-	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, t.TempDir(), "")
 	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "https://example.org/tcas")
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +167,7 @@ var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
 func TestSetAssemblyVersionImage_RejectsSVG(t *testing.T) {
 	repo := &memAssemblies{}
 	dir := t.TempDir()
-	uc := New(fakeVersions{}, repo, nil, nil, nil, dir)
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, dir, "")
 	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "")
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +189,7 @@ func TestSetAssemblyVersionImage_RejectsSVG(t *testing.T) {
 func TestSetAssemblyVersionImage_ReplaceRemovesOldFile(t *testing.T) {
 	repo := &memAssemblies{}
 	dir := t.TempDir()
-	uc := New(fakeVersions{}, repo, nil, nil, nil, dir)
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, dir, "")
 	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", "Tribolium castaneum", "")
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +214,8 @@ func TestSetAssemblyVersionImage_ReplaceRemovesOldFile(t *testing.T) {
 	if err != nil || !bytes.Equal(got, pngBytes) {
 		t.Errorf("new image not stored intact: %v", err)
 	}
-	assemblyDir := filepath.Join(dir, "v1", a.AssemblyID())
+	// Inside the assembly's own upload folder, so deleting the assembly removes it.
+	assemblyDir := filepath.Join(dir, "v1", a.DirName)
 	if filepath.Dir(*second.ImagePath) != assemblyDir || filepath.Ext(*second.ImagePath) != ".png" {
 		t.Errorf("image stored at %s, want a .png inside %s", *second.ImagePath, assemblyDir)
 	}
@@ -213,7 +224,7 @@ func TestSetAssemblyVersionImage_ReplaceRemovesOldFile(t *testing.T) {
 // The size limit is checked before anything is read or written.
 func TestSetAssemblyVersionImage_TooLarge(t *testing.T) {
 	repo := &memAssemblies{}
-	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, t.TempDir(), "")
 	_, err := uc.SetAssemblyVersionImage(context.Background(), "v1", 1, bytes.NewReader(pngBytes), MaxImageSize+1)
 	if !errors.Is(err, ErrImageTooLarge) {
 		t.Fatalf("got %v, want ErrImageTooLarge", err)
@@ -253,7 +264,7 @@ func TestSpeciesCodeFromName(t *testing.T) {
 // and an unusable name stores nothing.
 func TestCreateAssemblyVersion_DerivesSpeciesCode(t *testing.T) {
 	repo := &memAssemblies{}
-	uc := New(fakeVersions{}, repo, nil, nil, nil, t.TempDir())
+	uc := New(fakeVersions{}, repo, nil, nil, nil, nil, t.TempDir(), "")
 
 	a, err := uc.CreateAssemblyVersion(context.Background(), "v1", "Tcas6", " tribolium castaneum ", "")
 	if err != nil {

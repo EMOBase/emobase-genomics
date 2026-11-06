@@ -14,15 +14,8 @@ import (
 )
 
 const (
-	jbrowseBin            = "jbrowse"
-	jbrowseOutDir         = "/web/data"
-	addJBrowseTrackScript = "/app/scripts/add_jbrowse_track.sh"
-
-	// jbrowseConfigLockFile serializes access to config.json across every
-	// process that reads/modifies it — the setup/track/delete shell scripts
-	// and this handler's direct `jbrowse remove-track` call both race on it
-	// otherwise, since worker replicas process jobs concurrently.
-	jbrowseConfigLockFile = jbrowseOutDir + "/.jbrowse-config.lock"
+	addJBrowseTrackScript    = "/app/scripts/add_jbrowse_track.sh"
+	deleteJBrowseTrackScript = "/app/scripts/delete_jbrowse_track.sh"
 )
 
 // JBrowseTrackHandler runs `jbrowse add-track` to register an uploaded track file.
@@ -65,8 +58,9 @@ func (h *JBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) (json.
 	return nil, nil
 }
 
-// DeleteJBrowseTrackHandler runs `jbrowse remove-track`, soft-deletes the DB record,
-// and removes the physical file from disk.
+// DeleteJBrowseTrackHandler removes the track from JBrowse2 (its config entry,
+// default-session entry and copied data files, see delete_jbrowse_track.sh),
+// soft-deletes the DB record, and removes the uploaded file from disk.
 type DeleteJBrowseTrackHandler struct {
 	uploadFileRepo IDeleteUploadFileRepository
 }
@@ -82,12 +76,7 @@ func (h *DeleteJBrowseTrackHandler) Handle(ctx context.Context, job entity.Job) 
 	}
 
 	trackID := "track-" + payload.UploadFileID
-	// "flock <file> <command...>" blocks until it can acquire an exclusive
-	// lock on jbrowseConfigLockFile (creating it if needed), runs the
-	// command, then releases the lock — matching the flock usage in
-	// scripts/{add_jbrowse_track,setup_jbrowse2_fna,setup_jbrowse2_gff,
-	// delete_jbrowse_version}.sh, which all touch the same config.json.
-	cmd := exec.CommandContext(ctx, "flock", jbrowseConfigLockFile, jbrowseBin, "remove-track", trackID, "--out", jbrowseOutDir)
+	cmd := exec.CommandContext(ctx, deleteJBrowseTrackScript, trackID)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %w\noutput: %s", entity.JobTypeJBrowseTrackDelete, err, out)
