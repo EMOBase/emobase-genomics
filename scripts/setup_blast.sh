@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 FILE_PATH="$1"
 DB_TYPE="$2"
@@ -11,8 +11,11 @@ if [ -z "$FILE_PATH" ] || [ -z "$DB_TYPE" ] || [ -z "$TITLE" ] || [ -z "$OUT" ];
   exit 1
 fi
 
-makeblastdb \
-  -in "$FILE_PATH" \
+# makeblastdb reads -in as a space-separated list of files and detects gzip
+# only by a ".gz" suffix. Uploads are always gzip (checked at upload), so
+# decompress here and stream the FASTA in on stdin.
+gzip -dc -- "$FILE_PATH" | makeblastdb \
+  -in - \
   -dbtype "$DB_TYPE" \
   -title "$TITLE" \
   -parse_seqids \
