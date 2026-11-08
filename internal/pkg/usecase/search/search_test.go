@@ -23,12 +23,15 @@ func (f fakeOrthologyRepo) ListByOrthologs(_ context.Context, _ string, genes []
 }
 
 // "vermilion" names a Tcas and a Dmel gene of one orthology group; "lsta-only"
-// names a Lymnaea gene in no orthology group.
+// names a Lymnaea gene in no orthology group; "split" names the Tcas gene of the
+// group and the Lymnaea gene in none.
 func newSearchUseCase() *UseCase {
 	synonyms := fakeSynonymRepo{docs: []entity.Synonym{
 		{Gene: "Tcas:TC016177", Type: entity.SYNONYM_TYPE_SYMBOL, Synonym: "vermilion"},
 		{Gene: "Dmel:FBgn0003996", Type: entity.SYNONYM_TYPE_SYMBOL, Synonym: "vermilion"},
 		{Gene: "Lsta:GS0001", Type: entity.SYNONYM_TYPE_SYMBOL, Synonym: "lsta-only"},
+		{Gene: "Tcas:TC016177", Type: entity.SYNONYM_TYPE_SYMBOL, Synonym: "split"},
+		{Gene: "Lsta:GS0001", Type: entity.SYNONYM_TYPE_SYMBOL, Synonym: "split"},
 	}}
 	orthologies := fakeOrthologyRepo{docs: []entity.Orthology{
 		{Group: "1.OrthoMCL:OG0001", Orthologs: []string{"Tcas:TC016177", "Dmel:FBgn0003996"}},
@@ -42,6 +45,8 @@ func newSearchUseCase() *UseCase {
 // species) prefers none, so even Tcas, the old main species, is not returned as
 // genes: its matches come back in their orthology groups, or as otherGenes. A
 // species with no match falls back to the same orthology view of the others.
+// A gene in no group still comes back when another match has a group, and a
+// gene shown in a group is not listed again in otherGenes.
 func TestSearch_SpeciesMatchesAreGenes_OtherwiseOrthologyOrOtherGenes(t *testing.T) {
 	uc := newSearchUseCase()
 	for _, tc := range []struct {
@@ -53,6 +58,7 @@ func TestSearch_SpeciesMatchesAreGenes_OtherwiseOrthologyOrOtherGenes(t *testing
 		{"every species: no genes, orthology", "vermilion", "", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177]"},
 		{"species without a match: others' orthology", "vermilion", "Lsta", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177]"},
 		{"every species, no orthology: otherGenes", "lsta-only", "", "otherGenes [Lsta GS0001]"},
+		{"every species, split: orthology and otherGenes", "split", "", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177] + otherGenes [Lsta GS0001]"},
 		{"no match anywhere", "nothing", "Tcas", "none"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

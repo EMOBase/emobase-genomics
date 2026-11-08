@@ -564,12 +564,12 @@ components:
     SearchResult:
       type: object
       description: |
-        At most one of `genes`, `orthologies`, or `otherGenes` is populated.
-        All three are absent when no match is found.
+        `genes` is never populated together with the other two; `orthologies` and
+        `otherGenes` can both be. All three are absent when no match is found.
 
         - `genes` — query matched a gene of the requested `species`; contains the matching gene IDs (species prefix stripped). Never set without `species`.
-        - `orthologies` — query matched genes of other species (every species, without `species`) and orthology groups were found; each group is enriched with synonyms from the query.
-        - `otherGenes` — query matched genes of other species but no orthology groups were found.
+        - `orthologies` — query matched genes of other species (every species, without `species`) that orthology groups contain; each group is enriched with synonyms from the query.
+        - `otherGenes` — query matched genes of other species that no returned orthology group contains. A gene shown in `orthologies` is not repeated here.
       properties:
         genes:
           type: array
@@ -928,8 +928,9 @@ paths:
           with that species' gene IDs.
         - Otherwise (no `species`, a search of every species that prefers none, or no match
           in that species), every match counts as another species' gene:
-          - if orthology groups contain them → `orthologies` is populated, each group enriched with the synonyms returned by the query;
-          - else → `otherGenes` is populated, each with its `species`.
+          - matches that orthology groups contain → `orthologies`, each group enriched with the synonyms returned by the query;
+          - matches no group contains → `otherGenes`, each with its `species`.
+          Both can be populated in one response.
 
         All three fields are absent when no match is found.
       parameters:
@@ -961,7 +962,7 @@ paths:
           example: dmel_r6.54
       responses:
         '200':
-          description: Search executed successfully. One of `genes`, `orthologies`, or `otherGenes` is populated; all are absent on no match.
+          description: Search executed successfully. Either `genes`, or `orthologies` and/or `otherGenes`, is populated; all are absent on no match.
           content:
             application/json:
               schema:
