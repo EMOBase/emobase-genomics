@@ -110,8 +110,8 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		entity.JobTypeRNAFNARemoveBlast: handlers.NewRemoveBlastHandler(
 			"rna", blastDBPath, blastContainerName, jobRepo, appSettingsRepo, assemblyVersionRepo,
 		),
-		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo, config.JBrowse2.GeneLinkBase),
-		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(config.JBrowse2.GeneLinkBase),
+		entity.JobTypeGenomicFNASetupJBrowse2: handlers.NewSetupFNAJBrowse2Handler(jobRepo),
+		entity.JobTypeGenomicGFFSetupJBrowse2: handlers.NewSetupGFFJBrowse2Handler(assemblyVersionRepo),
 		entity.JobTypeDsRNACSV:                handlers.NewDsRNACSVHandler(versionRepo, dsrnaUC, dsrnaRepo, indexPrefix),
 		entity.JobTypeJBrowseTrack:            handlers.NewJBrowseTrackHandler(),
 		entity.JobTypeJBrowseTrackDelete:      handlers.NewDeleteJBrowseTrackHandler(uploadFileRepo),

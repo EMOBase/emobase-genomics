@@ -29,7 +29,6 @@ type UseCase struct {
 	Handler             http.Handler
 	tusHandler          *tusd.Handler
 	uploadDir           string
-	geneLinkBase        string
 	versionRepo         IVersionRepository
 	assemblyVersionRepo IAssemblyVersionRepository
 	jobRepo             IJobRepository
@@ -39,7 +38,6 @@ type UseCase struct {
 func New(
 	uploadDir string,
 	tusBasePath string,
-	geneLinkBase string,
 	staleUploadAge time.Duration,
 	versionRepo IVersionRepository,
 	assemblyVersionRepo IAssemblyVersionRepository,
@@ -55,7 +53,6 @@ func New(
 
 	uc := &UseCase{
 		uploadDir:           uploadDir,
-		geneLinkBase:        geneLinkBase,
 		versionRepo:         versionRepo,
 		assemblyVersionRepo: assemblyVersionRepo,
 		jobRepo:             jobRepo,
@@ -825,7 +822,6 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 		DisplayLabel:      displayLabel,
 		GenomicGFFPath:    gffFilePath,
 		GeneIDKey:         geneIDKey,
-		GeneLinkBase:      uc.geneLinkBase,
 		TrimPrefixChars:   trimPrefixChars,
 		TrimSuffixChars:   trimSuffixChars,
 	})
