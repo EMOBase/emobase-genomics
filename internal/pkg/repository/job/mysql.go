@@ -285,10 +285,16 @@ func (r *MySQLRepository) HasActiveJobOfTypeForFile(ctx context.Context, fileID 
 // Orthology jobs never carry an assembly_version_id, so they're excluded.
 //
 // Only jobs that still describe the assembly count, so that a failure can be
-// cleared: jobs of the latest file of each type, and of those only the latest
-// attempt per file and job type (a re-run replaces an earlier failure). A job
-// with no file (e.g. REMOVE_BLAST) counts only if it is the latest of its type.
+// cleared: jobs of the latest file of each entity.LatestFileTypes type and of
+// every file of the other types (deleting a failed one clears it), and of
+// those only the latest attempt per file and job type (a re-run replaces an
+// earlier failure). A job with no file (e.g. REMOVE_BLAST) counts only if it is
+// the latest of its type.
 func (r *MySQLRepository) StatusCountsByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) (entity.JobStatusCounts, error) {
+	args := []any{entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone, assemblyVersionID, assemblyVersionID}
+	for _, t := range entity.LatestFileTypes {
+		args = append(args, t)
+	}
 	var counts entity.JobStatusCounts
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(status = ?), 0) AS running_count,
@@ -309,13 +315,12 @@ func (r *MySQLRepository) StatusCountsByAssemblyVersionID(ctx context.Context, a
 		          FROM upload_files
 		          WHERE assembly_version_id = ? AND deleted_at IS NULL
 		        ) ranked
-		        WHERE rn = 1
+		        WHERE rn = 1 OR file_type NOT IN (?`+strings.Repeat(",?", len(entity.LatestFileTypes)-1)+`)
 		      )
 		    )
 		) latest
 		WHERE attempt = 1`,
-		entity.JobStatusRunning, entity.JobStatusFailed, entity.JobStatusDone,
-		assemblyVersionID, assemblyVersionID,
+		args...,
 	).Scan(&counts.RunningCount, &counts.FailedCount, &counts.DoneCount, &counts.TotalCount)
 	return counts, err
 }

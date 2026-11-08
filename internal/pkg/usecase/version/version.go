@@ -681,17 +681,14 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 		return nil, fmt.Errorf("%w: no Assembly Versions exist for this Database Version", ErrRequiredFileNotUploaded)
 	}
 
-	// The shared orthology.tsv upload (if any) belongs to no single assembly,
-	// so its jobs are checked once for the whole Database Version — reusing
-	// the existing, unchanged version-scoped query and filtering to orthology.
-	sharedFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByVersionID(ctx, v.ID)
+	// Orthology belongs to no single assembly, so its files are checked once
+	// for the whole Database Version: every orthology.tsv, since one failing
+	// must not hide behind a newer one, and the latest orthology.bundle.
+	sharedFiles, err := uc.uploadFileRepo.ListCurrentCompletedSharedByVersionID(ctx, v.ID)
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range sharedFiles {
-		if f.FileType != entity.FileTypeOrthologyTSV {
-			continue
-		}
 		hasNonDone, err := uc.jobRepo.HasNonDoneJobsForFile(ctx, f.ID)
 		if err != nil {
 			return nil, err
@@ -714,25 +711,27 @@ func (uc *UseCase) ReleaseVersion(ctx context.Context, name string) (*ReleaseRes
 
 	var createdJobs []JobSummary
 	for _, asm := range assemblies {
-		latestFiles, err := uc.uploadFileRepo.FindLatestCompletedPerTypeByAssemblyVersionID(ctx, asm.ID)
+		files, err := uc.uploadFileRepo.ListCurrentCompletedByAssemblyVersionID(ctx, asm.ID)
 		if err != nil {
 			return nil, err
 		}
 
-		latestByType := make(map[string]*entity.UploadFile, len(latestFiles))
-		for i := range latestFiles {
-			latestByType[latestFiles[i].FileType] = &latestFiles[i]
+		// Only read for the BLAST types below, which keep one file per assembly.
+		latestByType := make(map[string]*entity.UploadFile, len(files))
+		for i := range files {
+			latestByType[files[i].FileType] = &files[i]
 		}
 
-		// All jobs for the latest completed file of each uploaded type must be DONE.
-		for ft, f := range latestByType {
+		// All jobs of every current file must be DONE, including each of an
+		// assembly's many jbrowse.track and species.synonym files.
+		for _, f := range files {
 			// TODO: seems like a N+1 query problem. Can we batch this?
 			hasNonDone, err := uc.jobRepo.HasNonDoneJobsForFile(ctx, f.ID)
 			if err != nil {
 				return nil, err
 			}
 			if hasNonDone {
-				return nil, fmt.Errorf("%w: %s (species %s)", ErrFileJobsNotComplete, ft, asm.SpeciesCode)
+				return nil, fmt.Errorf("%w: %s (species %s)", ErrFileJobsNotComplete, f.FileType, asm.SpeciesCode)
 			}
 		}
 

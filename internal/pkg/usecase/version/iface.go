@@ -39,8 +39,8 @@ type IUploadFileRepository interface {
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
 	ListByVersionIDAndType(ctx context.Context, versionID uint64, fileType string, offset, limit int) ([]entity.UploadFile, error)
 	CountByVersionIDAndType(ctx context.Context, versionID uint64, fileType string) (int, error)
-	FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
-	FindLatestCompletedPerTypeByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
+	ListCurrentCompletedSharedByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error)
+	ListCurrentCompletedByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
 	ListByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error)
 	HardDeleteByVersionID(ctx context.Context, versionID uint64) error
 }

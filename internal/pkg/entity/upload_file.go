@@ -35,6 +35,14 @@ var SingleFileTypes = []string{
 	FileTypeGenomicFNA, FileTypeGenomicGFF, FileTypeRNAFNA, FileTypeCDSFNA, FileTypeProteinFAA, FileTypeDsRNACSV,
 }
 
+// LatestFileTypes are the assembly file types of which only the newest file
+// counts toward the assembly's status and release: a single-file type's newer
+// upload replaces the older, and a newer bundle supersedes a failed one (an
+// extracted bundle's files count under their own type). Every file of any
+// other type counts (jbrowse.track, species.synonym), since an assembly keeps
+// them all and one failing must not be hidden by a newer one.
+var LatestFileTypes = slices.Concat(SingleFileTypes, BundleFileTypes)
+
 // IsSingleFileType reports whether fileType is one of SingleFileTypes.
 func IsSingleFileType(fileType string) bool { return slices.Contains(SingleFileTypes, fileType) }
 
