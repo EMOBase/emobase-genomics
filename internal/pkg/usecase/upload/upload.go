@@ -580,31 +580,9 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	// jbrowse.track: run jbrowse add-track with track-specific metadata.
 	if fileType == entity.FileTypeJBrowseTrack {
-		selectInDefaultSession, _ := strconv.ParseBool(meta["selectInDefaultSession"])
-		rawPayload, err := json.Marshal(jobpayload.JBrowseTrackPayload{
-			VersionID:              versionID,
-			AssemblyVersionID:      *assemblyVersionID,
-			FilePath:               filePath,
-			TrackName:              strings.TrimSpace(meta["trackName"]),
-			FileID:                 uploadID,
-			Category:               strings.TrimSpace(meta["category"]),
-			SelectInDefaultSession: selectInDefaultSession,
-		})
+		job, err := uploadspec.NewJBrowseTrackJob(versionID, assemblyVersionID, uploadID, filePath, meta)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeJBrowseTrack, err)
-		}
-		p := json.RawMessage(rawPayload)
-		now := time.Now().UTC()
-		job := &entity.Job{
-			VersionID:         versionID,
-			AssemblyVersionID: assemblyVersionID,
-			FileID:            &uploadID,
-			Type:              entity.JobTypeJBrowseTrack,
-			Description:       entity.JobDescriptions[entity.JobTypeJBrowseTrack],
-			Payload:           &p,
-			Status:            entity.JobStatusPending,
-			CreatedAt:         now,
-			UpdatedAt:         now,
+			return nil, err
 		}
 		if err := uc.jobRepo.Create(ctx, job); err != nil {
 			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeJBrowseTrack, err)

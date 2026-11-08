@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -93,6 +94,24 @@ func TestBundleHandler_DuplicateTrackNameFailsWholeBundle(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "v1", "Tcas", bundleDirName(testBundleID+".tar.gz", testBundleID))); !os.IsNotExist(err) {
 		t.Error("no bundle folder may be left behind when validation fails")
+	}
+}
+
+// A manifest selectInDefaultSession the server cannot read fails the whole
+// bundle, listed with the row it is on, instead of that track silently being
+// left out of the default session.
+func TestBundleHandler_UnreadableSelectInDefaultSessionFailsWholeBundle(t *testing.T) {
+	bad := "fileName,trackName,category,selectInDefaultSession\n" +
+		"t1.gff,First,,yes\n" +
+		"t2.gff.gz,Second,,TRUE\n"
+	h, files, jobs, job, _ := trackBundle(t, bad, 7)
+
+	_, err := h.Handle(context.Background(), job)
+	if err == nil || !strings.Contains(err.Error(), "line 2 (t1.gff)") || !strings.Contains(err.Error(), "selectInDefaultSession") {
+		t.Fatalf("error = %v, want manifest line 2 (t1.gff) rejected for selectInDefaultSession", err)
+	}
+	if len(files.created) != 0 || len(jobs.created) != 0 {
+		t.Errorf("created %d files and %d jobs, want none", len(files.created), len(jobs.created))
 	}
 }
 

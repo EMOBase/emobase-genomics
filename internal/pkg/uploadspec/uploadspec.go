@@ -35,7 +35,24 @@ func ValidateJBrowseTrackMeta(meta map[string]string) error {
 	if strings.TrimSpace(meta["trackName"]) == "" {
 		return errors.New("jbrowse.track uploads require a \"trackName\" metadata field")
 	}
-	return nil
+	_, err := parseSelectInDefaultSession(meta)
+	return err
+}
+
+// parseSelectInDefaultSession reads the optional selectInDefaultSession field,
+// trimmed. Empty means false. A value strconv.ParseBool cannot read is an error,
+// not false: a "yes", or a checkbox's "on", would otherwise leave the track out
+// of the default session with nothing telling the uploader why.
+func parseSelectInDefaultSession(meta map[string]string) (bool, error) {
+	v := strings.TrimSpace(meta["selectInDefaultSession"])
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, errors.New("jbrowse.track \"selectInDefaultSession\" metadata field must be \"true\" or \"false\"")
+	}
+	return b, nil
 }
 
 // NewOrthologyTSVJob builds (but does not persist) an ORTHOLOGY.TSV job. Orthology
@@ -58,7 +75,10 @@ func NewJBrowseTrackJob(versionID uint64, assemblyVersionID *uint64, fileID, fil
 	if assemblyVersionID == nil {
 		return nil, errors.New("jbrowse.track files must belong to an assembly")
 	}
-	selectInDefaultSession, _ := strconv.ParseBool(meta["selectInDefaultSession"])
+	selectInDefaultSession, err := parseSelectInDefaultSession(meta)
+	if err != nil {
+		return nil, err
+	}
 	return newJob(versionID, assemblyVersionID, fileID, entity.JobTypeJBrowseTrack, jobpayload.JBrowseTrackPayload{
 		VersionID:              versionID,
 		AssemblyVersionID:      *assemblyVersionID,
