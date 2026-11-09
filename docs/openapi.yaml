@@ -574,8 +574,8 @@ components:
         `otherGenes` can both be. All three are absent when no match is found.
 
         - `genes` — query matched a gene of the requested `species`; contains the matching gene IDs (species prefix stripped). Never set without `species`.
-        - `orthologies` — orthology groups that contain at least one matched gene (every species, without `species`); each group is enriched with synonyms from the query.
-        - `otherGenes` — every gene matched outside the requested `species` (every species, without `species`), whether or not an orthology group contains it. Each carries its `species`. A gene can appear both here and inside an `orthologies` group: the two fields describe the direct hits and their groups, not two disjoint sets.
+        - `orthologies` — query matched genes of other species (every species, without `species`) that orthology groups contain; each group is enriched with synonyms from the query.
+        - `otherGenes` — query matched genes of other species that no returned orthology group contains. A gene shown in `orthologies` is not repeated here.
       properties:
         genes:
           type: array
@@ -934,10 +934,9 @@ paths:
           with that species' gene IDs.
         - Otherwise (no `species`, a search of every species that prefers none, or no match
           in that species), every match counts as another species' gene:
-          - every match → `otherGenes`, each with its `species`;
-          - the orthology groups that contain matches → `orthologies`, each group enriched with the synonyms returned by the query.
-          Both are populated in one response when a group is found, and a matched gene
-          can appear in both.
+          - matches that orthology groups contain → `orthologies`, each group enriched with the synonyms returned by the query;
+          - matches no group contains → `otherGenes`, each with its `species`.
+          Both can be populated in one response.
 
         All three fields are absent when no match is found.
       parameters:
@@ -969,7 +968,7 @@ paths:
           example: dmel_r6.54
       responses:
         '200':
-          description: Search executed successfully. With a `species` match, `genes`; otherwise `otherGenes` (always, when anything matches) and `orthologies` when groups contain matches. All are absent on no match.
+          description: Search executed successfully. Either `genes`, or `orthologies` and/or `otherGenes`, is populated; all are absent on no match.
           content:
             application/json:
               schema:
@@ -1002,11 +1001,6 @@ paths:
                               genes:
                                 - gene: FBgn0003996
                                   synonyms: ["v", "vermilion"]
-                      otherGenes:
-                        - species: Dmel
-                          gene: FBgn0003996
-                        - species: Tcas
-                          gene: TC016177
                     requestId: 7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b
                 otherGeneMatch:
                   summary: Query matched another species — no orthology

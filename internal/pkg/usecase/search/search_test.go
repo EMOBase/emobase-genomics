@@ -43,9 +43,10 @@ func newSearchUseCase() *UseCase {
 // No species is "main" anymore. A species search returns that species' own
 // matches as genes, whichever species it is. A search of every species (no
 // species) prefers none, so even Tcas, the old main species, is not returned as
-// genes: its matches come back as otherGenes, and their orthology groups come
-// back as orthologies. A species with no match falls back to the same view of
-// the others. Every match is an otherGene, including one a group contains.
+// genes: its matches come back in their orthology groups, or as otherGenes. A
+// species with no match falls back to the same orthology view of the others.
+// A gene in no group still comes back when another match has a group, and a
+// gene shown in a group is not listed again in otherGenes.
 func TestSearch_SpeciesMatchesAreGenes_OtherwiseOrthologyOrOtherGenes(t *testing.T) {
 	uc := newSearchUseCase()
 	for _, tc := range []struct {
@@ -54,10 +55,10 @@ func TestSearch_SpeciesMatchesAreGenes_OtherwiseOrthologyOrOtherGenes(t *testing
 	}{
 		{"species search, Tcas", "vermilion", "Tcas", "genes [TC016177]"},
 		{"species search, Dmel", "vermilion", "Dmel", "genes [FBgn0003996]"},
-		{"every species: orthology and otherGenes", "vermilion", "", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177] + otherGenes [Dmel FBgn0003996, Tcas TC016177]"},
-		{"species without a match: others' orthology", "vermilion", "Lsta", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177] + otherGenes [Dmel FBgn0003996, Tcas TC016177]"},
+		{"every species: no genes, orthology", "vermilion", "", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177]"},
+		{"species without a match: others' orthology", "vermilion", "Lsta", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177]"},
 		{"every species, no orthology: otherGenes", "lsta-only", "", "otherGenes [Lsta GS0001]"},
-		{"every species, split: orthology and otherGenes", "split", "", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177] + otherGenes [Lsta GS0001, Tcas TC016177]"},
+		{"every species, split: orthology and otherGenes", "split", "", "orthologies [OG0001: Dmel FBgn0003996, Tcas TC016177] + otherGenes [Lsta GS0001]"},
 		{"no match anywhere", "nothing", "Tcas", "none"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -87,9 +87,9 @@ func (uc *UseCase) Suggest(ctx context.Context, prefix, species, versionName str
 // Search finds the genes whose synonyms match query. With a species, that
 // species' matches come back as genes (IDs without the species prefix). With
 // no species (a search of every species, none preferred), or when the species
-// has no match, every match is another species' gene: it comes back as an
-// otherGene, and the orthology groups that contain matches come back as
-// orthologies. One search returns both, and a gene can appear in both.
+// has no match, every match is another species' gene: it comes back in the
+// orthology groups that contain it, or as otherGenes when none does. One search
+// can return both.
 func (uc *UseCase) Search(ctx context.Context, query, species, versionName string) (*SearchResult, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
@@ -144,18 +144,24 @@ func (uc *UseCase) Search(ctx context.Context, query, species, versionName strin
 		return nil, err
 	}
 
-	// Every match is a direct hit, whether or not an orthology group contains
-	// it: the gene tab lists the matches themselves, the orthology tab their
-	// groups, so a gene can appear in both. Sorting keeps the response stable
-	// (the matches come from a map).
-	sort.Strings(otherGenes)
+	// TODO: check with the business how to present a search whose matches are
+	// split between orthology groups and genes in none. Until then both come
+	// back together, each gene once: in its groups, or in otherGenes. Returning
+	// only the groups whenever there was one dropped every gene in none.
+	inGroup := make(map[string]bool)
 	results := make([]OrthologyResult, len(orthologies))
 	for i, o := range orthologies {
 		results[i] = uc.enrichOrthology(o, geneToSynonyms)
+		for _, gene := range o.Orthologs {
+			inGroup[gene] = true
+		}
 	}
 
-	otherGeneResults := make([]OtherGene, 0, len(otherGenes))
+	var otherGeneResults []OtherGene
 	for _, gene := range otherGenes {
+		if inGroup[gene] {
+			continue
+		}
 		species, geneID := splitGeneID(gene)
 		otherGeneResults = append(otherGeneResults, OtherGene{Species: species, Gene: geneID})
 	}
