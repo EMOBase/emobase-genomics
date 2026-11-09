@@ -10,12 +10,12 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/jobpayload"
 )
 
-// Each assembly links its genes to its own site through its info_url, used as
-// entered: the script appends the gene ID to it, so an admin's trailing "/" or
-// "?id=" must survive. Characters the script cannot embed are percent-encoded,
-// since a quote would end the JEXL string the link is written into and break
-// the detail panel of every gene in the track. An already-encoded URL is not
-// encoded twice.
+// Each assembly links its genes to its own site through its info_url, which is
+// the site root: the link is "<info_url>/details/<geneID>". A trailing slash on
+// info_url must not double the path. Characters the script cannot embed are
+// percent-encoded, since a quote would end the JEXL string the link is written
+// into and break the detail panel of every gene in the track. An already-encoded
+// URL is not encoded twice.
 func TestGeneLinkBase(t *testing.T) {
 	str := func(s string) *string { return &s }
 	cases := []struct {
@@ -24,10 +24,13 @@ func TestGeneLinkBase(t *testing.T) {
 		want    string
 	}{
 		{"no info_url: no link", nil, ""},
-		{"path prefix kept", str("https://ibeetle-base.uni-goettingen.de/details/"), "https://ibeetle-base.uni-goettingen.de/details/"},
-		{"query prefix kept", str("https://example.org/gene?id="), "https://example.org/gene?id="},
-		{"already encoded kept", str("https://example.org/a%20b/"), "https://example.org/a%20b/"},
-		{"unsafe characters encoded", str(`https://example.org/it's "x" <y> a\b /`), "https://example.org/it%27s%20%22x%22%20%3Cy%3E%20a%5Cb%20/"},
+		{"empty info_url: no link", str(""), ""},
+		{"root without slash", str("https://example.org"), "https://example.org/details/"},
+		{"root with slash", str("https://example.org/"), "https://example.org/details/"},
+		{"subpath without slash", str("https://example.org/base"), "https://example.org/base/details/"},
+		{"subpath with slash", str("https://example.org/base/"), "https://example.org/base/details/"},
+		{"already encoded kept", str("https://example.org/a%20b/"), "https://example.org/a%20b/details/"},
+		{"unsafe characters encoded", str(`https://example.org/it's "x" <y> a\b /`), "https://example.org/it%27s%20%22x%22%20%3Cy%3E%20a%5Cb%20/details/"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

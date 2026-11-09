@@ -434,12 +434,12 @@ components:
           nullable: true
           description: |
             Optional external link with more about the assembly. Absolute `http`/`https` URL, at most 2048 characters.
-            It is also the base of the gene links in the assembly's JBrowse2 annotation track: each gene's
-            ID (from the GFF's `geneIDKey`) is appended to it as is, so end it with the separator the
-            site's gene pages need (e.g. `/details/` or `?id=`). With no `infoUrl`, the track has no gene
-            links. The track takes the value current when its `GENOMIC.GFF:SETUP_JBROWSE2` job runs;
-            changing `infoUrl` later does not update an existing track.
-          example: https://ibeetle-base.uni-goettingen.de/details/
+            It is also the site root of the gene links in the assembly's JBrowse2 annotation track: each
+            gene links to `<infoUrl>/details/<geneID>`. A trailing slash on `infoUrl` is dropped, so it
+            can be entered with or without one. With no `infoUrl`, the track has no gene links. The track
+            takes the value current when its `GENOMIC.GFF:SETUP_JBROWSE2` job runs; changing `infoUrl`
+            later does not update an existing track.
+          example: https://ibeetle-base.uni-goettingen.de/
         createdAt:
           type: string
           format: date-time
@@ -1996,8 +1996,8 @@ paths:
                   example: Homo sapiens
                 infoUrl:
                   type: string
-                  description: Optional. Absolute `http`/`https` URL, at most 2048 characters. Also the base of the assembly's JBrowse2 gene links (see `AssemblyVersion.infoUrl`).
-                  example: https://ibeetle-base.uni-goettingen.de/details/
+                  description: Optional. Absolute `http`/`https` URL, at most 2048 characters. Also the site root of the assembly's JBrowse2 gene links, `<infoUrl>/details/<geneID>` (see `AssemblyVersion.infoUrl`).
+                  example: https://ibeetle-base.uni-goettingen.de/
       responses:
         '201':
           description: Assembly version created.
@@ -2130,8 +2130,8 @@ paths:
               properties:
                 infoUrl:
                   type: string
-                  description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link. Also the base of the assembly's JBrowse2 gene links (see `AssemblyVersion.infoUrl`); an existing annotation track keeps its links until its GFF is set up again.
-                  example: https://ibeetle-base.uni-goettingen.de/details/
+                  description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link. Also the site root of the assembly's JBrowse2 gene links, `<infoUrl>/details/<geneID>` (see `AssemblyVersion.infoUrl`); an existing annotation track keeps its links until its GFF is set up again.
+                  example: https://ibeetle-base.uni-goettingen.de/
       responses:
         '200':
           description: The updated assembly.
