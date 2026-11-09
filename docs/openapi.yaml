@@ -432,8 +432,14 @@ components:
         infoUrl:
           type: string
           nullable: true
-          description: Optional external link with more about the assembly. Absolute `http`/`https` URL, at most 2048 characters.
-          example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+          description: |
+            Optional external link with more about the assembly. Absolute `http`/`https` URL, at most 2048 characters.
+            It is also the base of the gene links in the assembly's JBrowse2 annotation track: each gene's
+            ID (from the GFF's `geneIDKey`) is appended to it as is, so end it with the separator the
+            site's gene pages need (e.g. `/details/` or `?id=`). With no `infoUrl`, the track has no gene
+            links. The track takes the value current when its `GENOMIC.GFF:SETUP_JBROWSE2` job runs;
+            changing `infoUrl` later does not update an existing track.
+          example: https://ibeetle-base.uni-goettingen.de/details/
         createdAt:
           type: string
           format: date-time
@@ -564,12 +570,12 @@ components:
     SearchResult:
       type: object
       description: |
-        At most one of `genes`, `orthologies`, or `otherGenes` is populated.
-        All three are absent when no match is found.
+        `genes` is never populated together with the other two; `orthologies` and
+        `otherGenes` can both be. All three are absent when no match is found.
 
         - `genes` — query matched a gene of the requested `species`; contains the matching gene IDs (species prefix stripped). Never set without `species`.
-        - `orthologies` — query matched genes of other species (every species, without `species`) and orthology groups were found; each group is enriched with synonyms from the query.
-        - `otherGenes` — query matched genes of other species but no orthology groups were found.
+        - `orthologies` — query matched genes of other species (every species, without `species`) that orthology groups contain; each group is enriched with synonyms from the query.
+        - `otherGenes` — query matched genes of other species that no returned orthology group contains. A gene shown in `orthologies` is not repeated here.
       properties:
         genes:
           type: array
@@ -928,8 +934,9 @@ paths:
           with that species' gene IDs.
         - Otherwise (no `species`, a search of every species that prefers none, or no match
           in that species), every match counts as another species' gene:
-          - if orthology groups contain them → `orthologies` is populated, each group enriched with the synonyms returned by the query;
-          - else → `otherGenes` is populated, each with its `species`.
+          - matches that orthology groups contain → `orthologies`, each group enriched with the synonyms returned by the query;
+          - matches no group contains → `otherGenes`, each with its `species`.
+          Both can be populated in one response.
 
         All three fields are absent when no match is found.
       parameters:
@@ -961,7 +968,7 @@ paths:
           example: dmel_r6.54
       responses:
         '200':
-          description: Search executed successfully. One of `genes`, `orthologies`, or `otherGenes` is populated; all are absent on no match.
+          description: Search executed successfully. Either `genes`, or `orthologies` and/or `otherGenes`, is populated; all are absent on no match.
           content:
             application/json:
               schema:
@@ -1971,8 +1978,8 @@ paths:
                   example: Homo sapiens
                 infoUrl:
                   type: string
-                  description: Optional. Absolute `http`/`https` URL, at most 2048 characters.
-                  example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+                  description: Optional. Absolute `http`/`https` URL, at most 2048 characters. Also the base of the assembly's JBrowse2 gene links (see `AssemblyVersion.infoUrl`).
+                  example: https://ibeetle-base.uni-goettingen.de/details/
       responses:
         '201':
           description: Assembly version created.
@@ -2105,8 +2112,8 @@ paths:
               properties:
                 infoUrl:
                   type: string
-                  description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link.
-                  example: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.40/
+                  description: Absolute `http`/`https` URL, at most 2048 characters. Send `""` to remove the link. Also the base of the assembly's JBrowse2 gene links (see `AssemblyVersion.infoUrl`); an existing annotation track keeps its links until its GFF is set up again.
+                  example: https://ibeetle-base.uni-goettingen.de/details/
       responses:
         '200':
           description: The updated assembly.
@@ -2543,7 +2550,7 @@ paths:
         | `species` | Conditional | Required when `fileType` is `species.synonym`. The species identifier whose synonym rows are parsed from the file (e.g. `Dmel`). Independent of `assembly`, which says which Assembly Version the file is filed under. |
         | `trackName` | Conditional | Required when `fileType` is `jbrowse.track`. Human-readable display name for the JBrowse2 track. |
         | `category` | No | Only used when `fileType` is `jbrowse.track`. Comma-separated list of category labels used to group the track in the JBrowse2 track selector (e.g. `Alignments,My Lab`). |
-        | `selectInDefaultSession` | No | Only used when `fileType` is `jbrowse.track`. Boolean (`true`/`false`, default `false`). When `true`, the track is added to the assembly's default session (already selected/visible the first time a user opens that assembly in JBrowse2). |
+        | `selectInDefaultSession` | No | Only used when `fileType` is `jbrowse.track`. Boolean (`true`/`false`, case-insensitive; empty or omitted means `false`). Any other value, such as `yes` or `on`, is rejected with 400 (in a bundle manifest, it fails the bundle job, naming the row). When `true`, the track is added to the assembly's default session (already selected/visible the first time a user opens that assembly in JBrowse2). |
 
         **Accepted `fileType` values:**
         - `genomic.fna`

@@ -88,7 +88,8 @@ func (uc *UseCase) Suggest(ctx context.Context, prefix, species, versionName str
 // species' matches come back as genes (IDs without the species prefix). With
 // no species (a search of every species, none preferred), or when the species
 // has no match, every match is another species' gene: it comes back in the
-// orthology groups that contain it, or as otherGenes when none does.
+// orthology groups that contain it, or as otherGenes when none does. One search
+// can return both.
 func (uc *UseCase) Search(ctx context.Context, query, species, versionName string) (*SearchResult, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
@@ -143,20 +144,28 @@ func (uc *UseCase) Search(ctx context.Context, query, species, versionName strin
 		return nil, err
 	}
 
-	if len(orthologies) > 0 {
-		results := make([]OrthologyResult, len(orthologies))
-		for i, o := range orthologies {
-			results[i] = uc.enrichOrthology(o, geneToSynonyms)
+	// TODO: check with the business how to present a search whose matches are
+	// split between orthology groups and genes in none. Until then both come
+	// back together, each gene once: in its groups, or in otherGenes. Returning
+	// only the groups whenever there was one dropped every gene in none.
+	inGroup := make(map[string]bool)
+	results := make([]OrthologyResult, len(orthologies))
+	for i, o := range orthologies {
+		results[i] = uc.enrichOrthology(o, geneToSynonyms)
+		for _, gene := range o.Orthologs {
+			inGroup[gene] = true
 		}
-		return &SearchResult{Orthologies: results}, nil
 	}
 
-	otherGeneResults := make([]OtherGene, 0, len(otherGenes))
+	var otherGeneResults []OtherGene
 	for _, gene := range otherGenes {
+		if inGroup[gene] {
+			continue
+		}
 		species, geneID := splitGeneID(gene)
 		otherGeneResults = append(otherGeneResults, OtherGene{Species: species, Gene: geneID})
 	}
-	return &SearchResult{OtherGenes: otherGeneResults}, nil
+	return &SearchResult{Orthologies: results, OtherGenes: otherGeneResults}, nil
 }
 
 func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string][]entity.Synonym) OrthologyResult {

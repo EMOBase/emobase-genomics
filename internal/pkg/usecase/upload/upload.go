@@ -29,7 +29,6 @@ type UseCase struct {
 	Handler             http.Handler
 	tusHandler          *tusd.Handler
 	uploadDir           string
-	geneLinkBase        string
 	versionRepo         IVersionRepository
 	assemblyVersionRepo IAssemblyVersionRepository
 	jobRepo             IJobRepository
@@ -39,7 +38,6 @@ type UseCase struct {
 func New(
 	uploadDir string,
 	tusBasePath string,
-	geneLinkBase string,
 	staleUploadAge time.Duration,
 	versionRepo IVersionRepository,
 	assemblyVersionRepo IAssemblyVersionRepository,
@@ -55,7 +53,6 @@ func New(
 
 	uc := &UseCase{
 		uploadDir:           uploadDir,
-		geneLinkBase:        geneLinkBase,
 		versionRepo:         versionRepo,
 		assemblyVersionRepo: assemblyVersionRepo,
 		jobRepo:             jobRepo,
@@ -580,31 +577,9 @@ func (uc *UseCase) enqueueProcessJob(ctx context.Context, uploadID string, meta 
 
 	// jbrowse.track: run jbrowse add-track with track-specific metadata.
 	if fileType == entity.FileTypeJBrowseTrack {
-		selectInDefaultSession, _ := strconv.ParseBool(meta["selectInDefaultSession"])
-		rawPayload, err := json.Marshal(jobpayload.JBrowseTrackPayload{
-			VersionID:              versionID,
-			AssemblyVersionID:      *assemblyVersionID,
-			FilePath:               filePath,
-			TrackName:              strings.TrimSpace(meta["trackName"]),
-			FileID:                 uploadID,
-			Category:               strings.TrimSpace(meta["category"]),
-			SelectInDefaultSession: selectInDefaultSession,
-		})
+		job, err := uploadspec.NewJBrowseTrackJob(versionID, assemblyVersionID, uploadID, filePath, meta)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal %s payload: %w", entity.JobTypeJBrowseTrack, err)
-		}
-		p := json.RawMessage(rawPayload)
-		now := time.Now().UTC()
-		job := &entity.Job{
-			VersionID:         versionID,
-			AssemblyVersionID: assemblyVersionID,
-			FileID:            &uploadID,
-			Type:              entity.JobTypeJBrowseTrack,
-			Description:       entity.JobDescriptions[entity.JobTypeJBrowseTrack],
-			Payload:           &p,
-			Status:            entity.JobStatusPending,
-			CreatedAt:         now,
-			UpdatedAt:         now,
+			return nil, err
 		}
 		if err := uc.jobRepo.Create(ctx, job); err != nil {
 			return nil, fmt.Errorf("failed to create %s job: %w", entity.JobTypeJBrowseTrack, err)
@@ -847,7 +822,6 @@ func (uc *UseCase) tryEnqueueGFFSetupJBrowse2(ctx context.Context, versionID uin
 		DisplayLabel:      displayLabel,
 		GenomicGFFPath:    gffFilePath,
 		GeneIDKey:         geneIDKey,
-		GeneLinkBase:      uc.geneLinkBase,
 		TrimPrefixChars:   trimPrefixChars,
 		TrimSuffixChars:   trimSuffixChars,
 	})

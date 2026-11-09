@@ -37,4 +37,5 @@ type IAppSettingsRepository interface {
 
 type IAssemblyVersionRepository interface {
 	ListByVersionID(ctx context.Context, versionID uint64) ([]entity.AssemblyVersion, error)
+	FindByID(ctx context.Context, id uint64) (*entity.AssemblyVersion, error)
 }

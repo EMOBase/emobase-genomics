@@ -23,13 +23,15 @@ type SetupJBrowse2FNAPayload struct {
 // (entity.FormatAssemblyID) right before invoking the setup script.
 // DisplayLabel is the human-readable "{versionName} — {assembly.name}" text
 // used for the track title (not derivable from the numeric IDs above).
+// The gene link base is not carried here: the handler reads the assembly's
+// info_url when it runs (jobs enqueued earlier still hold a gene_link_base,
+// which is ignored).
 type SetupJBrowse2GFFPayload struct {
 	VersionID         uint64 `json:"version_id"`
 	AssemblyVersionID uint64 `json:"assembly_version_id"`
 	DisplayLabel      string `json:"display_label"`
 	GenomicGFFPath    string `json:"genomic_gff_path"`
 	GeneIDKey         string `json:"gene_id_key,omitempty"`
-	GeneLinkBase      string `json:"gene_link_base,omitempty"`
 	TrimPrefixChars   int    `json:"trim_prefix_chars,omitempty"`
 	TrimSuffixChars   int    `json:"trim_suffix_chars,omitempty"`
 }

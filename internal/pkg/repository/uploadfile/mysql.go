@@ -206,21 +206,27 @@ func (r *MySQLRepository) UpdateStatus(ctx context.Context, id string, status en
 	return err
 }
 
-// FindLatestCompletedPerTypeByVersionID returns the most recently created
-// COMPLETED file for each file_type in a single query, using a window function.
-func (r *MySQLRepository) FindLatestCompletedPerTypeByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error) {
+// ListCurrentCompletedSharedByVersionID returns the Database Version's
+// completed files that belong to no assembly and still describe it, the ones a
+// release checks: every orthology.tsv and the latest orthology.bundle, the same
+// rule as the job repo's StatusCountsForSharedJobs.
+func (r *MySQLRepository) ListCurrentCompletedSharedByVersionID(ctx context.Context, versionID uint64) ([]entity.UploadFile, error) {
+	args := []any{versionID, entity.UploadStatusCompleted}
+	for _, t := range entity.LatestFileTypes {
+		args = append(args, t)
+	}
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
 		 FROM (
 		   SELECT id, version_id, file_path, file_type, file_size, metadata, upload_status,
 		          created_at, created_by, completed_at, deleted_at, deleted_by,
-		          ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC) AS rn
+		          ROW_NUMBER() OVER (PARTITION BY file_type ORDER BY created_at DESC, id DESC) AS rn
 		   FROM upload_files
-		   WHERE version_id = ? AND upload_status = ? AND deleted_at IS NULL`+notBundleSQL+`
+		   WHERE version_id = ? AND assembly_version_id IS NULL AND upload_status = ? AND deleted_at IS NULL
 		 ) ranked
-		 WHERE rn = 1`,
-		append([]any{versionID, entity.UploadStatusCompleted}, notBundleArgs()...)...,
+		 WHERE rn = 1 OR file_type NOT IN (?`+strings.Repeat(",?", len(entity.LatestFileTypes)-1)+`)`,
+		args...,
 	)
 	if err != nil {
 		return nil, err
@@ -265,10 +271,15 @@ func (r *MySQLRepository) FindLatestCompletedByVersionAndType(ctx context.Contex
 	return f, nil
 }
 
-// FindLatestCompletedPerTypeByAssemblyVersionID is the per-assembly counterpart
-// of FindLatestCompletedPerTypeByVersionID, used for per-assembly required-file
-// checks and per-assembly detail views.
-func (r *MySQLRepository) FindLatestCompletedPerTypeByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error) {
+// ListCurrentCompletedByAssemblyVersionID returns the assembly's completed
+// files that still describe it, the ones a release checks: the latest of each
+// entity.LatestFileTypes type and every file of the other types, the same rule
+// as the job repo's StatusCountsByAssemblyVersionID.
+func (r *MySQLRepository) ListCurrentCompletedByAssemblyVersionID(ctx context.Context, assemblyVersionID uint64) ([]entity.UploadFile, error) {
+	args := []any{assemblyVersionID, entity.UploadStatusCompleted}
+	for _, t := range entity.LatestFileTypes {
+		args = append(args, t)
+	}
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, version_id, assembly_version_id, file_path, file_type, file_size, metadata, upload_status,
 		        created_at, created_by, completed_at, deleted_at, deleted_by
@@ -279,8 +290,8 @@ func (r *MySQLRepository) FindLatestCompletedPerTypeByAssemblyVersionID(ctx cont
 		   FROM upload_files
 		   WHERE assembly_version_id = ? AND upload_status = ? AND deleted_at IS NULL
 		 ) ranked
-		 WHERE rn = 1`,
-		assemblyVersionID, entity.UploadStatusCompleted,
+		 WHERE rn = 1 OR file_type NOT IN (?`+strings.Repeat(",?", len(entity.LatestFileTypes)-1)+`)`,
+		args...,
 	)
 	if err != nil {
 		return nil, err
