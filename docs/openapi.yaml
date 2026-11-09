@@ -570,11 +570,13 @@ components:
     SearchResult:
       type: object
       description: |
-        `genes` is never populated together with the other two; `orthologies` and
-        `otherGenes` can both be. All three are absent when no match is found.
+        `genes` is never populated together with the other three. `matchedGenes`,
+        `orthologies`, and `otherGenes` describe the all-species view and can be
+        populated together. All are absent when no match is found.
 
         - `genes` — query matched a gene of the requested `species`; contains the matching gene IDs (species prefix stripped). Never set without `species`.
-        - `orthologies` — query matched genes of other species (every species, without `species`) that orthology groups contain; each group is enriched with synonyms from the query.
+        - `matchedGenes` — every gene matched outside the requested `species` (every species, without `species`), each with its `species`. This is the direct-hit list of the all-species view; it includes genes that an orthology group also contains.
+        - `orthologies` — the orthology groups that contain at least one matched gene; each group is enriched with synonyms from the query.
         - `otherGenes` — query matched genes of other species that no returned orthology group contains. A gene shown in `orthologies` is not repeated here.
       properties:
         genes:
@@ -582,6 +584,11 @@ components:
           items:
             type: string
           example: ["TC016177", "TC016178"]
+        matchedGenes:
+          type: array
+          description: Every gene matched on the all-species view, whether or not an orthology group contains it.
+          items:
+            $ref: '#/components/schemas/OtherGene'
         orthologies:
           type: array
           items:
@@ -934,9 +941,12 @@ paths:
           with that species' gene IDs.
         - Otherwise (no `species`, a search of every species that prefers none, or no match
           in that species), every match counts as another species' gene:
+          - every match → `matchedGenes`, each with its `species`;
           - matches that orthology groups contain → `orthologies`, each group enriched with the synonyms returned by the query;
           - matches no group contains → `otherGenes`, each with its `species`.
-          Both can be populated in one response.
+          All three can be populated in one response; `matchedGenes` is the direct-hit
+          list, while `orthologies` and `otherGenes` split those hits between the ones
+          with a group and the ones without.
 
         All three fields are absent when no match is found.
       parameters:
@@ -968,7 +978,7 @@ paths:
           example: dmel_r6.54
       responses:
         '200':
-          description: Search executed successfully. Either `genes`, or `orthologies` and/or `otherGenes`, is populated; all are absent on no match.
+          description: Search executed successfully. With a `species` match, `genes`; otherwise `matchedGenes`, plus `orthologies` and/or `otherGenes` when groups apply. All are absent on no match.
           content:
             application/json:
               schema:
@@ -989,6 +999,11 @@ paths:
                   summary: Query matched another species — orthology found
                   value:
                     data:
+                      matchedGenes:
+                        - species: Dmel
+                          gene: FBgn0003996
+                        - species: Tcas
+                          gene: TC016177
                       orthologies:
                         - group: OG0001234
                           source: OrthoMCL
@@ -1006,6 +1021,9 @@ paths:
                   summary: Query matched another species — no orthology
                   value:
                     data:
+                      matchedGenes:
+                        - species: Dmel
+                          gene: FBgn0003996
                       otherGenes:
                         - species: Dmel
                           gene: FBgn0003996
