@@ -38,9 +38,10 @@ type OtherGene struct {
 }
 
 type SearchResult struct {
-	Genes       []string          `json:"genes,omitempty"`
-	Orthologies []OrthologyResult `json:"orthologies,omitempty"`
-	OtherGenes  []OtherGene       `json:"otherGenes,omitempty"`
+	Genes        []string          `json:"genes,omitempty"`
+	MatchedGenes []OtherGene       `json:"matchedGenes,omitempty"`
+	Orthologies  []OrthologyResult `json:"orthologies,omitempty"`
+	OtherGenes   []OtherGene       `json:"otherGenes,omitempty"`
 }
 
 type UseCase struct {
@@ -87,9 +88,9 @@ func (uc *UseCase) Suggest(ctx context.Context, prefix, species, versionName str
 // Search finds the genes whose synonyms match query. With a species, that
 // species' matches come back as genes (IDs without the species prefix). With
 // no species (a search of every species, none preferred), or when the species
-// has no match, every match is another species' gene: it comes back in the
-// orthology groups that contain it, or as otherGenes when none does. One search
-// can return both.
+// has no match, every match is another species' gene: it comes back in
+// matchedGenes and in the orthology groups that contain it, or as otherGenes
+// when none does. One search can return all three.
 func (uc *UseCase) Search(ctx context.Context, query, species, versionName string) (*SearchResult, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
@@ -144,10 +145,6 @@ func (uc *UseCase) Search(ctx context.Context, query, species, versionName strin
 		return nil, err
 	}
 
-	// TODO: check with the business how to present a search whose matches are
-	// split between orthology groups and genes in none. Until then both come
-	// back together, each gene once: in its groups, or in otherGenes. Returning
-	// only the groups whenever there was one dropped every gene in none.
 	inGroup := make(map[string]bool)
 	results := make([]OrthologyResult, len(orthologies))
 	for i, o := range orthologies {
@@ -157,15 +154,24 @@ func (uc *UseCase) Search(ctx context.Context, query, species, versionName strin
 		}
 	}
 
+	// matchedGenes is every match, the direct hits of the all-species view.
+	// otherGenes keeps its meaning for the clients that show genes outside the
+	// main species and outside the orthology groups: a gene a group contains is
+	// not repeated there. Sorting keeps both stable (the matches come from a
+	// map).
+	sort.Strings(otherGenes)
+	matchedGeneResults := make([]OtherGene, 0, len(otherGenes))
 	var otherGeneResults []OtherGene
 	for _, gene := range otherGenes {
+		species, geneID := splitGeneID(gene)
+		hit := OtherGene{Species: species, Gene: geneID}
+		matchedGeneResults = append(matchedGeneResults, hit)
 		if inGroup[gene] {
 			continue
 		}
-		species, geneID := splitGeneID(gene)
-		otherGeneResults = append(otherGeneResults, OtherGene{Species: species, Gene: geneID})
+		otherGeneResults = append(otherGeneResults, hit)
 	}
-	return &SearchResult{Orthologies: results, OtherGenes: otherGeneResults}, nil
+	return &SearchResult{MatchedGenes: matchedGeneResults, Orthologies: results, OtherGenes: otherGeneResults}, nil
 }
 
 func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string][]entity.Synonym) OrthologyResult {
