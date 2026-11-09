@@ -280,10 +280,11 @@ additionally take a `DISPLAY_LABEL` argument (`"{versionName} — {assembly.name
 the stored names at upload) purely for what people see: the assembly's JBrowse2
 `displayName` and the annotation track title, since `AssemblyID` itself isn't presentable.
 Never use the label as the JBrowse2 `name`: scripts prefix and match data files by it. The
-annotation track's gene links are the assembly's `info_url` + gene ID: there is no global link
-config, since each species links to its own site. `SetupGFFJBrowse2Handler` reads `info_url`
-when the job runs (percent-encoding what the script's JEXL/HTML can't hold); with none, the
-track gets no links, and editing `info_url` later doesn't touch an existing track. Nothing about a
+annotation track's gene links are the assembly's `info_url` + `/details/` + gene ID: there is no
+global link config, since each species links to its own site. `info_url` is the site root, and a
+trailing slash on it is dropped. `SetupGFFJBrowse2Handler` reads `info_url` when the job runs
+(percent-encoding what the script's JEXL/HTML can't hold); with none, the track gets no links, and
+editing `info_url` later doesn't touch an existing track. Nothing about a
 view entry reflects "this is the currently active version" by itself, and old entries
 are never removed just because a newer version is released (only explicit
 Version/Assembly-Version deletion, via `delete_jbrowse_version.sh` keyed by

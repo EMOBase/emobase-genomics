@@ -125,16 +125,20 @@ var geneLinkBaseEscaper = strings.NewReplacer(
 	"'", "%27", `"`, "%22", "<", "%3C", ">", "%3E", `\`, "%5C", " ", "%20",
 )
 
-// geneLinkBase is the base the script prepends to each gene ID in the
-// annotation track's detail link: the assembly's info_url as entered, so it
-// must end with whatever separator the site's gene pages need (e.g.
-// ".../details/"). Empty when the assembly has none, and the script then adds
-// no link.
+// geneLinkBase is the prefix the script prepends to each gene ID in the
+// annotation track's detail link. The assembly's info_url is its site root, so
+// the link is "<info_url>/details/<geneID>"; a trailing slash on info_url is
+// dropped so the path never doubles. Empty when the assembly has none, and the
+// script then adds no link.
 func geneLinkBase(infoURL *string) string {
 	if infoURL == nil {
 		return ""
 	}
-	return geneLinkBaseEscaper.Replace(*infoURL)
+	base := strings.TrimRight(*infoURL, "/")
+	if base == "" {
+		return ""
+	}
+	return geneLinkBaseEscaper.Replace(base + "/details/")
 }
 
 // tryEnqueueGFFSetupJBrowse2 looks up the latest done GENOMIC.GFF job for this
