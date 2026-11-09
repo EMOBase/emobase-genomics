@@ -22,28 +22,32 @@ type ISynonymUseCase interface {
 }
 
 type ISynonymRepository interface {
-	SetAlias(ctx context.Context, indexName, aliasName string) error
+	SetAlias(ctx context.Context, indexName, aliasName, assemblyKey string) error
 	DeleteByFileID(ctx context.Context, indexName, fileID string) error
+	DeleteByFileIDs(ctx context.Context, indexName string, fileIDs []string) error
 }
 
 type SynonymHandler struct {
-	versionRepo IVersionRepository
-	synonymUC   ISynonymUseCase
-	synonymRepo ISynonymRepository
-	indexPrefix string
+	versionRepo    IVersionRepository
+	synonymUC      ISynonymUseCase
+	synonymRepo    ISynonymRepository
+	uploadFileRepo IReplacedFileRepository
+	indexPrefix    string
 }
 
 func NewSynonymHandler(
 	versionRepo IVersionRepository,
 	synonymUC ISynonymUseCase,
 	synonymRepo ISynonymRepository,
+	uploadFileRepo IReplacedFileRepository,
 	indexPrefix string,
 ) *SynonymHandler {
 	return &SynonymHandler{
-		versionRepo: versionRepo,
-		synonymUC:   synonymUC,
-		synonymRepo: synonymRepo,
-		indexPrefix: indexPrefix,
+		versionRepo:    versionRepo,
+		synonymUC:      synonymUC,
+		synonymRepo:    synonymRepo,
+		uploadFileRepo: uploadFileRepo,
+		indexPrefix:    indexPrefix,
 	}
 }
 
@@ -62,9 +66,13 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 	}
 
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
+	if payload.AssemblyVersionID == 0 {
+		return nil, fmt.Errorf("job payload has no assembly_version_id")
+	}
+	assemblyKey := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
 	// Use version.CreatedAt.Unix() instead of time.Now().Unix() to fix the index name,
-	// so multiple synonym files uploaded for the same version will be indexed into the same ES index.
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	// so multiple synonym files uploaded for the same assembly will be indexed into the same ES index.
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, assemblyKey, version.CreatedAt.Unix())
 
 	parser := h.parserForFile(payload)
 	if parser == nil {
@@ -75,7 +83,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 		return nil, err
 	}
 
-	if err := h.synonymRepo.SetAlias(ctx, indexName, aliasName); err != nil {
+	if err := h.synonymRepo.SetAlias(ctx, indexName, aliasName, assemblyKey); err != nil {
 		return nil, err
 	}
 
@@ -86,7 +94,7 @@ func (h *SynonymHandler) Handle(ctx context.Context, job entity.Job) (json.RawMe
 // *.gff.gz / *.gff3.gz  → GFF3SynonymParser             (any species)
 // fb_synonym_*           → FlyBaseSynonymParser          (Dmel fb_synonym files)
 // fbgn_fbtr_fbpp_*       → FlyBaseGeneRNAProteinMapParser (Dmel gene/RNA/protein map)
-// ib_tc*                 → IBTCParser                    (Tcas iB-to-TC mapping)
+// ib_tc*, dsrna_gene*    → IBTCParser                    (dsRNA-to-gene mapping, any species)
 func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload) synonymparser.ISynonymParser {
 	base := strings.ToLower(filepath.Base(payload.FilePath))
 	switch {
@@ -96,11 +104,48 @@ func (h *SynonymHandler) parserForFile(payload jobpayload.SpeciesSynonymPayload)
 		return synonymparser.NewFlyBaseSynonymParser(payload.Species)
 	case strings.HasPrefix(base, "fbgn_fbtr_fbpp_"):
 		return synonymparser.NewFlyBaseGeneRNAProteinMapParser(payload.Species)
-	case strings.HasPrefix(base, "ib_tc"):
+	case strings.HasPrefix(base, "ib_tc"), strings.HasPrefix(base, "dsrna_gene"):
 		return synonymparser.NewIBTCParser(payload.Species)
 	default:
 		return nil
 	}
+}
+
+// OnComplete removes the synonyms of the GFF files this one replaced, now that
+// its own are indexed. All of an assembly's synonym files share one index, and
+// a re-uploaded GFF rewrites only the synonyms it still has, so the replaced
+// GFF's other synonyms (removed genes, dropped names) would otherwise stay
+// searchable. A species.synonym file replaces nothing: every one stays.
+func (h *SynonymHandler) OnComplete(ctx context.Context, job entity.Job, _ json.RawMessage) error {
+	var payload jobpayload.SpeciesSynonymPayload
+	if err := json.Unmarshal(*job.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal %s payload: %w", entity.JobTypeSpeciesSynonym, err)
+	}
+	f, err := h.uploadFileRepo.FindByID(ctx, payload.UploadFileID)
+	if err != nil {
+		return fmt.Errorf("failed to look up upload file: %w", err)
+	}
+	if f == nil || !entity.IsSingleFileType(f.FileType) {
+		return nil
+	}
+	replaced, err := h.uploadFileRepo.ListIDsReplacedBy(ctx, payload.UploadFileID)
+	if err != nil {
+		return fmt.Errorf("failed to list replaced files: %w", err)
+	}
+	if len(replaced) == 0 {
+		return nil
+	}
+
+	version, err := h.versionRepo.FindByID(ctx, payload.VersionID)
+	if err != nil || version == nil {
+		return fmt.Errorf("failed to look up version %d: %v", payload.VersionID, err)
+	}
+	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID), version.CreatedAt.Unix())
+	if err := h.synonymRepo.DeleteByFileIDs(ctx, indexName, replaced); err != nil {
+		return fmt.Errorf("failed to delete replaced synonyms from %s: %w", indexName, err)
+	}
+	return nil
 }
 
 // OnFailure removes any partially-inserted ES records for the file so the index
@@ -119,7 +164,7 @@ func (h *SynonymHandler) OnFailure(ctx context.Context, job entity.Job, _ error)
 	}
 
 	aliasName := fmt.Sprintf("%s-synonym-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, version.CreatedAt.Unix())
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID), version.CreatedAt.Unix())
 
 	if err := h.synonymRepo.DeleteByFileID(ctx, indexName, payload.UploadFileID); err != nil {
 		log.Ctx(ctx).Warn().Err(err).

@@ -14,6 +14,7 @@ import (
 	configs "github.com/EMOBase/emobase-genomics/internal/pkg/config"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/database"
 	repoappsettings "github.com/EMOBase/emobase-genomics/internal/pkg/repository/appsettings"
+	repoassemblyversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/assemblyversion"
 	repodsrna "github.com/EMOBase/emobase-genomics/internal/pkg/repository/dsrna"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/repository/esindex"
 	repogenomic "github.com/EMOBase/emobase-genomics/internal/pkg/repository/genomic"
@@ -23,6 +24,7 @@ import (
 	reposynonym "github.com/EMOBase/emobase-genomics/internal/pkg/repository/synonym"
 	repouploadfile "github.com/EMOBase/emobase-genomics/internal/pkg/repository/uploadfile"
 	repoversion "github.com/EMOBase/emobase-genomics/internal/pkg/repository/version"
+	ucassemblyversion "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/assemblyversion"
 	ucjob "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/job"
 	ucsearch "github.com/EMOBase/emobase-genomics/internal/pkg/usecase/search"
 	"github.com/EMOBase/emobase-genomics/internal/pkg/usecase/upload"
@@ -56,7 +58,10 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	versionRepo := repoversion.New(db)
 	uploadFileRepo := repouploadfile.New(db)
-	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, esindex.New(esClient, config.Elasticsearch.IndexPrefix), config.Uploads.Dir)
+	assemblyVersionRepo := repoassemblyversion.New(db)
+	esIndexRepo := esindex.New(esClient, config.Elasticsearch.IndexPrefix)
+	versionUC := ucversion.New(versionRepo, appSettingsRepo, jobRepo, uploadFileRepo, assemblyVersionRepo, esIndexRepo, config.Uploads.Dir, config.Blast.DBPath)
+	assemblyVersionUC := ucassemblyversion.New(versionRepo, assemblyVersionRepo, jobRepo, uploadFileRepo, esIndexRepo, appSettingsRepo, config.Uploads.Dir, config.Blast.DBPath)
 
 	jobUC := ucjob.New(jobRepo, versionRepo)
 
@@ -69,16 +74,14 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 		repodsrna.New(esClient, batchSize),
 		versionresolver.New(versionRepo, appSettingsRepo),
 		config.Elasticsearch.IndexPrefix,
-		config.MainSpecies,
 	)
 
 	uploadUC, err := upload.New(
 		config.Uploads.Dir,
 		config.Uploads.TUSBasePath,
-		config.JBrowse2.GeneLinkBase,
-		config.MainSpecies,
 		config.Uploads.StaleAfter,
 		versionRepo,
+		assemblyVersionRepo,
 		jobRepo,
 		uploadFileRepo,
 	)
@@ -93,7 +96,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	gin.SetMode(config.HTTP.Mode)
 
-	router := pkgapi.NewRouter(uploadUC, versionUC, jobUC, searchUC, validator)
+	router := pkgapi.NewRouter(uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),

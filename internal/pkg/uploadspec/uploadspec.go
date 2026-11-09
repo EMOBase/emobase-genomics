@@ -1,7 +1,7 @@
 // Package uploadspec holds per-file-type metadata validation and job
 // construction shared by single-file uploads (usecase/upload) and bundle
-// extraction (worker BundleHandler), so both paths accept the same metadata
-// and enqueue identical jobs.
+// extraction (worker BundleHandler), so both paths accept the same metadata and
+// enqueue identical jobs.
 package uploadspec
 
 import (
@@ -35,14 +35,32 @@ func ValidateJBrowseTrackMeta(meta map[string]string) error {
 	if strings.TrimSpace(meta["trackName"]) == "" {
 		return errors.New("jbrowse.track uploads require a \"trackName\" metadata field")
 	}
-	return nil
+	_, err := parseSelectInDefaultSession(meta)
+	return err
 }
 
-// NewOrthologyTSVJob builds (but does not persist) an ORTHOLOGY.TSV job.
+// parseSelectInDefaultSession reads the optional selectInDefaultSession field,
+// trimmed. Empty means false. A value strconv.ParseBool cannot read is an error,
+// not false: a "yes", or a checkbox's "on", would otherwise leave the track out
+// of the default session with nothing telling the uploader why.
+func parseSelectInDefaultSession(meta map[string]string) (bool, error) {
+	v := strings.TrimSpace(meta["selectInDefaultSession"])
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, errors.New("jbrowse.track \"selectInDefaultSession\" metadata field must be \"true\" or \"false\"")
+	}
+	return b, nil
+}
+
+// NewOrthologyTSVJob builds (but does not persist) an ORTHOLOGY.TSV job. Orthology
+// files belong to the whole version, so the job has no assembly.
 // meta must already have passed ValidateOrthologyMeta.
 func NewOrthologyTSVJob(versionID uint64, fileID, filePath string, meta map[string]string) (*entity.Job, error) {
 	order, _ := strconv.Atoi(meta["order"])
-	return newJob(versionID, fileID, entity.JobTypeOrthologyTSV, jobpayload.OrthologyTSVPayload{
+	return newJob(versionID, nil, fileID, entity.JobTypeOrthologyTSV, jobpayload.OrthologyTSVPayload{
 		UploadFileID: fileID,
 		VersionID:    versionID,
 		FilePath:     filePath,
@@ -51,12 +69,19 @@ func NewOrthologyTSVJob(versionID uint64, fileID, filePath string, meta map[stri
 	})
 }
 
-// NewJBrowseTrackJob builds (but does not persist) a JBROWSE.TRACK job.
-// meta must already have passed ValidateJBrowseTrackMeta.
-func NewJBrowseTrackJob(versionID uint64, versionName, fileID, filePath string, meta map[string]string) (*entity.Job, error) {
-	selectInDefaultSession, _ := strconv.ParseBool(meta["selectInDefaultSession"])
-	return newJob(versionID, fileID, entity.JobTypeJBrowseTrack, jobpayload.JBrowseTrackPayload{
-		VersionName:            versionName,
+// NewJBrowseTrackJob builds (but does not persist) a JBROWSE.TRACK job for the
+// given assembly. meta must already have passed ValidateJBrowseTrackMeta.
+func NewJBrowseTrackJob(versionID uint64, assemblyVersionID *uint64, fileID, filePath string, meta map[string]string) (*entity.Job, error) {
+	if assemblyVersionID == nil {
+		return nil, errors.New("jbrowse.track files must belong to an assembly")
+	}
+	selectInDefaultSession, err := parseSelectInDefaultSession(meta)
+	if err != nil {
+		return nil, err
+	}
+	return newJob(versionID, assemblyVersionID, fileID, entity.JobTypeJBrowseTrack, jobpayload.JBrowseTrackPayload{
+		VersionID:              versionID,
+		AssemblyVersionID:      *assemblyVersionID,
 		FilePath:               filePath,
 		TrackName:              strings.TrimSpace(meta["trackName"]),
 		FileID:                 fileID,
@@ -65,7 +90,7 @@ func NewJBrowseTrackJob(versionID uint64, versionName, fileID, filePath string, 
 	})
 }
 
-func newJob(versionID uint64, fileID, jobType string, payload any) (*entity.Job, error) {
+func newJob(versionID uint64, assemblyVersionID *uint64, fileID, jobType string, payload any) (*entity.Job, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal %s payload: %w", jobType, err)
@@ -73,14 +98,15 @@ func newJob(versionID uint64, fileID, jobType string, payload any) (*entity.Job,
 	p := json.RawMessage(raw)
 	now := time.Now().UTC()
 	return &entity.Job{
-		VersionID:   versionID,
-		FileID:      &fileID,
-		Type:        jobType,
-		Description: entity.JobDescriptions[jobType],
-		Payload:     &p,
-		Status:      entity.JobStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		VersionID:         versionID,
+		AssemblyVersionID: assemblyVersionID,
+		FileID:            &fileID,
+		Type:              jobType,
+		Description:       entity.JobDescriptions[jobType],
+		Payload:           &p,
+		Status:            entity.JobStatusPending,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}, nil
 }
 
@@ -93,7 +119,7 @@ type BundleSpec struct {
 	// UniqueColumn, if set, must not repeat across rows of one bundle.
 	UniqueColumn string
 	Validate     func(meta map[string]string) error
-	NewJob       func(versionID uint64, versionName, fileID, filePath string, meta map[string]string) (*entity.Job, error)
+	NewJob       func(versionID uint64, assemblyVersionID *uint64, fileID, filePath string, meta map[string]string) (*entity.Job, error)
 }
 
 // ManifestFileName is the archive entry that describes every other entry.
@@ -108,7 +134,7 @@ var Bundles = map[string]BundleSpec{
 		// No UniqueColumn: order+algorithm form a shared source label
 		// ("{order}.{algorithm}"), so several files may legitimately share one.
 		Validate: ValidateOrthologyMeta,
-		NewJob: func(versionID uint64, _ string, fileID, filePath string, meta map[string]string) (*entity.Job, error) {
+		NewJob: func(versionID uint64, _ *uint64, fileID, filePath string, meta map[string]string) (*entity.Job, error) {
 			return NewOrthologyTSVJob(versionID, fileID, filePath, meta)
 		},
 	},

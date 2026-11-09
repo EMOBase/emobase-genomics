@@ -16,12 +16,12 @@ import (
 )
 
 type IDsRNAUseCase interface {
-	Load(ctx context.Context, r io.Reader, indexName string) error
+	Load(ctx context.Context, r io.Reader, indexName, species string) error
 }
 
 type IDsRNARepository interface {
-	SetAlias(ctx context.Context, indexName, aliasName string) error
-	DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName string) error
+	SetAlias(ctx context.Context, indexName, aliasName, assemblyKey string) error
+	DeleteStaleIndexes(ctx context.Context, aliasName, liveIndexName, assemblyKey string) error
 }
 
 type DsRNACSVHandler struct {
@@ -46,8 +46,9 @@ func NewDsRNACSVHandler(
 }
 
 type dsrnaCSVResult struct {
-	IndexName string `json:"indexName"`
-	AliasName string `json:"aliasName"`
+	IndexName   string `json:"indexName"`
+	AliasName   string `json:"aliasName"`
+	AssemblyKey string `json:"assemblyKey"`
 }
 
 func (h *DsRNACSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawMessage, error) {
@@ -64,8 +65,12 @@ func (h *DsRNACSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawM
 		return nil, fmt.Errorf("version %d not found", payload.VersionID)
 	}
 
+	if payload.AssemblyVersionID == 0 {
+		return nil, fmt.Errorf("job payload has no assembly_version_id")
+	}
+	assemblyKey := entity.FormatAssemblyID(payload.VersionID, payload.AssemblyVersionID)
 	aliasName := fmt.Sprintf("%s-dsrna-%s", h.indexPrefix, indexname.FromVersionName(version.Name))
-	indexName := fmt.Sprintf("%s-%d", aliasName, time.Now().Unix())
+	indexName := fmt.Sprintf("%s-%s-%d", aliasName, assemblyKey, time.Now().Unix())
 
 	f, err := os.Open(payload.FilePath)
 	if err != nil {
@@ -79,15 +84,15 @@ func (h *DsRNACSVHandler) Handle(ctx context.Context, job entity.Job) (json.RawM
 	}
 	defer func() { _ = gr.Close() }()
 
-	if err := h.dsrnaUC.Load(ctx, gr, indexName); err != nil {
+	if err := h.dsrnaUC.Load(ctx, gr, indexName, payload.Species); err != nil {
 		return nil, err
 	}
 
-	if err := h.dsrnaRepo.SetAlias(ctx, indexName, aliasName); err != nil {
+	if err := h.dsrnaRepo.SetAlias(ctx, indexName, aliasName, assemblyKey); err != nil {
 		return nil, err
 	}
 
-	raw, err := json.Marshal(dsrnaCSVResult{IndexName: indexName, AliasName: aliasName})
+	raw, err := json.Marshal(dsrnaCSVResult{IndexName: indexName, AliasName: aliasName, AssemblyKey: assemblyKey})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
@@ -101,7 +106,7 @@ func (h *DsRNACSVHandler) OnComplete(ctx context.Context, _ entity.Job, result j
 		return nil
 	}
 
-	if err := h.dsrnaRepo.DeleteStaleIndexes(ctx, res.AliasName, res.IndexName); err != nil {
+	if err := h.dsrnaRepo.DeleteStaleIndexes(ctx, res.AliasName, res.IndexName, res.AssemblyKey); err != nil {
 		log.Ctx(ctx).Warn().Err(err).
 			Str("aliasName", res.AliasName).
 			Str("liveIndex", res.IndexName).

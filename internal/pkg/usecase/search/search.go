@@ -2,7 +2,6 @@ package search
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,9 +12,8 @@ import (
 )
 
 var (
-	ErrVersionNotFound   = versionresolver.ErrVersionNotFound
-	ErrNoDefaultVersion  = versionresolver.ErrNoDefaultVersion
-	ErrDsRNANotSupported = errors.New("silencingseqs is only supported when main_species is \"Tcas\"")
+	ErrVersionNotFound  = versionresolver.ErrVersionNotFound
+	ErrNoDefaultVersion = versionresolver.ErrNoDefaultVersion
 )
 
 type GeneWithSynonyms struct {
@@ -40,9 +38,10 @@ type OtherGene struct {
 }
 
 type SearchResult struct {
-	Genes       []string          `json:"genes,omitempty"`
-	Orthologies []OrthologyResult `json:"orthologies,omitempty"`
-	OtherGenes  []OtherGene       `json:"otherGenes,omitempty"`
+	Genes        []string          `json:"genes,omitempty"`
+	MatchedGenes []OtherGene       `json:"matchedGenes,omitempty"`
+	Orthologies  []OrthologyResult `json:"orthologies,omitempty"`
+	OtherGenes   []OtherGene       `json:"otherGenes,omitempty"`
 }
 
 type UseCase struct {
@@ -53,7 +52,6 @@ type UseCase struct {
 	dsrnaRepo     IDsRNARepository
 	resolver      versionresolver.Resolver
 	indexPrefix   string
-	mainSpecies   string
 }
 
 func New(
@@ -63,7 +61,7 @@ func New(
 	genomicRepo IGenomicLocationRepository,
 	dsrnaRepo IDsRNARepository,
 	resolver versionresolver.Resolver,
-	indexPrefix, mainSpecies string,
+	indexPrefix string,
 ) *UseCase {
 	return &UseCase{
 		synonymRepo:   synonymRepo,
@@ -73,20 +71,27 @@ func New(
 		dsrnaRepo:     dsrnaRepo,
 		resolver:      resolver,
 		indexPrefix:   indexPrefix,
-		mainSpecies:   mainSpecies,
 	}
 }
 
-func (uc *UseCase) Suggest(ctx context.Context, prefix, versionName string) ([]string, error) {
+// Suggest returns autocomplete suggestions for prefix: only species' synonyms
+// when it is set, else every species'.
+func (uc *UseCase) Suggest(ctx context.Context, prefix, species, versionName string) ([]string, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
 		return nil, err
 	}
 	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
-	return uc.synonymRepo.Suggest(ctx, synonymIndex, prefix)
+	return uc.synonymRepo.Suggest(ctx, synonymIndex, prefix, species)
 }
 
-func (uc *UseCase) Search(ctx context.Context, query, versionName string) (*SearchResult, error) {
+// Search finds the genes whose synonyms match query. With a species, that
+// species' matches come back as genes (IDs without the species prefix). With
+// no species (a search of every species, none preferred), or when the species
+// has no match, every match is another species' gene: it comes back in
+// matchedGenes and in the orthology groups that contain it, or as otherGenes
+// when none does. One search can return all three.
+func (uc *UseCase) Search(ctx context.Context, query, species, versionName string) (*SearchResult, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
 		return nil, err
@@ -95,32 +100,30 @@ func (uc *UseCase) Search(ctx context.Context, query, versionName string) (*Sear
 	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 	orthologyIndex := fmt.Sprintf("%s-orthology-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 
-	allSynonyms, err := uc.synonymRepo.FindBySynonymRelaxed(ctx, synonymIndex, query)
+	if species != "" {
+		speciesSynonyms, err := uc.synonymRepo.FindBySynonymRelaxed(ctx, synonymIndex, query, species)
+		if err != nil {
+			return nil, err
+		}
+		if len(speciesSynonyms) > 0 {
+			prefix := species + ":"
+			seen := make(map[string]bool)
+			var genes []string
+			for _, s := range speciesSynonyms {
+				geneID := strings.TrimPrefix(s.Gene, prefix)
+				if !seen[geneID] {
+					seen[geneID] = true
+					genes = append(genes, geneID)
+				}
+			}
+			return &SearchResult{Genes: genes}, nil
+		}
+	}
+
+	// The species, if any, has no match, so every match here is another species'.
+	otherSynonyms, err := uc.synonymRepo.FindBySynonymRelaxed(ctx, synonymIndex, query, "")
 	if err != nil {
 		return nil, err
-	}
-
-	mainPrefix := uc.mainSpecies + ":"
-	var mainSynonyms, otherSynonyms []entity.Synonym
-	for _, s := range allSynonyms {
-		if strings.HasPrefix(s.Gene, mainPrefix) {
-			mainSynonyms = append(mainSynonyms, s)
-		} else {
-			otherSynonyms = append(otherSynonyms, s)
-		}
-	}
-
-	if len(mainSynonyms) > 0 {
-		seen := make(map[string]bool)
-		var genes []string
-		for _, s := range mainSynonyms {
-			geneID := strings.TrimPrefix(s.Gene, mainPrefix)
-			if !seen[geneID] {
-				seen[geneID] = true
-				genes = append(genes, geneID)
-			}
-		}
-		return &SearchResult{Genes: genes}, nil
 	}
 
 	if len(otherSynonyms) == 0 {
@@ -142,20 +145,33 @@ func (uc *UseCase) Search(ctx context.Context, query, versionName string) (*Sear
 		return nil, err
 	}
 
-	if len(orthologies) > 0 {
-		results := make([]OrthologyResult, len(orthologies))
-		for i, o := range orthologies {
-			results[i] = uc.enrichOrthology(o, geneToSynonyms)
+	inGroup := make(map[string]bool)
+	results := make([]OrthologyResult, len(orthologies))
+	for i, o := range orthologies {
+		results[i] = uc.enrichOrthology(o, geneToSynonyms)
+		for _, gene := range o.Orthologs {
+			inGroup[gene] = true
 		}
-		return &SearchResult{Orthologies: results}, nil
 	}
 
-	otherGeneResults := make([]OtherGene, 0, len(otherGenes))
+	// matchedGenes is every match, the direct hits of the all-species view.
+	// otherGenes keeps its meaning for the clients that show genes outside the
+	// main species and outside the orthology groups: a gene a group contains is
+	// not repeated there. Sorting keeps both stable (the matches come from a
+	// map).
+	sort.Strings(otherGenes)
+	matchedGeneResults := make([]OtherGene, 0, len(otherGenes))
+	var otherGeneResults []OtherGene
 	for _, gene := range otherGenes {
 		species, geneID := splitGeneID(gene)
-		otherGeneResults = append(otherGeneResults, OtherGene{Species: species, Gene: geneID})
+		hit := OtherGene{Species: species, Gene: geneID}
+		matchedGeneResults = append(matchedGeneResults, hit)
+		if inGroup[gene] {
+			continue
+		}
+		otherGeneResults = append(otherGeneResults, hit)
 	}
-	return &SearchResult{OtherGenes: otherGeneResults}, nil
+	return &SearchResult{MatchedGenes: matchedGeneResults, Orthologies: results, OtherGenes: otherGeneResults}, nil
 }
 
 func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string][]entity.Synonym) OrthologyResult {
@@ -181,12 +197,9 @@ func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string
 	for species, genes := range speciesToGenes {
 		groups = append(groups, GeneGroup{Species: species, Genes: genes})
 	}
+	// Species are fully symmetric now (no per-assembly "default"), so there is
+	// no principled "main species first" anymore — order deterministically.
 	sort.Slice(groups, func(i, j int) bool {
-		iIsMain := groups[i].Species == uc.mainSpecies
-		jIsMain := groups[j].Species == uc.mainSpecies
-		if iIsMain != jIsMain {
-			return iIsMain
-		}
 		return groups[i].Species < groups[j].Species
 	})
 
@@ -198,7 +211,7 @@ func (uc *UseCase) enrichOrthology(o entity.Orthology, geneToSynonyms map[string
 	}
 }
 
-// SilencingSeq is the response shape for GET /silencingseqs.
+// SilencingSeq is the response shape for GET /silencingseqs/{species}.
 type SilencingSeq struct {
 	ID          string   `json:"id"`
 	GeneIDs     []string `json:"geneIds"`
@@ -207,12 +220,18 @@ type SilencingSeq struct {
 	RightPrimer string   `json:"rightPrimer,omitempty"`
 }
 
-// GetSilencingSeqs fetches dsRNA records by iB numbers (ids) or by gene IDs (geneIDs).
+// deprecatedSilencingSeqsSpecies is the species of the deprecated
+// GET /silencingseqs, which names none: the frontend still calling it reads Tcas.
+const deprecatedSilencingSeqsSpecies = "Tcas"
+
+// GetSilencingSeqs fetches one species' dsRNA records by dsRNA IDs (ids) or by
+// gene IDs (geneIDs), both given without the species prefix. An empty species
+// means Tcas, for the deprecated GET /silencingseqs.
 // Exactly one of ids / geneIDs must be non-empty; the caller is responsible for
 // enforcing mutual exclusivity before calling this method.
-func (uc *UseCase) GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, versionName string) ([]SilencingSeq, error) {
-	if uc.mainSpecies != entity.SpeciesTcas {
-		return nil, ErrDsRNANotSupported
+func (uc *UseCase) GetSilencingSeqs(ctx context.Context, species string, ids, geneIDs []string, versionName string) ([]SilencingSeq, error) {
+	if species == "" {
+		species = deprecatedSilencingSeqsSpecies
 	}
 
 	version, err := uc.resolver.Resolve(ctx, versionName)
@@ -221,44 +240,47 @@ func (uc *UseCase) GetSilencingSeqs(ctx context.Context, ids, geneIDs []string, 
 	}
 	synonymIndex := fmt.Sprintf("%s-synonym-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
 	dsrnaIndex := fmt.Sprintf("%s-dsrna-%s", uc.indexPrefix, indexname.FromVersionName(version.Name))
+	prefix := species + ":"
 
 	if len(ids) > 0 {
-		return uc.getSilencingSeqsByIDs(ctx, ids, synonymIndex, dsrnaIndex)
+		return uc.getSilencingSeqsByIDs(ctx, prefix, ids, synonymIndex, dsrnaIndex)
 	}
 	if len(geneIDs) > 0 {
-		return uc.getSilencingSeqsByGeneIDs(ctx, geneIDs, synonymIndex, dsrnaIndex)
+		return uc.getSilencingSeqsByGeneIDs(ctx, prefix, geneIDs, synonymIndex, dsrnaIndex)
 	}
 	return []SilencingSeq{}, nil
 }
 
-func (uc *UseCase) getSilencingSeqsByIDs(ctx context.Context, ids []string, synonymIndex, dsrnaIndex string) ([]SilencingSeq, error) {
+func (uc *UseCase) getSilencingSeqsByIDs(ctx context.Context, prefix string, ids []string, synonymIndex, dsrnaIndex string) ([]SilencingSeq, error) {
 	allSynonyms, err := uc.synonymRepo.FindBySynonyms(ctx, synonymIndex, ids)
 	if err != nil {
 		return nil, err
 	}
+	// The synonym alias spans every species, and another species may use the
+	// same dsRNA ID, so keep only this species' genes.
 	synonymsByIB := make(map[string][]entity.Synonym)
 	for _, s := range allSynonyms {
-		if s.Type == entity.SYNONYM_TYPE_DSRNA {
+		if s.Type == entity.SYNONYM_TYPE_DSRNA && strings.HasPrefix(s.Gene, prefix) {
 			synonymsByIB[s.Synonym] = append(synonymsByIB[s.Synonym], s)
 		}
 	}
 
 	prefixed := make([]string, len(ids))
 	for i, id := range ids {
-		prefixed[i] = uc.mainSpecies + ":" + id
+		prefixed[i] = prefix + id
 	}
 	dsrnas, err := uc.dsrnaRepo.FindByIDs(ctx, dsrnaIndex, prefixed)
 	if err != nil {
 		return nil, err
 	}
 
-	return uc.buildSilencingSeqs(dsrnas, synonymsByIB), nil
+	return uc.buildSilencingSeqs(prefix, dsrnas, synonymsByIB), nil
 }
 
-func (uc *UseCase) getSilencingSeqsByGeneIDs(ctx context.Context, geneIDs []string, synonymIndex, dsrnaIndex string) ([]SilencingSeq, error) {
+func (uc *UseCase) getSilencingSeqsByGeneIDs(ctx context.Context, prefix string, geneIDs []string, synonymIndex, dsrnaIndex string) ([]SilencingSeq, error) {
 	prefixedGenes := make([]string, len(geneIDs))
 	for i, id := range geneIDs {
-		prefixedGenes[i] = uc.mainSpecies + ":" + id
+		prefixedGenes[i] = prefix + id
 	}
 
 	allSynonyms, err := uc.synonymRepo.FindByGenes(ctx, synonymIndex, prefixedGenes)
@@ -281,7 +303,7 @@ func (uc *UseCase) getSilencingSeqsByGeneIDs(ctx context.Context, geneIDs []stri
 	}
 	prefixedIBs := make([]string, len(ibIDs))
 	for i, ib := range ibIDs {
-		prefixedIBs[i] = uc.mainSpecies + ":" + ib
+		prefixedIBs[i] = prefix + ib
 	}
 
 	dsrnas, err := uc.dsrnaRepo.FindByIDs(ctx, dsrnaIndex, prefixedIBs)
@@ -289,11 +311,10 @@ func (uc *UseCase) getSilencingSeqsByGeneIDs(ctx context.Context, geneIDs []stri
 		return nil, err
 	}
 
-	return uc.buildSilencingSeqs(dsrnas, synonymsByIB), nil
+	return uc.buildSilencingSeqs(prefix, dsrnas, synonymsByIB), nil
 }
 
-func (uc *UseCase) buildSilencingSeqs(dsrnas []entity.DsRNA, synonymsByIB map[string][]entity.Synonym) []SilencingSeq {
-	prefix := uc.mainSpecies + ":"
+func (uc *UseCase) buildSilencingSeqs(prefix string, dsrnas []entity.DsRNA, synonymsByIB map[string][]entity.Synonym) []SilencingSeq {
 	result := make([]SilencingSeq, 0, len(dsrnas))
 	for _, d := range dsrnas {
 		rawID := strings.TrimPrefix(d.Gene, prefix)
