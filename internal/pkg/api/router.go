@@ -23,7 +23,7 @@ var skipLogPaths = map[string]struct{}{
 	"/docs/openapi.yaml": {},
 }
 
-func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) *gin.Engine {
+func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator, openAPIServerURL string) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		requestid.New(),
@@ -32,19 +32,20 @@ func NewRouter(uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyV
 		middleware.NewCORSMiddleware(),
 	)
 
-	registerRoutes(router, uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator)
+	registerRoutes(router, uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator, openAPIServerURL)
 
 	return router
 }
 
-func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator) {
+func registerRoutes(router *gin.Engine, uploadUC *upload.UseCase, versionUC *ucversion.UseCase, assemblyVersionUC *ucassemblyversion.UseCase, jobUC *ucjob.UseCase, searchUC *ucsearch.UseCase, validator *auth.Validator, openAPIServerURL string) {
 	router.GET("/health", func(c *gin.Context) {
 		apires.OK(c, "OK")
 		c.Abort()
 	})
 
-	router.GET("/docs", handler.ServeAPIDocs)
-	router.GET("/docs/openapi.yaml", handler.ServeOpenAPISpec)
+	docsHandler := handler.NewDocsHandler(openAPIServerURL)
+	router.GET("/docs", docsHandler.ServeAPIDocs)
+	router.GET("/docs/openapi.yaml", docsHandler.ServeOpenAPISpec)
 
 	searchHandler := handler.NewSearchHandler(searchUC)
 	router.GET("/search", searchHandler.Search)

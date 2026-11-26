@@ -96,7 +96,7 @@ func Action(ctx context.Context, cmd *cli.Command) error {
 
 	gin.SetMode(config.HTTP.Mode)
 
-	router := pkgapi.NewRouter(uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator)
+	router := pkgapi.NewRouter(uploadUC, versionUC, assemblyVersionUC, jobUC, searchUC, validator, config.OpenAPI.ServerURL)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTP.Port),
