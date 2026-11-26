@@ -2,6 +2,12 @@ http:
   port: 8080
   mode: release # debug, test, release
 
+openapi:
+  # Absolute public API base advertised at /docs/openapi.yaml, e.g.
+  # https://example.org/api/genomicsservice/v1. Empty advertises the spec's
+  # relative URL, which adapts to whatever proxy prefix serves the docs.
+  server_url: ""
+
 mysql:
   host: localhost
   port: 3306

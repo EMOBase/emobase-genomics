@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"bytes"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/EMOBase/emobase-genomics/docs"
 	"github.com/gin-gonic/gin"
@@ -26,11 +29,30 @@ const swaggerHTML = `<!DOCTYPE html>
   </body>
 </html>`
 
-func ServeAPIDocs(c *gin.Context) {
+// openAPIServerPlaceholder is the relative servers entry in docs/openapi.yaml.
+// Resolved against the document's own URL, it works behind any proxy prefix.
+const openAPIServerPlaceholder = "url: .."
+
+// DocsHandler serves the embedded API documentation.
+type DocsHandler struct {
+	openAPISpec []byte
+}
+
+func NewDocsHandler(openAPIServerURL string) *DocsHandler {
+	spec := docs.OpenAPISpec
+	if serverURL := strings.TrimSpace(openAPIServerURL); serverURL != "" {
+		server := []byte("url: " + strconv.Quote(serverURL))
+		spec = bytes.Replace(spec, []byte(openAPIServerPlaceholder), server, 1)
+	}
+
+	return &DocsHandler{openAPISpec: spec}
+}
+
+func (h *DocsHandler) ServeAPIDocs(c *gin.Context) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, swaggerHTML)
 }
 
-func ServeOpenAPISpec(c *gin.Context) {
-	c.Data(http.StatusOK, "application/yaml; charset=utf-8", docs.OpenAPISpec)
+func (h *DocsHandler) ServeOpenAPISpec(c *gin.Context) {
+	c.Data(http.StatusOK, "application/yaml; charset=utf-8", h.openAPISpec)
 }

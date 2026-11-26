@@ -13,6 +13,7 @@ var config *Config
 
 type Config struct {
 	HTTP          HTTPConfig          `mapstructure:"http"`
+	OpenAPI       OpenAPIConfig       `mapstructure:"openapi"`
 	MySQL         MySQLConfig         `mapstructure:"mysql"`
 	Jobs          JobsConfig          `mapstructure:"jobs"`
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
@@ -64,6 +65,13 @@ type JobsConfig struct {
 type HTTPConfig struct {
 	Port int    `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
+}
+
+type OpenAPIConfig struct {
+	// ServerURL is the absolute public base URL advertised in the served
+	// OpenAPI document. Empty keeps the spec's relative URL, which resolves
+	// against wherever the document itself is served.
+	ServerURL string `mapstructure:"server_url"`
 }
 
 type MySQLConfig struct {
