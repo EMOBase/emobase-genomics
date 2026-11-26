@@ -3,9 +3,14 @@ info:
   title: EMOBase Genomics API
   version: 1.0.0
 
+# A relative server URL is resolved against the location of this document, so
+# the same spec works behind every proxy prefix: `..` drops the /docs/ segment,
+# yielding https://host/api/genomicsservice/v1/ in the portal deployment,
+# http://localhost:8000/api/v1/ in the compose stack, and http://host:8080/
+# when the API is opened directly. Set openapi.server_url to advertise an
+# absolute public base instead.
 servers:
-  - url: localhost:8000
-    description: Local development server
+  - url: ..
 
 security:
   - bearerAuth: []

@@ -349,4 +349,8 @@ environment.
 
 `docs/openapi.yaml` is the OpenAPI spec, embedded via `docs/embed.go` and served at
 `/docs` (Swagger UI) and `/docs/openapi.yaml`. Update this spec when adding/changing
-routes in `api/router.go`.
+routes in `api/router.go`. Its `servers` entry is relative (`..`) so it resolves to
+whichever proxy prefix serves the document; set `openapi.server_url` (env
+`EMOBASE_GENOMICS_OPENAPI__SERVER_URL`, e.g.
+`https://host/api/genomicsservice/v1`) only to advertise an absolute public base
+instead.
