@@ -1,8 +1,10 @@
 package search
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
@@ -16,7 +18,12 @@ type GeneSequence struct {
 }
 
 type GeneDetail struct {
-	ID           string `json:"id"`
+	ID string `json:"id"`
+	// The assembly this entry's data comes from, by its numeric ID and by its
+	// opaque key (entity.AssemblyVersion.AssemblyID, also its JBrowse2 name).
+	AssemblyVersionID uint64 `json:"assemblyVersionId"`
+	AssemblyKey       string `json:"assemblyKey"`
+
 	Symbol       string `json:"symbol,omitempty"`
 	FullName     string `json:"fullname,omitempty"`
 	AnnotationID string `json:"annotationId,omitempty"`
@@ -35,6 +42,8 @@ type GeneDetail struct {
 // ids (CURRENT_ID/OLD_ID lookup), symbol (SYMBOL), fullname (NAME), or annotationId (OTHER).
 // Exactly one of the four params must be non-empty; the caller enforces this.
 // Genomic location and sequence fields are populated only when that data exists in the index.
+// A Version can hold several assemblies of one species with the same gene, so a gene
+// gets one entry per assembly that has it, built from that assembly's documents only.
 func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, symbol, fullname, annotationID, versionName string) ([]GeneDetail, error) {
 	version, err := uc.resolver.Resolve(ctx, versionName)
 	if err != nil {
@@ -78,20 +87,31 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, symbol, 
 		return nil, err
 	}
 
-	geneSeqIDs := make(map[string][]string)
-	geneSynonymMap := make(map[string][]entity.Synonym)
+	// Every map below is keyed by assembly too: the aliases span every assembly
+	// of the Version, and two assemblies' documents can share a gene or ID.
+	geneSeqIDs := make(map[assemblyDoc][]string)
+	geneSynonymMap := make(map[assemblyDoc][]entity.Synonym)
+	geneAssemblies := make(map[string][]string) // gene → keys of the assemblies that have it
 	var allSeqIDs []string
 	for _, s := range geneSynonyms {
-		geneSynonymMap[s.Gene] = append(geneSynonymMap[s.Gene], s)
+		assembly, err := assemblyOf(s.Index, synonymIndex)
+		if err != nil {
+			return nil, err
+		}
+		k := assemblyDoc{assembly: assembly, id: s.Gene}
+		if _, ok := geneSynonymMap[k]; !ok {
+			geneAssemblies[s.Gene] = append(geneAssemblies[s.Gene], assembly)
+		}
+		geneSynonymMap[k] = append(geneSynonymMap[k], s)
 		switch s.Type {
 		case entity.SYNONYM_TYPE_TRANSCRIPT:
 			tID := seqGetID(species, ucsequence.SEQUENCE_TYPE_TRANSCRIPT, s.Synonym)
 			cID := seqGetID(species, ucsequence.SEQUENCE_TYPE_CDS, s.Synonym)
-			geneSeqIDs[s.Gene] = append(geneSeqIDs[s.Gene], tID, cID)
+			geneSeqIDs[k] = append(geneSeqIDs[k], tID, cID)
 			allSeqIDs = append(allSeqIDs, tID, cID)
 		case entity.SYNONYM_TYPE_PROTEIN:
 			pID := seqGetID(species, ucsequence.SEQUENCE_TYPE_PROTEIN, s.Synonym)
-			geneSeqIDs[s.Gene] = append(geneSeqIDs[s.Gene], pID)
+			geneSeqIDs[k] = append(geneSeqIDs[k], pID)
 			allSeqIDs = append(allSeqIDs, pID)
 		}
 	}
@@ -107,59 +127,97 @@ func (uc *UseCase) GetGenesBySpecies(ctx context.Context, species, ids, symbol, 
 		return nil, err
 	}
 
-	seqByID := make(map[string]entity.Sequence, len(sequences))
+	seqByID := make(map[assemblyDoc]entity.Sequence, len(sequences))
 	for _, s := range sequences {
-		seqByID[s.GetID()] = s
+		assembly, err := assemblyOf(s.Index, sequenceIndex)
+		if err != nil {
+			return nil, err
+		}
+		seqByID[assemblyDoc{assembly: assembly, id: s.GetID()}] = s
 	}
-	locByGene := make(map[string]entity.GenomicLocation, len(locations))
+	locByGene := make(map[assemblyDoc]entity.GenomicLocation, len(locations))
 	for _, loc := range locations {
-		locByGene[loc.Gene] = loc
+		assembly, err := assemblyOf(loc.Index, genomicIndex)
+		if err != nil {
+			return nil, err
+		}
+		locByGene[assemblyDoc{assembly: assembly, id: loc.Gene}] = loc
 	}
 
-	// Build response: one GeneDetail per resolved gene ID.
+	// Build response: one GeneDetail per resolved gene ID and assembly that has
+	// it, in gene order, then assembly ID order.
 	results := make([]GeneDetail, 0, len(geneIDs))
 	for _, fullGeneID := range geneIDs {
 		_, geneID := splitGeneID(fullGeneID)
-		detail := GeneDetail{ID: geneID}
+		assemblies := geneAssemblies[fullGeneID]
+		slices.SortFunc(assemblies, func(a, b string) int {
+			return cmp.Compare(assemblyVersionIDOf(a), assemblyVersionIDOf(b))
+		})
+		for _, assembly := range assemblies {
+			k := assemblyDoc{assembly: assembly, id: fullGeneID}
+			detail := GeneDetail{ID: geneID, AssemblyVersionID: assemblyVersionIDOf(assembly), AssemblyKey: assembly}
 
-		for _, s := range geneSynonymMap[fullGeneID] {
-			switch s.Type {
-			case entity.SYNONYM_TYPE_SYMBOL:
-				detail.Symbol = s.Synonym
-			case entity.SYNONYM_TYPE_NAME:
-				detail.FullName = s.Synonym
-			case entity.SYNONYM_TYPE_OTHER:
-				detail.AnnotationID = s.Synonym
+			for _, s := range geneSynonymMap[k] {
+				switch s.Type {
+				case entity.SYNONYM_TYPE_SYMBOL:
+					detail.Symbol = s.Synonym
+				case entity.SYNONYM_TYPE_NAME:
+					detail.FullName = s.Synonym
+				case entity.SYNONYM_TYPE_OTHER:
+					detail.AnnotationID = s.Synonym
+				}
 			}
-		}
 
-		if loc, ok := locByGene[fullGeneID]; ok {
-			start, end := loc.Start, loc.End
-			detail.Start = &start
-			detail.End = &end
-			detail.Strand = loc.Strand
-			detail.Seqname = loc.ReferenceSeq
-		}
-
-		for _, seqID := range geneSeqIDs[fullGeneID] {
-			s, ok := seqByID[seqID]
-			if !ok {
-				continue
+			if loc, ok := locByGene[k]; ok {
+				start, end := loc.Start, loc.End
+				detail.Start = &start
+				detail.End = &end
+				detail.Strand = loc.Strand
+				detail.Seqname = loc.ReferenceSeq
 			}
-			gs := GeneSequence{ID: s.Name, Seq: s.Sequence}
-			switch s.Type {
-			case ucsequence.SEQUENCE_TYPE_TRANSCRIPT:
-				detail.MRNAs = append(detail.MRNAs, gs)
-			case ucsequence.SEQUENCE_TYPE_PROTEIN:
-				detail.Proteins = append(detail.Proteins, gs)
-			case ucsequence.SEQUENCE_TYPE_CDS:
-				detail.CDS = append(detail.CDS, gs)
-			}
-		}
 
-		results = append(results, detail)
+			for _, seqID := range geneSeqIDs[k] {
+				s, ok := seqByID[assemblyDoc{assembly: assembly, id: seqID}]
+				if !ok {
+					continue
+				}
+				gs := GeneSequence{ID: s.Name, Seq: s.Sequence}
+				switch s.Type {
+				case ucsequence.SEQUENCE_TYPE_TRANSCRIPT:
+					detail.MRNAs = append(detail.MRNAs, gs)
+				case ucsequence.SEQUENCE_TYPE_PROTEIN:
+					detail.Proteins = append(detail.Proteins, gs)
+				case ucsequence.SEQUENCE_TYPE_CDS:
+					detail.CDS = append(detail.CDS, gs)
+				}
+			}
+
+			results = append(results, detail)
+		}
 	}
 	return results, nil
+}
+
+// assemblyDoc identifies a document of one assembly: the same gene or sequence
+// ID can belong to several assemblies of a Version.
+type assemblyDoc struct{ assembly, id string }
+
+// assemblyOf returns the assembly key of index, a concrete index behind alias.
+// Every index behind the synonym, sequence and genomic aliases is a
+// per-assembly one, so any other index is a bug, reported rather than skipped.
+func assemblyOf(index, alias string) (string, error) {
+	key, ok := indexname.AssemblyKey(index, alias)
+	if !ok {
+		return "", fmt.Errorf("index %q is not a per-assembly index of %q", index, alias)
+	}
+	return key, nil
+}
+
+// assemblyVersionIDOf returns the numeric Assembly Version ID in key, which
+// assemblyOf has already validated.
+func assemblyVersionIDOf(key string) uint64 {
+	_, id, _ := entity.ParseAssemblyID(key)
+	return id
 }
 
 // resolveQueryParam returns the lookup values and a synonym type filter based on

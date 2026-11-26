@@ -1,7 +1,6 @@
 package configs
 
 import (
-	"errors"
 	"os"
 	"strings"
 	"time"
@@ -13,19 +12,14 @@ import (
 var config *Config
 
 type Config struct {
-	MainSpecies   string              `mapstructure:"main_species"`
 	HTTP          HTTPConfig          `mapstructure:"http"`
+	OpenAPI       OpenAPIConfig       `mapstructure:"openapi"`
 	MySQL         MySQLConfig         `mapstructure:"mysql"`
 	Jobs          JobsConfig          `mapstructure:"jobs"`
 	Elasticsearch ElasticsearchConfig `mapstructure:"elasticsearch"`
 	Keycloak      KeycloakConfig      `mapstructure:"keycloak"`
 	Blast         BlastConfig         `mapstructure:"blast"`
 	Uploads       UploadsConfig       `mapstructure:"uploads"`
-	JBrowse2      JBrowse2Config      `mapstructure:"jbrowse2"`
-}
-
-type JBrowse2Config struct {
-	GeneLinkBase string `mapstructure:"gene_link_base"`
 }
 
 type KeycloakConfig struct {
@@ -73,6 +67,13 @@ type HTTPConfig struct {
 	Mode string `mapstructure:"mode"`
 }
 
+type OpenAPIConfig struct {
+	// ServerURL is the absolute public base URL advertised in the served
+	// OpenAPI document. Empty keeps the spec's relative URL, which resolves
+	// against wherever the document itself is served.
+	ServerURL string `mapstructure:"server_url"`
+}
+
 type MySQLConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
@@ -106,10 +107,6 @@ func LoadConfig(path string) (*Config, error) {
 			Msg("failed to unmarshal configuration")
 
 		panic(err)
-	}
-
-	if config.MainSpecies == "" {
-		return nil, errors.New("main_species is required but not set")
 	}
 
 	log.Info().Any("config", config).Msg("configuration loaded successfully")

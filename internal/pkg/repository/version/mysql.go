@@ -115,6 +115,25 @@ func (r *MySQLRepository) ListPublic(ctx context.Context) ([]entity.Version, err
 	return versions, rows.Err()
 }
 
+// ListNames returns the name of every version.
+func (r *MySQLRepository) ListNames(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT name FROM versions`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
 func (r *MySQLRepository) Count(ctx context.Context) (int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM versions`).Scan(&total)

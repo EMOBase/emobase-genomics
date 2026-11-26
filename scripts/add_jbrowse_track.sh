@@ -22,20 +22,25 @@ BASENAME=$(basename "$TRACK_GZ")
 BASENAME="${BASENAME%.gzip}"
 BASENAME="${BASENAME%.gz}"
 
-# Prefix the filename with the assembly/version name so that files from
-# different versions with the same original filename (e.g. tcas1.read_coverage.bw)
-# are stored as distinct files in /web/data/ and don't overwrite each other.
+# Name the copy after the assembly and the track ID, not the uploaded file name:
+# every track's copy goes into /web/data/, and two tracks can have files of one
+# name (two bundles both holding tcas1.read_coverage.bw), while track IDs are
+# unique. delete_jbrowse_version.sh finds the copies by the assembly prefix, and
+# JBrowse2 tells the format from the extension, which is kept.
 case "$BASENAME" in
   *.gff|*.gff3)
     echo "Decompressing track file..."
     gunzip -c "$TRACK_GZ" > "$TMPDIR/$BASENAME"
-    TRACK_FILE="$TMPDIR/$ASSEMBLY_NAME.${BASENAME%.*}.sorted.gff.gz"
+    TRACK_FILE="$TMPDIR/$ASSEMBLY_NAME.$TRACK_ID.sorted.gff.gz"
     echo "Sorting and compressing GFF..."
     jbrowse sort-gff "$TMPDIR/$BASENAME" | bgzip > "$TRACK_FILE"
     tabix "$TRACK_FILE"
     ;;
   *)
-    TRACK_FILE="$TMPDIR/$ASSEMBLY_NAME.$BASENAME"
+    TRACK_FILE="$TMPDIR/$ASSEMBLY_NAME.$TRACK_ID"
+    case "$BASENAME" in
+      *.*) TRACK_FILE="$TRACK_FILE.${BASENAME##*.}" ;;
+    esac
     echo "Decompressing track file..."
     gunzip -c "$TRACK_GZ" > "$TRACK_FILE"
     ;;

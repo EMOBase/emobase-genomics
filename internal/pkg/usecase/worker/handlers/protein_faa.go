@@ -16,15 +16,17 @@ func NewProteinFAAHandler(
 	versionRepo IVersionRepository,
 	sequenceUC ISequenceUseCase,
 	sequenceRepo ISequenceRepository,
+	uploadFileRepo IReplacedFileRepository,
 	indexPrefix string,
 ) *ProteinFAAHandler {
 	return &ProteinFAAHandler{
 		sequenceFASTAHandler: sequenceFASTAHandler{
-			versionRepo:  versionRepo,
-			sequenceUC:   sequenceUC,
-			sequenceRepo: sequenceRepo,
-			sequenceType: ucsequence.SEQUENCE_TYPE_PROTEIN,
-			indexPrefix:  indexPrefix,
+			versionRepo:    versionRepo,
+			sequenceUC:     sequenceUC,
+			sequenceRepo:   sequenceRepo,
+			uploadFileRepo: uploadFileRepo,
+			sequenceType:   ucsequence.SEQUENCE_TYPE_PROTEIN,
+			indexPrefix:    indexPrefix,
 		},
 	}
 }

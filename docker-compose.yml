@@ -46,6 +46,10 @@ services:
     restart: unless-stopped
     command: ["api", "-c", "/app/config.yaml"]
     env_file: .env
+    environment:
+      # Advertised by /docs/openapi.yaml (Swagger UI "Servers"), so local Try it
+      # out targets the nginx entrypoint rather than the relative fallback.
+      OPENAPI__SERVER_URL: ${OPENAPI__SERVER_URL:-http://localhost:8000/api/v1}
     expose:
       - "8080" # internal only, not bound to host
     volumes:

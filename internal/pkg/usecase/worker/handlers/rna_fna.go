@@ -16,15 +16,17 @@ func NewRNAFNAHandler(
 	versionRepo IVersionRepository,
 	sequenceUC ISequenceUseCase,
 	sequenceRepo ISequenceRepository,
+	uploadFileRepo IReplacedFileRepository,
 	indexPrefix string,
 ) *RNAFNAHandler {
 	return &RNAFNAHandler{
 		sequenceFASTAHandler: sequenceFASTAHandler{
-			versionRepo:  versionRepo,
-			sequenceUC:   sequenceUC,
-			sequenceRepo: sequenceRepo,
-			sequenceType: ucsequence.SEQUENCE_TYPE_TRANSCRIPT,
-			indexPrefix:  indexPrefix,
+			versionRepo:    versionRepo,
+			sequenceUC:     sequenceUC,
+			sequenceRepo:   sequenceRepo,
+			uploadFileRepo: uploadFileRepo,
+			sequenceType:   ucsequence.SEQUENCE_TYPE_TRANSCRIPT,
+			indexPrefix:    indexPrefix,
 		},
 	}
 }

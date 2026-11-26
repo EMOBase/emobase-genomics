@@ -1,8 +1,12 @@
-main_species: # required configured to be able to run the server
-
 http:
   port: 8080
   mode: release # debug, test, release
+
+openapi:
+  # Absolute public API base advertised at /docs/openapi.yaml, e.g.
+  # https://example.org/api/genomicsservice/v1. Empty advertises the spec's
+  # relative URL, which adapts to whatever proxy prefix serves the docs.
+  server_url: ""
 
 mysql:
   host: localhost
@@ -38,6 +42,3 @@ blast:
 uploads:
   dir: ./public/uploads
   tus_base_path: /api/uploads/
-
-jbrowse2:
-  gene_link_base: "https://ibeetle-base.uni-goettingen.de/details/" # base URL prepended to the gene ID in the annotation track detail link

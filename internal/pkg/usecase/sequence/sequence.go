@@ -14,14 +14,16 @@ type SequenceUseCase struct {
 	repo   ISequenceRepository
 }
 
-func New(repo ISequenceRepository, mainSpecies string, batchSize int) *SequenceUseCase {
+func New(repo ISequenceRepository, batchSize int) *SequenceUseCase {
 	return &SequenceUseCase{
-		config: Config{MainSpecies: mainSpecies, BatchSize: batchSize},
+		config: Config{BatchSize: batchSize},
 		repo:   repo,
 	}
 }
 
-func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, sequenceType string) error {
+// Load indexes the FASTA records of f into indexName, each tagged with the
+// upload fileID it came from.
+func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, sequenceType, species, fileID string) error {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	defer ctxCancel()
 
@@ -46,7 +48,8 @@ func (uc *SequenceUseCase) Load(ctx context.Context, f io.Reader, indexName, seq
 			Name:     record.Header,
 			Sequence: record.Sequence,
 			Type:     sequenceType,
-			Species:  uc.config.MainSpecies,
+			Species:  species,
+			FileID:   fileID,
 		})
 		if len(batch) >= uc.config.BatchSize {
 			if err := flush(); err != nil {

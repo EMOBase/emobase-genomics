@@ -10,9 +10,10 @@ import (
 	"github.com/EMOBase/emobase-genomics/internal/pkg/entity"
 )
 
-// IBTCParser parses iB-to-TC mapping CSV files (ib_tc_*.csv).
-// Each data row has two comma-separated columns: iBID, TCgeneID.
-// Produces DSRNA synonyms linking TC gene IDs to their iB identifiers.
+// IBTCParser parses dsRNA-to-gene mapping CSV files (ib_tc_*.csv for Tcas iB
+// numbers, or dsrna_gene_*.csv for any species).
+// Each data row has two comma-separated columns: dsRNA ID, gene ID.
+// Produces DSRNA synonyms linking the species' gene IDs to their dsRNA IDs.
 type IBTCParser struct {
 	species string
 }
